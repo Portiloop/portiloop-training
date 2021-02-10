@@ -25,22 +25,22 @@ from argparse import ArgumentParser
 
 # all constants (no hyperparameters here!)
 
-filename = "dataset_big_250_matlab.txt"
-path = Path(__file__).absolute().parent.parent / 'dataset'
+filename_dataset = "dataset_big_250_matlab.txt"
+path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 FULL_SPINDLE = True
 precision_validation = 0.9
-div_val_samp = 400
+div_val_samp = 50
 
 
 # all classes and functions:
 
 class SignalDataset(Dataset):
-    def __init__(self, filename, path, window_size=64, fe=256, max_length=15, seq_len=5, seq_stride=5, start_ratio=0.0,
+    def __init__(self, filename, path, window_size=64, fe=256, min_length=15, seq_len=5, seq_stride=5, start_ratio=0.0,
                  end_ratio=1.0):
         self.fe = fe
         self.window_size = window_size
         self.path_file = Path(path) / filename
-        self.max_length = max_length
+        self.min_length = min_length
 
         self.data = np.transpose(pd.read_csv(self.path_file, header=None).to_numpy())
         len_data = np.shape(self.data)[1]
@@ -54,7 +54,7 @@ class SignalDataset(Dataset):
         # list of indices that can be sampled:
         self.indices = [idx for idx in range(len(self.data[0]) - self.window_size) \
                         if not (self.data[1][idx + self.window_size - 1] == -1 \
-                                or self.data[1][idx + self.window_size - self.max_length] == -1 \
+                                or self.data[1][idx + self.window_size - self.min_length] == -1 \
                                 or idx < self.past_signal_len)]  # TODO: I think this can be tighter
 
         self.length_dataset = len(self.indices)
@@ -68,7 +68,7 @@ class SignalDataset(Dataset):
         assert 0 <= idx <= self.length_dataset, f"Index out of range ({idx}/{self.length_dataset})."
         idx = self.indices[idx]
         assert self.data[1][idx + self.window_size - 1] != -1 and self.data[1][
-            idx + self.window_size - self.max_length] != -1, f"Bad index: {idx}."
+            idx + self.window_size - self.min_length] != -1, f"Bad index: {idx}."
 
         signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0,
                                                                                                                     self.window_size,
@@ -76,10 +76,10 @@ class SignalDataset(Dataset):
 
         if not FULL_SPINDLE:
             label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
-                idx + self.window_size - self.max_length] != 1 else 0
+                idx + self.window_size - self.min_length] != 1 else 0
         else:
             label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
-                idx + self.window_size - self.max_length] == 1 else 0
+                idx + self.window_size - self.min_length] == 1 else 0
         label = self.labels[label]
 
         return signal_seq, label
@@ -89,10 +89,10 @@ class SignalDataset(Dataset):
         idx = self.indices[idx]
         if not FULL_SPINDLE:
             return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
-                idx + self.window_size - self.max_length] != 1 else False
+                idx + self.window_size - self.min_length] != 1 else False
         else:
             return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
-                idx + self.window_size - self.max_length] == 1 else False
+                idx + self.window_size - self.min_length] == 1 else False
 
 
 def get_class_idxs(dataset):
@@ -127,7 +127,7 @@ class RandomSampler(Sampler):
     """
     Samples elements randomly and evenly between the two classes.
     The sampling happens WITH replacement.
-    __iter__ stops after an arbitrary number of iterations = batch_size * nb_batch
+    __iter__ stops after an arbitrary number of iterations = batch_size_list * nb_batch
     Arguments:
       data_source (Dataset): dataset to sample from
       idx_true: np.array
@@ -169,7 +169,7 @@ class RandomSampler(Sampler):
 
 class ValidationSampler(Sampler):
     """
-    __iter__ stops after an arbitrary number of iterations = batch_size * nb_batch
+    __iter__ stops after an arbitrary number of iterations = batch_size_list * nb_batch
     """
 
     def __init__(self, data_source, nb_samples, seq_stride):
@@ -202,97 +202,95 @@ class PortiloopNetwork2(nn.Module):
         RNN = config_dict["RNN"]
         stride_pool = config_dict["stride_pool"]
         stride_conv = config_dict["stride_conv"]
-        conv_kernel = config_dict["conv_kernel"]
-        max_kernel = config_dict["max_kernel"]
+        kernel_conv = config_dict["kernel_conv"]
+        kernel_pool = config_dict["kernel_pool"]
         nb_channel = config_dict["nb_channel"]
         hidden_size = config_dict["hidden_size"]
         window_size_s = config_dict["window_size_s"]
         dropout_p = config_dict["dropout"]
         dilation_conv = 1  # config_dict["dilation_conv"]
         dilation_max = 1  # config_dict["dilation_max"]
-        stride_conv = config_dict["stride_conv"]
-        stride_pool = config_dict["stride_pool"]
         fe = config_dict["fe"]
 
-        conv_padding = int(conv_kernel // 2)
-        max_padding = int(max_kernel // 2)
+        conv_padding = int(kernel_conv // 2)
+        max_padding = int(kernel_pool // 2)
         window_size = int(window_size_s * fe)
 
         self.RNN = RNN
         nb_out = window_size
         self.x1conv1 = nn.Conv1d(in_channels=1,
                                  out_channels=nb_channel,
-                                 kernel_size=conv_kernel,
+                                 kernel_size=kernel_conv,
                                  stride=stride_conv,
                                  padding=conv_padding,
                                  dilation=dilation_conv)
-        nb_out = out_dim(nb_out, conv_padding, dilation_conv, conv_kernel, stride_conv)
-        self.x1mp1 = nn.MaxPool1d(kernel_size=max_kernel,
+        nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
+        self.x1mp1 = nn.MaxPool1d(kernel_size=kernel_pool,
                                   stride=stride_pool,  # note: in the paper they use 1
                                   padding=max_padding,
                                   dilation=dilation_max)
-        nb_out = out_dim(nb_out, max_padding, dilation_max, max_kernel, stride_pool)
+        nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
 
         self.x1conv2 = nn.Conv1d(in_channels=nb_channel,
                                  out_channels=nb_channel,
-                                 kernel_size=conv_kernel,
+                                 kernel_size=kernel_conv,
                                  stride=stride_conv,
                                  padding=conv_padding,
                                  dilation=dilation_conv)
-        nb_out = out_dim(nb_out, conv_padding, dilation_conv, conv_kernel, stride_conv)
+        nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
 
-        self.x1mp2 = nn.MaxPool1d(kernel_size=max_kernel,
+        self.x1mp2 = nn.MaxPool1d(kernel_size=kernel_pool,
                                   stride=stride_pool,  # note: in the paper they use 1
                                   padding=max_padding,
                                   dilation=dilation_max)
         self.x1dropout2 = nn.Dropout(dropout_p)
-        nb_out = out_dim(nb_out, max_padding, dilation_max, max_kernel, stride_pool)
+        nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
 
         self.x1conv3 = nn.Conv1d(in_channels=nb_channel,
                                  out_channels=nb_channel,
-                                 kernel_size=conv_kernel,
+                                 kernel_size=kernel_conv,
                                  stride=stride_conv,
                                  padding=conv_padding,
                                  dilation=dilation_conv)
-        nb_out = out_dim(nb_out, conv_padding, dilation_conv, conv_kernel, stride_conv)
+        nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
 
-        self.x1mp3 = nn.MaxPool1d(kernel_size=max_kernel,
+        self.x1mp3 = nn.MaxPool1d(kernel_size=kernel_pool,
                                   stride=stride_pool,  # note: in the paper they use 1
                                   padding=max_padding,
                                   dilation=dilation_max)
-        nb_out = out_dim(nb_out, max_padding, dilation_max, max_kernel, stride_pool)
+        nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
 
         self.x1dropout3 = nn.Dropout(dropout_p)
 
         self.x1conv4 = nn.Conv1d(in_channels=nb_channel,
                                  out_channels=nb_channel,
-                                 kernel_size=conv_kernel,
+                                 kernel_size=kernel_conv,
                                  stride=stride_conv,
                                  padding=conv_padding,
                                  dilation=dilation_conv)
-        nb_out = out_dim(nb_out, conv_padding, dilation_conv, conv_kernel, stride_conv)
+        nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
 
-        self.x1mp4 = nn.MaxPool1d(kernel_size=max_kernel,
+        self.x1mp4 = nn.MaxPool1d(kernel_size=kernel_pool,
                                   stride=stride_pool,  # note: in the paper they use 1
                                   padding=max_padding,
                                   dilation=dilation_max)
-        nb_out = out_dim(nb_out, max_padding, dilation_max, max_kernel, stride_pool)
+        nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
 
         self.x1dropout4 = nn.Dropout(dropout_p)
 
         self.x1conv5 = nn.Conv1d(in_channels=nb_channel,
                                  out_channels=nb_channel,
-                                 kernel_size=conv_kernel,
+                                 kernel_size=kernel_conv,
                                  stride=stride_conv,
                                  padding=conv_padding,
                                  dilation=dilation_conv)
-        nb_out = out_dim(nb_out, conv_padding, dilation_conv, conv_kernel, stride_conv)
+        nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
 
-        self.x1mp5 = nn.MaxPool1d(kernel_size=max_kernel,
+        self.x1mp5 = nn.MaxPool1d(kernel_size=kernel_pool,
                                   stride=stride_pool,  # note: in the paper they use 1
                                   padding=max_padding,
                                   dilation=dilation_max)
-        nb_out = out_dim(nb_out, max_padding, dilation_max, max_kernel, stride_pool)
+        nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
         self.x1dropout5 = nn.Dropout(dropout_p)
 
         # # flatten
@@ -455,11 +453,11 @@ def run(config_dict):
     if device.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
-    ds_train = SignalDataset(filename=filename, path=path, window_size=window_size, fe=fe, max_length=15,
-                             start_ratio=0.0, end_ratio=0.9, seq_len=seq_len, seq_stride=seq_stride)
-    ds_validation = SignalDataset(filename=filename, path=path, window_size=window_size, fe=fe, max_length=15,
-                                  start_ratio=0.95, end_ratio=1, seq_len=1)
-    # ds_test = SignalDataset(filename=filename, path=path, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
+    ds_train = SignalDataset(filename=filename_dataset, path=path_dataset, window_size=window_size, fe=fe,
+                             min_length=15, seq_len=seq_len, seq_stride=seq_stride, start_ratio=0.0, end_ratio=0.9)
+    ds_validation = SignalDataset(filename=filename_dataset, path=path_dataset, window_size=window_size, fe=fe,
+                                  min_length=15, seq_len=1, start_ratio=0.90, end_ratio=1)
+    # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
 
     idx_true, idx_false = get_class_idxs(ds_train)
 
@@ -473,7 +471,7 @@ def run(config_dict):
                               pin_memory=True)
     validation_loader = DataLoader(ds_validation, batch_size=1, sampler=samp_validation, num_workers=0, pin_memory=True,
                                    shuffle=False)
-    # test_loader = DataLoader(ds_test, batch_size=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
+    # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
 
     net = PortiloopNetwork2(config_dict).to(device=device)
 
@@ -570,46 +568,38 @@ if __name__ == "__main__":
 
     # hyperparameters
 
-    batch_size = [32, 64, 128, 256, 512, 1024]
-    seq_len = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-    RNN = [True, False]
-    RNN_weigth = [0.8, 0.2]
-    conv_kernel = [3, 5, 7, 9]
-    max_kernel = [3, 5, 7, 9]
-    stride_conv = [1, 2, 3]
-    stride_pool = [1, 2, 3]
+    batch_size_list = [32, 64, 128, 256, 512, 1024]
+    seq_len_list = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    RNN_list = [True, False]
+    RNN_weights = [0.8, 0.2]
+    kernel_conv_list = [3, 5, 7, 9]
+    kernel_pool_list = [3, 5, 7, 9]
+    stride_conv_list = [1, 2, 3]
+    stride_pool_list = [1, 2, 3]
     stride_weights = [0.6, 0.2, 0.2]
-    nb_channel = [5, 10, 20, 30, 40, 50]
-    hidden_size = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100]
+    nb_channel_list = [5, 10, 20, 30, 40, 50]
+    hidden_size_list = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100]
     # dilation = [1, 2, 3]
-    dropout = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
-    windows_size_s = [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
-    seq_stride_s = [0.025, 0.05, 0.075, 0.1, 0.125]
-    lr_adam = [0.005, 0.001, 0.0005, 0.0001, 0.00005]
+    dropout_list = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    windows_size_s_list = [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+    seq_stride_s_list = [0.025, 0.05, 0.075, 0.1, 0.125]
+    lr_adam_list = [0.005, 0.001, 0.0005, 0.0001, 0.00005]
 
-    config_dict = {
-        "experiment_name": exp_name, # change this for each run unless you wish to overwrite the corresponding data on wandb
-        "device": "cuda:0",  # GPU on which this experiment runs
-        "nb_epoch_max": 1000000,
-        "max_duration": int(11.5 * 3600),  # in seconds
-        "nb_epoch_early_stopping_stop": 100, # early stopping happens after this number of epochs of non-improvement of the SMOOTHED accuracy
-        "early_stopping_smoothing_factor": 0.2, # running average factor: the closer this is to 1.0, the weaker the smoothing is for early stopping
-        "fe": 250,
-        "nb_batch_per_epoch": 200  # (not an hyperparameter)
-    }
-
-    config_dict["batch_size"] = np.random.choice(batch_size).item()
-    config_dict["RNN"] = np.random.choice(RNN, p=RNN_weigth).item()
-    config_dict["seq_len"] = np.random.choice(seq_len).item() if config_dict["RNN"] else 1
-    config_dict["stride_pool"] = np.random.choice(stride_pool, p=stride_weights).item()
-    config_dict["stride_conv"] = np.random.choice(stride_conv, p=stride_weights).item()
-    config_dict["conv_kernel"] = np.random.choice(conv_kernel).item()
-    config_dict["max_kernel"] = np.random.choice(max_kernel).item()
-    config_dict["nb_channel"] = np.random.choice(nb_channel).item()
-    config_dict["dropout"] = np.random.choice(dropout).item()
-    config_dict["hidden_size"] = np.random.choice(hidden_size).item()
-    config_dict["window_size_s"] = np.random.choice(windows_size_s).item()
-    config_dict["seq_stride_s"] = np.random.choice(seq_stride_s).item()
-    config_dict["lr_adam"] = np.random.choice(lr_adam).item()
+    config_dict = dict(experiment_name=exp_name, device="cuda:0", nb_epoch_max=1000000, max_duration=int(11.5 * 3600),
+                       nb_epoch_early_stopping_stop=100, early_stopping_smoothing_factor=0.2, fe=250,
+                       nb_batch_per_epoch=1000)
+    config_dict["batch_size"] = np.random.choice(batch_size_list).item()
+    config_dict["RNN"] = np.random.choice(RNN_list, p=RNN_weights).item()
+    config_dict["seq_len"] = np.random.choice(seq_len_list).item() if config_dict["RNN"] else 1
+    config_dict["stride_pool"] = np.random.choice(stride_pool_list, p=stride_weights).item()
+    config_dict["stride_conv"] = np.random.choice(stride_conv_list, p=stride_weights).item()
+    config_dict["kernel_conv"] = np.random.choice(kernel_conv_list).item()
+    config_dict["kernel_pool"] = np.random.choice(kernel_pool_list).item()
+    config_dict["nb_channel"] = np.random.choice(nb_channel_list).item()
+    config_dict["dropout"] = np.random.choice(dropout_list).item()
+    config_dict["hidden_size"] = np.random.choice(hidden_size_list).item()
+    config_dict["window_size_s"] = np.random.choice(windows_size_s_list).item()
+    config_dict["seq_stride_s"] = np.random.choice(seq_stride_s_list).item()
+    config_dict["lr_adam"] = np.random.choice(lr_adam_list).item()
 
     run(config_dict=config_dict)
