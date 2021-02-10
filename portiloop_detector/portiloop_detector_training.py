@@ -162,11 +162,12 @@ class ValidationSampler(Sampler):
         self.length = nb_samples
         self.seq_stride = seq_stride
         self.last_possible = len(data_source) - self.length * self.seq_stride - 1
+        seed()
+        self.first_idx = randint(0, self.last_possible)
 
     def __iter__(self):
         cur_iter = 0
-        seed()
-        cur_idx = randint(0, self.last_possible)
+        cur_idx = self.first_idx
         while cur_iter < self.length:
             cur_iter += 1
             yield cur_idx
@@ -181,9 +182,9 @@ def out_dim(window_size, padding, dilation, kernel, stride):
     return floor((window_size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)
 
 
-class PortiloopNetwork2(nn.Module):
+class PortiloopNetwork(nn.Module):
     def __init__(self, config_dict):
-        super(PortiloopNetwork2, self).__init__()
+        super(PortiloopNetwork, self).__init__()
 
         RNN = config_dict["RNN"]
         stride_pool = config_dict["stride_pool"]
@@ -430,6 +431,7 @@ def run(config_dict):
     hidden_size = config_dict["hidden_size"]
     device = config_dict["device"]
     max_duration = config_dict["max_duration"]
+    min_length = config_dict["min_length"]
 
     window_size = int(window_size_s * fe)
     seq_stride = int(seq_stride_s * fe)
@@ -441,7 +443,7 @@ def run(config_dict):
                              path=path_dataset,
                              window_size=window_size,
                              fe=fe,
-                             min_length=15,
+                             min_length=min_length,
                              seq_len=seq_len,
                              seq_stride=seq_stride,
                              start_ratio=0.0,
@@ -451,7 +453,7 @@ def run(config_dict):
                                   path=path_dataset,
                                   window_size=window_size,
                                   fe=fe,
-                                  min_length=15,
+                                  min_length=min_length,
                                   seq_len=1,
                                   start_ratio=0.90,
                                   end_ratio=1)
@@ -486,7 +488,7 @@ def run(config_dict):
 
     # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
 
-    net = PortiloopNetwork2(config_dict).to(device=device)
+    net = PortiloopNetwork(config_dict).to(device=device)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(net.parameters(), lr=lr_adam)
@@ -593,9 +595,10 @@ if __name__ == "__main__":
     hidden_size_list = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100]
     # dilation = [1, 2, 3]
     dropout_list = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
-    windows_size_s_list = [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+    windows_size_s_list = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
     seq_stride_s_list = [0.025, 0.05, 0.075, 0.1, 0.125]
     lr_adam_list = [0.005, 0.001, 0.0005, 0.0001, 0.00005]
+    min_length_list = np.array([5, 10, 15, 20, 25])
 
     config_dict = dict(experiment_name=exp_name,
                        device="cuda:0",
@@ -619,5 +622,6 @@ if __name__ == "__main__":
     config_dict["window_size_s"] = np.random.choice(windows_size_s_list).item()
     config_dict["seq_stride_s"] = np.random.choice(seq_stride_s_list).item()
     config_dict["lr_adam"] = np.random.choice(lr_adam_list).item()
+    config_dict["min_length"] = np.random.choice(min_length_list[np.where(config_dict["window_size_s"]*config_dict["fe"] >= min_length_list)]).item()
 
     run(config_dict=config_dict)
