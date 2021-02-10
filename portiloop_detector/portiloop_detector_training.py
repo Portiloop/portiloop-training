@@ -2,15 +2,11 @@
 
 from pathlib import Path
 from math import floor
-
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 import os
-
 import time
-
 from torch.utils.data.sampler import Sampler
 from random import randint, seed
-
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -18,9 +14,7 @@ import numpy as np
 import torch.optim as optim
 import pandas as pd
 import copy
-
 import wandb
-
 from argparse import ArgumentParser
 
 # all constants (no hyperparameters here!)
@@ -28,15 +22,14 @@ from argparse import ArgumentParser
 filename_dataset = "dataset_big_250_matlab.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 FULL_SPINDLE = True
-precision_validation = 0.9
+# precision_validation_factor = 0.9
 div_val_samp = 50
 
 
 # all classes and functions:
 
 class SignalDataset(Dataset):
-    def __init__(self, filename, path, window_size=64, fe=256, min_length=15, seq_len=5, seq_stride=5, start_ratio=0.0,
-                 end_ratio=1.0):
+    def __init__(self, filename, path, window_size=64, fe=256, min_length=15, seq_len=5, seq_stride=5, start_ratio=0.0, end_ratio=1.0):
         self.fe = fe
         self.window_size = window_size
         self.path_file = Path(path) / filename
@@ -52,10 +45,10 @@ class SignalDataset(Dataset):
         self.past_signal_len = self.seq_len * self.idx_stride
 
         # list of indices that can be sampled:
-        self.indices = [idx for idx in range(len(self.data[0]) - self.window_size) \
-                        if not (self.data[1][idx + self.window_size - 1] == -1 \
-                                or self.data[1][idx + self.window_size - self.min_length] == -1 \
-                                or idx < self.past_signal_len)]  # TODO: I think this can be tighter
+        self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
+                        if not (self.data[1][idx + self.window_size - 1] == -1  # that are not ending in an unlabeled zone
+                                or self.data[1][idx + self.window_size - self.min_length] == -1  # nor with a min_length starting in an unlabeled zone
+                                or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here # TODO: I think this can be tighter
 
         self.length_dataset = len(self.indices)
         self.labels = torch.tensor([0, 1], dtype=torch.long)
@@ -67,19 +60,14 @@ class SignalDataset(Dataset):
 
         assert 0 <= idx <= self.length_dataset, f"Index out of range ({idx}/{self.length_dataset})."
         idx = self.indices[idx]
-        assert self.data[1][idx + self.window_size - 1] != -1 and self.data[1][
-            idx + self.window_size - self.min_length] != -1, f"Bad index: {idx}."
+        assert self.data[1][idx + self.window_size - 1] != -1 and self.data[1][idx + self.window_size - self.min_length] != -1, f"Bad index: {idx}."
 
-        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0,
-                                                                                                                    self.window_size,
-                                                                                                                    self.idx_stride)
+        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
 
         if not FULL_SPINDLE:
-            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
-                idx + self.window_size - self.min_length] != 1 else 0
+            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] != 1 else 0
         else:
-            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
-                idx + self.window_size - self.min_length] == 1 else 0
+            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] == 1 else 0
         label = self.labels[label]
 
         return signal_seq, label
@@ -88,11 +76,9 @@ class SignalDataset(Dataset):
         assert 0 <= idx <= self.length_dataset, f"Index out of range ({idx}/{self.length_dataset})."
         idx = self.indices[idx]
         if not FULL_SPINDLE:
-            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
-                idx + self.window_size - self.min_length] != 1 else False
+            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] != 1 else False
         else:
-            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
-                idx + self.window_size - self.min_length] == 1 else False
+            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] == 1 else False
 
 
 def get_class_idxs(dataset):
@@ -147,7 +133,7 @@ class RandomSampler(Sampler):
     def __iter__(self):
         cur_iter = 0
         seed()
-        proba = 0.5  # float(0.5052*precision_validation)
+        proba = 0.5  # float(0.5052 * precision_validation_factor)
         while cur_iter < self.length:
             cur_iter += 1
             sample_class = np.random.choice([0, 1], p=[1 - proba, proba])
@@ -225,6 +211,7 @@ class PortiloopNetwork2(nn.Module):
                                  padding=conv_padding,
                                  dilation=dilation_conv)
         nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
+
         self.x1mp1 = nn.MaxPool1d(kernel_size=kernel_pool,
                                   stride=stride_pool,  # note: in the paper they use 1
                                   padding=max_padding,
@@ -258,9 +245,8 @@ class PortiloopNetwork2(nn.Module):
                                   stride=stride_pool,  # note: in the paper they use 1
                                   padding=max_padding,
                                   dilation=dilation_max)
-        nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
-
         self.x1dropout3 = nn.Dropout(dropout_p)
+        nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
 
         self.x1conv4 = nn.Conv1d(in_channels=nb_channel,
                                  out_channels=nb_channel,
@@ -274,9 +260,8 @@ class PortiloopNetwork2(nn.Module):
                                   stride=stride_pool,  # note: in the paper they use 1
                                   padding=max_padding,
                                   dilation=dilation_max)
-        nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
-
         self.x1dropout4 = nn.Dropout(dropout_p)
+        nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
 
         self.x1conv5 = nn.Conv1d(in_channels=nb_channel,
                                  out_channels=nb_channel,
@@ -290,13 +275,13 @@ class PortiloopNetwork2(nn.Module):
                                   stride=stride_pool,  # note: in the paper they use 1
                                   padding=max_padding,
                                   dilation=dilation_max)
-        nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
         self.x1dropout5 = nn.Dropout(dropout_p)
+        nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
 
         # # flatten
         output_cnn_size = int(nb_channel * nb_out)
         fc_size = output_cnn_size
-        if (RNN):
+        if RNN:
             self.gru = nn.GRU(input_size=output_cnn_size,
                               hidden_size=hidden_size,
                               num_layers=1,
@@ -307,10 +292,10 @@ class PortiloopNetwork2(nn.Module):
                             out_features=2)
 
     def forward(self, x1, h):
-        (batch_size, sequence_len, features) = x1.shape  # batch =500, sequence = 20, features = 64
+        (batch_size, sequence_len, features) = x1.shape
         x1 = x1.view(-1, 1, features)
         x1 = self.x1conv1(x1)
-        x1 = F.relu(x1)  # in the paper thex2 use ELU
+        x1 = F.relu(x1)  # in the paper they use ELU
         x1 = self.x1mp1(x1)
         x1 = F.relu(self.x1conv2(x1))
         x1 = self.x1mp2(x1)
@@ -327,7 +312,7 @@ class PortiloopNetwork2(nn.Module):
 
         x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
         hn = None
-        if (self.RNN):
+        if self.RNN:
             x1 = x1.view(batch_size, sequence_len, -1)
             x1, hn = self.gru(x1, h)
             x1 = x1[:, -1, :]
@@ -346,8 +331,7 @@ class LoggerWandb:
         self.best_epoch = 0
         self.experiment_name = experiment_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project="portiloop", entity="portiloop", id=experiment_name, resume=None,
-                                    config=config_dict, reinit=True)
+        self.wandb_run = wandb.init(project="portiloop", entity="portiloop", id=experiment_name, resume=None, config=config_dict, reinit=True)
 
     def log(self,
             accuracy_train,
@@ -431,7 +415,7 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
 
 def run(config_dict):
     _t_start = time.time()
-    print(f"DEBUG : {config_dict}")
+    print(f"DEBUG: config_dict: {config_dict}")
     experiment_name = config_dict["experiment_name"]
     nb_epoch_max = config_dict["nb_epoch_max"]
     nb_batch_per_epoch = config_dict["nb_batch_per_epoch"]
@@ -453,24 +437,53 @@ def run(config_dict):
     if device.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
-    ds_train = SignalDataset(filename=filename_dataset, path=path_dataset, window_size=window_size, fe=fe,
-                             min_length=15, seq_len=seq_len, seq_stride=seq_stride, start_ratio=0.0, end_ratio=0.9)
-    ds_validation = SignalDataset(filename=filename_dataset, path=path_dataset, window_size=window_size, fe=fe,
-                                  min_length=15, seq_len=1, start_ratio=0.90, end_ratio=1)
+    ds_train = SignalDataset(filename=filename_dataset,
+                             path=path_dataset,
+                             window_size=window_size,
+                             fe=fe,
+                             min_length=15,
+                             seq_len=seq_len,
+                             seq_stride=seq_stride,
+                             start_ratio=0.0,
+                             end_ratio=0.9)
+
+    ds_validation = SignalDataset(filename=filename_dataset,
+                                  path=path_dataset,
+                                  window_size=window_size,
+                                  fe=fe,
+                                  min_length=15,
+                                  seq_len=1,
+                                  start_ratio=0.90,
+                                  end_ratio=1)
+
     # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
 
     idx_true, idx_false = get_class_idxs(ds_train)
 
-    samp_train = RandomSampler(ds_train, idx_true=idx_true, idx_false=idx_false, batch_size=batch_size,
+    samp_train = RandomSampler(ds_train,
+                               idx_true=idx_true,
+                               idx_false=idx_false,
+                               batch_size=batch_size,
                                nb_batch=nb_batch_per_epoch)
+
     samp_validation = ValidationSampler(ds_validation,
                                         nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
                                         seq_stride=seq_stride)
 
-    train_loader = DataLoader(ds_train, batch_size=batch_size, sampler=samp_train, shuffle=False, num_workers=0,
+    train_loader = DataLoader(ds_train,
+                              batch_size=batch_size,
+                              sampler=samp_train,
+                              shuffle=False,
+                              num_workers=0,
                               pin_memory=True)
-    validation_loader = DataLoader(ds_validation, batch_size=1, sampler=samp_validation, num_workers=0, pin_memory=True,
+
+    validation_loader = DataLoader(ds_validation,
+                                   batch_size=1,
+                                   sampler=samp_validation,
+                                   num_workers=0,
+                                   pin_memory=True,
                                    shuffle=False)
+
     # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
 
     net = PortiloopNetwork2(config_dict).to(device=device)
@@ -523,15 +536,14 @@ def run(config_dict):
         accuracy_train /= n
         loss_train /= n
 
-        accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
-            validation_loader, criterion, net, device, hidden_size)
+        accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(validation_loader, criterion, net, device, hidden_size)
 
         if accuracy_validation > best_accuracy:
             best_accuracy = accuracy_validation
             best_model = copy.deepcopy(net)
             best_epoch = epoch
 
-        accuracy_early_stopping = accuracy_validation if accuracy_early_stopping is None else accuracy_validation * early_stopping_smoothing_factor + accuracy_early_stopping * (
+        accuracy_early_stopping = 0.0 if accuracy_early_stopping is None else accuracy_validation * early_stopping_smoothing_factor + accuracy_early_stopping * (
                     1.0 - early_stopping_smoothing_factor)
 
         if accuracy_early_stopping > best_accuracy_early_stopping:
@@ -585,9 +597,15 @@ if __name__ == "__main__":
     seq_stride_s_list = [0.025, 0.05, 0.075, 0.1, 0.125]
     lr_adam_list = [0.005, 0.001, 0.0005, 0.0001, 0.00005]
 
-    config_dict = dict(experiment_name=exp_name, device="cuda:0", nb_epoch_max=1000000, max_duration=int(11.5 * 3600),
-                       nb_epoch_early_stopping_stop=100, early_stopping_smoothing_factor=0.2, fe=250,
+    config_dict = dict(experiment_name=exp_name,
+                       device="cuda:0",
+                       nb_epoch_max=1000000,
+                       max_duration=int(11.5 * 3600),
+                       nb_epoch_early_stopping_stop=100,
+                       early_stopping_smoothing_factor=0.2,
+                       fe=250,
                        nb_batch_per_epoch=1000)
+
     config_dict["batch_size"] = np.random.choice(batch_size_list).item()
     config_dict["RNN"] = np.random.choice(RNN_list, p=RNN_weights).item()
     config_dict["seq_len"] = np.random.choice(seq_len_list).item() if config_dict["RNN"] else 1
