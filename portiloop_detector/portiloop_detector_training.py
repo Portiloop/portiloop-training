@@ -23,7 +23,7 @@ filename_dataset = "dataset_big_250_matlab.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 FULL_SPINDLE = True
 # precision_validation_factor = 0.9
-div_val_samp = 250
+div_val_samp = 32
 
 
 # all classes and functions:
