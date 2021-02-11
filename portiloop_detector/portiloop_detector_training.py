@@ -622,6 +622,6 @@ if __name__ == "__main__":
     config_dict["window_size_s"] = np.random.choice(windows_size_s_list).item()
     config_dict["seq_stride_s"] = np.random.choice(seq_stride_s_list).item()
     config_dict["lr_adam"] = np.random.choice(lr_adam_list).item()
-    config_dict["min_length"] = 1#np.random.choice(min_length_list[np.where(config_dict["window_size_s"]*config_dict["fe"] >= min_length_list)]).item()
+    config_dict["min_length"] = 10#np.random.choice(min_length_list[np.where(config_dict["window_size_s"]*config_dict["fe"] >= min_length_list)]).item()
 
     run(config_dict=config_dict)
