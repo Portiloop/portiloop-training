@@ -23,7 +23,7 @@ filename_dataset = "dataset_big_250_matlab.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 FULL_SPINDLE = True
 # precision_validation_factor = 0.9
-div_val_samp = 50
+div_val_samp = 250
 
 
 # all classes and functions:
@@ -455,7 +455,7 @@ def run(config_dict):
                                   fe=fe,
                                   min_length=min_length,
                                   seq_len=1,
-                                  start_ratio=0.90,
+                                  start_ratio=0.80,
                                   end_ratio=1)
 
     # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
@@ -598,7 +598,7 @@ if __name__ == "__main__":
     windows_size_s_list = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
     seq_stride_s_list = [0.025, 0.05, 0.075, 0.1, 0.125]
     lr_adam_list = [0.005, 0.001, 0.0005, 0.0001, 0.00005]
-    min_length_list = np.array([5, 10, 15, 20, 25])
+  #  min_length_list = np.array([5, 10, 15, 20, 25])
 
     config_dict = dict(experiment_name=exp_name,
                        device="cuda:0",
@@ -607,7 +607,7 @@ if __name__ == "__main__":
                        nb_epoch_early_stopping_stop=100,
                        early_stopping_smoothing_factor=0.2,
                        fe=250,
-                       nb_batch_per_epoch=1000)
+                       nb_batch_per_epoch=10000)
 
     config_dict["batch_size"] = np.random.choice(batch_size_list).item()
     config_dict["RNN"] = np.random.choice(RNN_list, p=RNN_weights).item()
