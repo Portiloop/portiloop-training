@@ -17,6 +17,7 @@ import copy
 import wandb
 from argparse import ArgumentParser
 
+
 # all constants (no hyperparameters here!)
 
 filename_dataset = "dataset_big_250_matlab.txt"
@@ -37,7 +38,6 @@ class SignalDataset(Dataset):
 
         self.data = pd.read_csv(self.path_file, header=None).to_numpy()
         split_data = np.array(np.split(self.data, int(len(self.data)/(125*fe)))) #125 = nb point per sequence in the dataset
-        print(split_data.shape)
         np.random.seed(42) #fixed seed value
         np.random.shuffle(split_data)
         self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 2)))
@@ -382,6 +382,8 @@ class LoggerWandb:
 
 
 def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size):
+    net_copy = copy.deepcopy(net)
+    net_copy = net_copy.to(device)
     acc = 0
     tp = 0
     tn = 0
@@ -395,7 +397,7 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             batch_samples, batch_labels = batch_data
             batch_samples = batch_samples.to(device=device).float()
             batch_labels = batch_labels.to(device=device).long()
-            output, h = net(batch_samples, h)
+            output, h = net_copy(batch_samples, h)
 
             loss_py = criterion(output, batch_labels)
             loss += loss_py.item()
@@ -439,14 +441,15 @@ def run(config_dict):
     seq_stride_s = config_dict["seq_stride_s"]
     lr_adam = config_dict["lr_adam"]
     hidden_size = config_dict["hidden_size"]
-    device = config_dict["device"]
+    device_val = config_dict["device_val"]
+    device_train = config_dict["device_train"]
     max_duration = config_dict["max_duration"]
     min_length = config_dict["min_length"]
 
     window_size = int(window_size_s * fe)
     seq_stride = int(seq_stride_s * fe)
 
-    if device.startswith("cuda"):
+    if device_val.startswith("cuda") or device_train.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
     ds_train = SignalDataset(filename=filename_dataset,
@@ -465,7 +468,7 @@ def run(config_dict):
                                   fe=fe,
                                   min_length=min_length,
                                   seq_len=1,
-                                  start_ratio=0.90,
+                                  start_ratio=0.9,
                                   end_ratio=1)
 
     # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
@@ -498,7 +501,7 @@ def run(config_dict):
 
     # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
 
-    net = PortiloopNetwork(config_dict).to(device=device)
+    net = PortiloopNetwork(config_dict).to(device=device_train)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(net.parameters(), lr=lr_adam)
@@ -506,9 +509,6 @@ def run(config_dict):
     losses_pytorch = []
     logger = LoggerWandb(experiment_name, config_dict)
 
-    epoch = 0
-    loss_train = 0
-    accuracy_train = 0
     loss_validation = 0
     accuracy_validation = 0
     f1_validation = 0
@@ -535,11 +535,11 @@ def run(config_dict):
 
         for batch_data in train_loader:
             batch_samples, batch_labels = batch_data
-            batch_samples = batch_samples.to(device=device).float()
-            batch_labels = batch_labels.to(device=device).long()
+            batch_samples = batch_samples.to(device=device_train).float()
+            batch_labels = batch_labels.to(device=device_train).long()
 
             optimizer.zero_grad()
-            output, _ = net(batch_samples, torch.zeros((1, batch_size, hidden_size), device=device))
+            output, _ = net(batch_samples, torch.zeros((1, batch_size, hidden_size), device=device_train))
             loss = criterion(output, batch_labels)
             loss_train += loss.item()
             loss.backward()
@@ -550,7 +550,7 @@ def run(config_dict):
         accuracy_train /= n
         loss_train /= n
 
-        accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(validation_loader, criterion, net, device, hidden_size)
+        accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(validation_loader, criterion, net, device_val, hidden_size)
 
         if accuracy_validation > best_accuracy:
             best_accuracy = accuracy_validation
@@ -616,16 +616,17 @@ if __name__ == "__main__":
     windows_size_s_list = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
     seq_stride_s_list = [0.025, 0.05, 0.075, 0.1, 0.125]
     lr_adam_list = [0.005, 0.001, 0.0005, 0.0001, 0.00005]
-  #  min_length_list = np.array([5, 10, 15, 20, 25])
+    # min_length_list = np.array([5, 10, 15, 20, 25])
 
     config_dict = dict(experiment_name=exp_name,
-                       device="cuda:0",
+                       device_train="cuda:0",
+                       device_val="cpu",
                        nb_epoch_max=1000000,
                        max_duration=int(11.5 * 3600),
                        nb_epoch_early_stopping_stop=100,
                        early_stopping_smoothing_factor=0.2,
                        fe=250,
-                       nb_batch_per_epoch=10000)
+                       nb_batch_per_epoch=1000)
 
     config_dict["batch_size"] = np.random.choice(batch_size_list).item()
     config_dict["RNN"] = np.random.choice(RNN_list, p=RNN_weights).item()
@@ -640,6 +641,6 @@ if __name__ == "__main__":
     config_dict["window_size_s"] = np.random.choice(windows_size_s_list).item()
     config_dict["seq_stride_s"] = np.random.choice(seq_stride_s_list).item()
     config_dict["lr_adam"] = np.random.choice(lr_adam_list).item()
-    config_dict["min_length"] = 1#np.random.choice(min_length_list[np.where(config_dict["window_size_s"]*config_dict["fe"] >= min_length_list)]).item()
+    config_dict["min_length"] = 1  # np.random.choice(min_length_list[np.where(config_dict["window_size_s"]*config_dict["fe"] >= min_length_list)]).item()
 
     run(config_dict=config_dict)
