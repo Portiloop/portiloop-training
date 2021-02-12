@@ -47,7 +47,7 @@ class SignalDataset(Dataset):
         # list of indices that can be sampled:
         self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
                         if not (self.data[1][idx + self.window_size - 1] == -1  # that are not ending in an unlabeled zone
-                                or self.data[1][idx + self.window_size - self.min_length] == -1  # nor with a min_length starting in an unlabeled zone
+                                or self.data[1][idx + self.window_size - self.min_length - 1] == -1  # nor with a min_length starting in an unlabeled zone
                                 or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here # TODO: I think this can be tighter
 
         self.length_dataset = len(self.indices)
@@ -60,14 +60,14 @@ class SignalDataset(Dataset):
 
         assert 0 <= idx <= self.length_dataset, f"Index out of range ({idx}/{self.length_dataset})."
         idx = self.indices[idx]
-        assert self.data[1][idx + self.window_size - 1] != -1 and self.data[1][idx + self.window_size - self.min_length] != -1, f"Bad index: {idx}."
+        assert self.data[1][idx + self.window_size - 1] != -1 and self.data[1][idx + self.window_size - self.min_length - 1] != -1, f"Bad index: {idx}."
 
         signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
 
         if not FULL_SPINDLE:
-            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] != 1 else 0
+            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length - 1] != 1 else 0
         else:
-            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] == 1 else 0
+            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length - 1] == 1 else 0
         label = self.labels[label]
 
         return signal_seq, label
@@ -76,9 +76,9 @@ class SignalDataset(Dataset):
         assert 0 <= idx <= self.length_dataset, f"Index out of range ({idx}/{self.length_dataset})."
         idx = self.indices[idx]
         if not FULL_SPINDLE:
-            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] != 1 else False
+            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length - 1] != 1 else False
         else:
-            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] == 1 else False
+            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length - 1] == 1 else False
 
 
 def get_class_idxs(dataset):
@@ -346,7 +346,9 @@ class LoggerWandb:
             best_epoch,
             best_model,
             accuracy_early_stopping,
-            best_epoch_early_stopping):
+            best_epoch_early_stopping,
+            best_f1_score_validation,
+            best_precision_validation):
         self.losses_train.append(loss_train)
         self.accuracies_train.append(accuracy_train)
         self.losses_val.append(loss_validation)
@@ -366,6 +368,8 @@ class LoggerWandb:
         wandb.run.summary["best_accuracy_validation"] = best_accuracy_validation
         wandb.run.summary["best_epoch"] = best_epoch
         wandb.run.summary["best_epoch_early_stopping"] = best_epoch_early_stopping
+        wandb.run.summary["best_f1_score_validation"] = best_f1_score_validation
+        wandb.run.summary["best_precision_validation"] = best_precision_validation
 
     def __del__(self):
         self.wandb_run.finish()
@@ -512,6 +516,8 @@ def run(config_dict):
     accuracy_early_stopping = None
     best_accuracy_early_stopping = 0
     best_epoch_early_stopping = 0
+    best_precision_validation = 0
+    best_f1_score_validation = 0
 
     for epoch in range(nb_epoch_max):
 
@@ -544,6 +550,10 @@ def run(config_dict):
             best_accuracy = accuracy_validation
             best_model = copy.deepcopy(net)
             best_epoch = epoch
+        if f1_validation > best_f1_score_validation:
+            best_f1_score_validation = f1_validation
+        if precision_validation > best_precision_validation:
+            best_precision_validation = precision_validation
 
         accuracy_early_stopping = 0.0 if accuracy_early_stopping is None else accuracy_validation * early_stopping_smoothing_factor + accuracy_early_stopping * (
                     1.0 - early_stopping_smoothing_factor)
@@ -566,7 +576,9 @@ def run(config_dict):
                    best_epoch=best_epoch,
                    best_model=best_model,
                    accuracy_early_stopping=accuracy_early_stopping,
-                   best_epoch_early_stopping=best_epoch_early_stopping)
+                   best_epoch_early_stopping=best_epoch_early_stopping,
+                   best_f1_score_validation=best_f1_score_validation,
+                   best_precision_validation=best_precision_validation)
 
         if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
             print("Early stopping.")
@@ -622,6 +634,6 @@ if __name__ == "__main__":
     config_dict["window_size_s"] = np.random.choice(windows_size_s_list).item()
     config_dict["seq_stride_s"] = np.random.choice(seq_stride_s_list).item()
     config_dict["lr_adam"] = np.random.choice(lr_adam_list).item()
-    config_dict["min_length"] = 10#np.random.choice(min_length_list[np.where(config_dict["window_size_s"]*config_dict["fe"] >= min_length_list)]).item()
+    config_dict["min_length"] = 0#np.random.choice(min_length_list[np.where(config_dict["window_size_s"]*config_dict["fe"] >= min_length_list)]).item()
 
     run(config_dict=config_dict)
