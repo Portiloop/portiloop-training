@@ -47,7 +47,7 @@ class SignalDataset(Dataset):
         # list of indices that can be sampled:
         self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
                         if not (self.data[1][idx + self.window_size - 1] == -1  # that are not ending in an unlabeled zone
-                                or self.data[1][idx + self.window_size - self.min_length - 1] == -1  # nor with a min_length starting in an unlabeled zone
+                                or self.data[1][idx + self.window_size - self.min_length] == -1  # nor with a min_length starting in an unlabeled zone
                                 or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here # TODO: I think this can be tighter
 
         self.length_dataset = len(self.indices)
@@ -60,14 +60,14 @@ class SignalDataset(Dataset):
 
         assert 0 <= idx <= self.length_dataset, f"Index out of range ({idx}/{self.length_dataset})."
         idx = self.indices[idx]
-        assert self.data[1][idx + self.window_size - 1] != -1 and self.data[1][idx + self.window_size - self.min_length - 1] != -1, f"Bad index: {idx}."
+        assert self.data[1][idx + self.window_size - 1] != -1 and self.data[1][idx + self.window_size - self.min_length] != -1, f"Bad index: {idx}."
 
         signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
 
         if not FULL_SPINDLE:
-            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length - 1] != 1 else 0
+            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] != 1 else 0
         else:
-            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length - 1] == 1 else 0
+            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] == 1 else 0
         label = self.labels[label]
 
         return signal_seq, label
@@ -76,9 +76,9 @@ class SignalDataset(Dataset):
         assert 0 <= idx <= self.length_dataset, f"Index out of range ({idx}/{self.length_dataset})."
         idx = self.indices[idx]
         if not FULL_SPINDLE:
-            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length - 1] != 1 else False
+            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] != 1 else False
         else:
-            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length - 1] == 1 else False
+            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][idx + self.window_size - self.min_length] == 1 else False
 
 
 def get_class_idxs(dataset):
@@ -634,6 +634,6 @@ if __name__ == "__main__":
     config_dict["window_size_s"] = np.random.choice(windows_size_s_list).item()
     config_dict["seq_stride_s"] = np.random.choice(seq_stride_s_list).item()
     config_dict["lr_adam"] = np.random.choice(lr_adam_list).item()
-    config_dict["min_length"] = 0#np.random.choice(min_length_list[np.where(config_dict["window_size_s"]*config_dict["fe"] >= min_length_list)]).item()
+    config_dict["min_length"] = 1#np.random.choice(min_length_list[np.where(config_dict["window_size_s"]*config_dict["fe"] >= min_length_list)]).item()
 
     run(config_dict=config_dict)
