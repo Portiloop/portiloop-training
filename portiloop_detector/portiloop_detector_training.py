@@ -29,13 +29,18 @@ div_val_samp = 32
 # all classes and functions:
 
 class SignalDataset(Dataset):
-    def __init__(self, filename, path, window_size=64, fe=256, min_length=15, seq_len=5, seq_stride=5, start_ratio=0.0, end_ratio=1.0):
+    def __init__(self, filename, path, window_size=64, fe=250, min_length=15, seq_len=5, seq_stride=5, start_ratio=0.0, end_ratio=1.0):
         self.fe = fe
         self.window_size = window_size
         self.path_file = Path(path) / filename
         self.min_length = min_length
 
-        self.data = np.transpose(pd.read_csv(self.path_file, header=None).to_numpy())
+        self.data = pd.read_csv(self.path_file, header=None).to_numpy()
+        split_data = np.array(np.split(self.data, int(len(self.data)/(125*fe)))) #125 = nb point per sequence in the dataset
+        print(split_data.shape)
+        np.random.seed(42) #fixed seed value
+        np.random.shuffle(split_data)
+        self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 2)))
         len_data = np.shape(self.data)[1]
         self.data = self.data[:, int(start_ratio * len_data):int(end_ratio * len_data)]
         assert self.window_size <= len(self.data[0]), "Dataset smaller than window size."
@@ -162,11 +167,12 @@ class ValidationSampler(Sampler):
         self.length = nb_samples
         self.seq_stride = seq_stride
         self.last_possible = len(data_source) - self.length * self.seq_stride - 1
-        seed()
-        self.first_idx = 0#randint(0, self.last_possible)
+    #    self.first_idx = 0#randint(0, self.last_possible)
 
     def __iter__(self):
         cur_iter = 0
+        seed()
+        self.first_idx = randint(0, self.last_possible)
         cur_idx = self.first_idx
         while cur_iter < self.length:
             cur_iter += 1
@@ -459,7 +465,7 @@ def run(config_dict):
                                   fe=fe,
                                   min_length=min_length,
                                   seq_len=1,
-                                  start_ratio=0.80,
+                                  start_ratio=0.90,
                                   end_ratio=1)
 
     # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)

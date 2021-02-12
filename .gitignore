@@ -127,3 +127,4 @@ dmypy.json
 *.pth
 
 portiloop_detector/wandb/
+wandb/
