@@ -209,8 +209,8 @@ class ConvPoolModule(nn.Module):
                  dilation_conv,
                  kernel_pool,
                  stride_pool,
-                 max_padding,
-                 dilation_max,
+                 pool_padding,
+                 dilation_pool,
                  dropout_p):
         super(ConvPoolModule, self).__init__()
 
@@ -222,8 +222,8 @@ class ConvPoolModule(nn.Module):
                               dilation=dilation_conv)
         self.pool = nn.MaxPool1d(kernel_size=kernel_pool,
                                  stride=stride_pool,
-                                 padding=max_padding,
-                                 dilation=dilation_max)
+                                 padding=pool_padding,
+                                 dilation=dilation_pool)
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, x):
@@ -245,19 +245,23 @@ class PortiloopNetwork(nn.Module):
         hidden_size = config_dict["hidden_size"]
         window_size_s = config_dict["window_size_s"]
         dropout_p = config_dict["dropout"]
-        dilation_conv = 1  # config_dict["dilation_conv"]
-        dilation_max = 1  # config_dict["dilation_max"]
+        dilation_conv = config_dict["dilation_conv"]
+        dilation_pool = config_dict["dilation_pool"]
         fe = config_dict["fe"]
         nb_conv_layers = config_dict["nb_conv_layers"]
         nb_rnn_layers = config_dict["nb_rnn_layers"]
         first_layer_dropout = config_dict["first_layer_dropout"]
 
         conv_padding = int(kernel_conv // 2)
-        max_padding = int(kernel_pool // 2)
+        pool_padding = int(kernel_pool // 2)
         window_size = int(window_size_s * fe)
+        nb_out = window_size
+
+        for _ in range(nb_conv_layers):
+            nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
+            nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
 
         self.RNN = RNN
-        nb_out = window_size
 
         self.first_layer = ConvPoolModule(in_channels=1,
                                           out_channel=nb_channel,
@@ -267,8 +271,8 @@ class PortiloopNetwork(nn.Module):
                                           dilation_conv=dilation_conv,
                                           kernel_pool=kernel_pool,
                                           stride_pool=stride_pool,
-                                          max_padding=max_padding,
-                                          dilation_max=dilation_max,
+                                          pool_padding=pool_padding,
+                                          dilation_pool=dilation_pool,
                                           dropout_p=dropout_p if first_layer_dropout else 0)
         self.seq = nn.Sequential(*(ConvPoolModule(in_channels=nb_channel,
                                                   out_channel=nb_channel,
@@ -278,13 +282,14 @@ class PortiloopNetwork(nn.Module):
                                                   dilation_conv=dilation_conv,
                                                   kernel_pool=kernel_pool,
                                                   stride_pool=stride_pool,
-                                                  max_padding=max_padding,
-                                                  dilation_max=dilation_max,
+                                                  pool_padding=pool_padding,
+                                                  dilation_pool=dilation_pool,
                                                   dropout_p=dropout_p) for _ in range(nb_conv_layers - 1)))
+        nb_out = window_size
 
         for _ in range(nb_conv_layers):
             nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
-            nb_out = out_dim(nb_out, max_padding, dilation_max, kernel_pool, stride_pool)
+            nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
 
         output_cnn_size = int(nb_channel * nb_out)
         fc_size = output_cnn_size
@@ -597,14 +602,16 @@ if __name__ == "__main__":
     kernel_pool_list = [3, 5, 7, 9]
     stride_conv_list = [1, 2, 3]
     stride_pool_list = [1, 2, 3]
-    stride_weights = [0.6, 0.2, 0.2]
+    dilation_conv_list = [1, 2, 3]
+    dilation_pool_list = [1, 2, 3]
+    stride_weights = [0.5, 0.25, 0.25]
+    dilation_weights = [0.5, 0.25, 0.25]
     nb_channel_list = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     hidden_size_list = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150]
-    # dilation = [1, 2, 3]
     dropout_list = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
     windows_size_s_list = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
     seq_stride_s_list = [0.025, 0.05, 0.075, 0.1, 0.125]
-    lr_adam_list = [0.005, 0.001, 0.0005, 0.0001, 0.00005]
+    lr_adam_list = [0.0005, 0.0001, 0.00005]
     nb_conv_layers_list = [1, 2, 3, 4, 5, 6, 7, 8, 9]
     nb_rnn_layers_list = [1, 2, 3]
     first_layer_dropout_list = [True, False]
@@ -622,19 +629,43 @@ if __name__ == "__main__":
     config_dict["batch_size"] = np.random.choice(batch_size_list).item()
     config_dict["RNN"] = np.random.choice(RNN_list, p=RNN_weights).item()
     config_dict["seq_len"] = np.random.choice(seq_len_list).item() if config_dict["RNN"] else 1
-    config_dict["stride_pool"] = np.random.choice(stride_pool_list, p=stride_weights).item()
-    config_dict["stride_conv"] = np.random.choice(stride_conv_list, p=stride_weights).item()
-    config_dict["kernel_conv"] = np.random.choice(kernel_conv_list).item()
-    config_dict["kernel_pool"] = np.random.choice(kernel_pool_list).item()
     config_dict["nb_channel"] = np.random.choice(nb_channel_list).item()
     config_dict["dropout"] = np.random.choice(dropout_list).item()
     config_dict["hidden_size"] = np.random.choice(hidden_size_list).item()
-    config_dict["window_size_s"] = np.random.choice(windows_size_s_list).item()
     config_dict["seq_stride_s"] = np.random.choice(seq_stride_s_list).item()
     config_dict["lr_adam"] = np.random.choice(lr_adam_list).item()
-    config_dict["nb_conv_layers"] = np.random.choice(nb_conv_layers_list).item()
     config_dict["nb_rnn_layers"] = np.random.choice(nb_rnn_layers_list).item()
     config_dict["first_layer_dropout"] = np.random.choice(first_layer_dropout_list).item()
     config_dict["min_length"] = 1
+
+    nb_out = 0
+    while nb_out < 1:
+        config_dict["window_size_s"] = np.random.choice(windows_size_s_list).item()
+        config_dict["nb_conv_layers"] = np.random.choice(nb_conv_layers_list).item()
+        config_dict["stride_pool"] = np.random.choice(stride_pool_list, p=stride_weights).item()
+        config_dict["stride_conv"] = np.random.choice(stride_conv_list, p=stride_weights).item()
+        config_dict["kernel_conv"] = np.random.choice(kernel_conv_list).item()
+        config_dict["kernel_pool"] = np.random.choice(kernel_pool_list).item()
+        config_dict["dilation_conv"] = np.random.choice(dilation_conv_list, p=dilation_weights).item()
+        config_dict["dilation_pool"] = np.random.choice(dilation_pool_list, p=dilation_weights).item()
+
+        stride_pool = config_dict["stride_pool"]
+        stride_conv = config_dict["stride_conv"]
+        kernel_conv = config_dict["kernel_conv"]
+        kernel_pool = config_dict["kernel_pool"]
+        window_size_s = config_dict["window_size_s"]
+        dilation_conv = config_dict["dilation_conv"]
+        dilation_pool = config_dict["dilation_pool"]
+        fe = config_dict["fe"]
+        nb_conv_layers = config_dict["nb_conv_layers"]
+
+        conv_padding = int(kernel_conv // 2)
+        pool_padding = int(kernel_pool // 2)
+        window_size = int(window_size_s * fe)
+        nb_out = window_size
+
+        for _ in range(nb_conv_layers):
+            nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
+            nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
 
     run(config_dict=config_dict)
