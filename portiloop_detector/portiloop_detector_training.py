@@ -595,25 +595,23 @@ if __name__ == "__main__":
 
     # hyperparameters
 
-    batch_size_list = [32, 64, 128, 256, 512, 1024]
+    batch_size_list = [32, 64, 128, 256, 512]
     seq_len_list = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     RNN_list = [True, False]
     RNN_weights = [0.8, 0.2]
     kernel_conv_list = [3, 5, 7, 9]
     kernel_pool_list = [3, 5, 7, 9]
-    stride_conv_list = [1, 2, 3]
-    stride_pool_list = [1, 2, 3]
-    dilation_conv_list = [1, 2, 3]
-    dilation_pool_list = [1, 2, 3]
-    stride_weights = [0.5, 0.25, 0.25]
-    dilation_weights = [0.5, 0.25, 0.25]
+    stride_conv_list = [1, 2, 3, 4, 5]
+    stride_pool_list = [1, 2, 3, 4, 5]
+    dilation_conv_list = [1, 2, 3, 4, 5]
+    dilation_pool_list = [1, 2, 3, 4, 5]
     nb_channel_list = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     hidden_size_list = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150]
     dropout_list = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
     windows_size_s_list = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
     seq_stride_s_list = [0.025, 0.05, 0.075, 0.1, 0.125]
     lr_adam_list = [0.0005, 0.0001, 0.00005]
-    nb_conv_layers_list = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    nb_conv_layers_list = [1, 2, 3, 4, 5, 6, 7, 8]
     nb_rnn_layers_list = [1, 2, 3]
     first_layer_dropout_list = [True, False]
 
@@ -643,12 +641,12 @@ if __name__ == "__main__":
     while nb_out < 1:
         config_dict["window_size_s"] = np.random.choice(windows_size_s_list).item()
         config_dict["nb_conv_layers"] = np.random.choice(nb_conv_layers_list).item()
-        config_dict["stride_pool"] = np.random.choice(stride_pool_list, p=stride_weights).item()
-        config_dict["stride_conv"] = np.random.choice(stride_conv_list, p=stride_weights).item()
+        config_dict["stride_pool"] = np.random.choice(stride_pool_list).item()
+        config_dict["stride_conv"] = np.random.choice(stride_conv_list).item()
         config_dict["kernel_conv"] = np.random.choice(kernel_conv_list).item()
         config_dict["kernel_pool"] = np.random.choice(kernel_pool_list).item()
-        config_dict["dilation_conv"] = np.random.choice(dilation_conv_list, p=dilation_weights).item()
-        config_dict["dilation_pool"] = np.random.choice(dilation_pool_list, p=dilation_weights).item()
+        config_dict["dilation_conv"] = np.random.choice(dilation_conv_list).item()
+        config_dict["dilation_pool"] = np.random.choice(dilation_pool_list).item()
 
         stride_pool = config_dict["stride_pool"]
         stride_conv = config_dict["stride_conv"]
@@ -668,5 +666,6 @@ if __name__ == "__main__":
         for _ in range(nb_conv_layers):
             nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
             nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
+    config_dict["nb_out"] = nb_out
 
     run(config_dict=config_dict)
