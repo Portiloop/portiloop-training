@@ -377,6 +377,7 @@ class LoggerWandb:
 def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers):
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
+    net_copy.eval()
     acc = 0
     tp = 0
     tn = 0
@@ -496,6 +497,7 @@ def run(config_dict):
     # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
 
     net = PortiloopNetwork(config_dict).to(device=device_train)
+    net.train()
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(net.parameters(), lr=lr_adam)
