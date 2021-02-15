@@ -374,7 +374,7 @@ class LoggerWandb:
         self.wandb_run.finish()
 
 
-def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size):
+def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers):
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
     acc = 0
@@ -384,7 +384,7 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
     fn = 0
     loss = 0
     n = 0
-    h = torch.zeros((1, 1, hidden_size), device=device)
+    h = torch.zeros((nb_rnn_layers, 1, hidden_size), device=device)
     with torch.no_grad():
         for batch_data in dataloader:
             batch_samples, batch_labels = batch_data
@@ -438,6 +438,7 @@ def run(config_dict):
     device_train = config_dict["device_train"]
     max_duration = config_dict["max_duration"]
     min_length = config_dict["min_length"]
+    nb_rnn_layers = config_dict["nb_rnn_layers"]
 
     window_size = int(window_size_s * fe)
     seq_stride = int(seq_stride_s * fe)
@@ -532,7 +533,7 @@ def run(config_dict):
             batch_labels = batch_labels.to(device=device_train).long()
 
             optimizer.zero_grad()
-            output, _ = net(batch_samples, torch.zeros((1, batch_size, hidden_size), device=device_train))
+            output, _ = net(batch_samples, torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train))
             loss = criterion(output, batch_labels)
             loss_train += loss.item()
             loss.backward()
@@ -544,7 +545,7 @@ def run(config_dict):
         loss_train /= n
 
         accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
-            validation_loader, criterion, net, device_val, hidden_size)
+            validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
 
         if accuracy_validation > best_accuracy:
             best_accuracy = accuracy_validation
