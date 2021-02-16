@@ -10,4 +10,4 @@ time_vect_250 = linspace(0,size_250/250, size_250);
 %% generate vector
 data_250 = [data_250_matlab, spindle_250];
 %% create file
-writematrix(spindle_250, path+"dataset_small_250_matlab.txt");
+writematrix(data_250, path+"dataset_small_250_matlab.txt");

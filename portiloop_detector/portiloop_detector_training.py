@@ -231,6 +231,19 @@ class ConvPoolModule(nn.Module):
         x = self.pool(x)
         return self.dropout(x)
 
+class FcModule(nn.Module):
+    def __init__(self,
+                 in_features,
+                 out_features,
+                 dropout_p):
+        super(FcModule, self).__init__()
+
+        self.fc = nn.Linear(in_features=in_features, out_features=out_features)
+        self.dropout = nn.Dropout(dropout_p)
+
+    def forward(self, x):
+        x = F.relu(self.fc(x))
+        return self.dropout(x)
 
 class PortiloopNetwork(nn.Module):
     def __init__(self, config_dict):
@@ -299,8 +312,12 @@ class PortiloopNetwork(nn.Module):
                               num_layers=nb_rnn_layers,
                               dropout=0,
                               batch_first=True)
-            fc_size = hidden_size
-        self.fc = nn.Linear(in_features=fc_size,
+     #       fc_size = hidden_size
+        else:
+            self.first_fc = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
+            self.seq_fc = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
+
+        self.fc = nn.Linear(in_features=hidden_size,
                             out_features=2)
 
     def forward(self, x1, h):
@@ -315,6 +332,9 @@ class PortiloopNetwork(nn.Module):
             x1 = x1.view(batch_size, sequence_len, -1)
             x1, hn = self.gru(x1, h)
             x1 = x1[:, -1, :]
+        else:
+            x1 = self.first_fc(x1)
+            x1 = self.seq_fc(x1)
         x = self.fc(x1)
         x = F.softmax(x, dim=-1)
         return x, hn
@@ -377,7 +397,7 @@ class LoggerWandb:
 def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers):
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
-    net_copy.eval()
+    net_copy = net_copy.eval()
     acc = 0
     tp = 0
     tn = 0
@@ -497,7 +517,7 @@ def run(config_dict):
     # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
 
     net = PortiloopNetwork(config_dict).to(device=device_train)
-    net.train()
+    net = net.train()
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(net.parameters(), lr=lr_adam)
@@ -597,7 +617,7 @@ if __name__ == "__main__":
 
     # hyperparameters
 
-    batch_size_list = [32, 64, 128, 256, 512]
+    batch_size_list = [128, 256, 512]
     seq_len_list = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     RNN_list = [True, False]
     RNN_weights = [0.8, 0.2]
@@ -606,13 +626,13 @@ if __name__ == "__main__":
     stride_conv_list = [1, 2, 3, 4, 5]
     stride_pool_list = [1, 2, 3, 4, 5]
     dilation_conv_list = [1, 2, 3, 4, 5]
-    dilation_pool_list = [1, 2, 3, 4, 5]
+    dilation_pool_list = [1, 2, 3]
     nb_channel_list = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     hidden_size_list = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150]
-    dropout_list = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    dropout_list = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
     windows_size_s_list = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
     seq_stride_s_list = [0.025, 0.05, 0.075, 0.1, 0.125]
-    lr_adam_list = [0.0005, 0.0001, 0.00005]
+    lr_adam_list = [0.0005,0.0003, 0.0001]
     nb_conv_layers_list = [1, 2, 3, 4, 5, 6, 7, 8]
     nb_rnn_layers_list = [1, 2, 3]
     first_layer_dropout_list = [True, False]
@@ -628,7 +648,7 @@ if __name__ == "__main__":
                        nb_batch_per_epoch=1000)
 
     config_dict["batch_size"] = np.random.choice(batch_size_list).item()
-    config_dict["RNN"] = np.random.choice(RNN_list, p=RNN_weights).item()
+    config_dict["RNN"] = False # np.random.choice(RNN_list, p=RNN_weights).item()
     config_dict["seq_len"] = np.random.choice(seq_len_list).item() if config_dict["RNN"] else 1
     config_dict["nb_channel"] = np.random.choice(nb_channel_list).item()
     config_dict["dropout"] = np.random.choice(dropout_list).item()
