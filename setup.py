@@ -11,6 +11,8 @@ install_requires = [
     'scikit-learn',
     'torch',
     'wandb',
+    'pyedflib',
+    'scipy',
 ]
 
 setup(name='portiloop',
