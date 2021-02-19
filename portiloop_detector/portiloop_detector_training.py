@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from math import floor
-from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
+from torch.utils.data import Dataset, DataLoader
 import os
 import time
 from torch.utils.data.sampler import Sampler
@@ -22,7 +22,9 @@ from argparse import ArgumentParser
 filename_dataset = "dataset_big_250_matlab.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 FULL_SPINDLE = True
-# precision_validation_factor = 0.9
+recall_validation_factor = 0.5
+precision_validation_factor = 0.5
+
 div_val_samp = 32
 
 
@@ -146,9 +148,13 @@ class RandomSampler(Sampler):
         self.length = nb_batch * batch_size if nb_batch is not None else len(self.data_source)
 
     def __iter__(self):
+        global precision_validation_factor
+        global recall_validation_factor
         cur_iter = 0
         seed()
-        proba = 0.5  # float(0.5052 * precision_validation_factor)
+        proba = float(0.5 * (1 + precision_validation_factor - recall_validation_factor))
+        print(f"DEBUG : proba : {proba}")
+
         while cur_iter < self.length:
             cur_iter += 1
             sample_class = np.random.choice([0, 1], p=[1 - proba, proba])
@@ -352,7 +358,7 @@ class LoggerWandb:
         self.best_epoch = 0
         self.experiment_name = experiment_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project="portiloop", entity="portiloop", id=experiment_name, resume=None,
+        self.wandb_run = wandb.init(project="portiloop-f1-tuning", entity="portiloop", id=experiment_name, resume=None,
                                     config=config_dict, reinit=True)
 
     def log(self,
@@ -443,6 +449,8 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
 # run:
 
 def run(config_dict):
+    global precision_validation_factor
+    global recall_validation_factor
     _t_start = time.time()
     print(f"DEBUG: config_dict: {config_dict}")
     experiment_name = config_dict["experiment_name"]
@@ -543,6 +551,7 @@ def run(config_dict):
     best_precision_validation = 0
     best_f1_score_validation = 0
 
+
     for epoch in range(nb_epoch_max):
 
         print(f"DEBUG: epoch:{epoch}")
@@ -570,7 +579,8 @@ def run(config_dict):
 
         accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
             validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
-
+        recall_validation_factor = recall_validation
+        precision_validation_factor = precision_validation
         if accuracy_validation > best_accuracy:
             best_accuracy = accuracy_validation
             best_model = copy.deepcopy(net)
@@ -620,9 +630,9 @@ if __name__ == "__main__":
     # hyperparameters
 
     batch_size_list = [128, 256, 512]
-    seq_len_list = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    seq_len_list = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     RNN_list = [True, False]
-    RNN_weights = [0.8, 0.2]
+    RNN_weights = [0.5, 0.5]
     kernel_conv_list = [3, 5, 7, 9]
     kernel_pool_list = [3, 5, 7, 9]
     stride_conv_list = [1, 2, 3, 4, 5]
@@ -644,13 +654,13 @@ if __name__ == "__main__":
                        device_val="cpu",
                        nb_epoch_max=1000000,
                        max_duration=int(11.5 * 3600),
-                       nb_epoch_early_stopping_stop=100,
-                       early_stopping_smoothing_factor=0.2,
+                       nb_epoch_early_stopping_stop=200,
+                       early_stopping_smoothing_factor=0.02,
                        fe=250,
                        nb_batch_per_epoch=1000)
 
     config_dict["batch_size"] = np.random.choice(batch_size_list).item()
-    config_dict["RNN"] = False  # np.random.choice(RNN_list, p=RNN_weights).item()
+    config_dict["RNN"] = np.random.choice(RNN_list, p=RNN_weights).item()
     config_dict["seq_len"] = np.random.choice(seq_len_list).item() if config_dict["RNN"] else 1
     config_dict["nb_channel"] = np.random.choice(nb_channel_list).item()
     config_dict["dropout"] = np.random.choice(dropout_list).item()
