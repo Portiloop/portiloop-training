@@ -231,6 +231,7 @@ class ConvPoolModule(nn.Module):
         x = self.pool(x)
         return self.dropout(x)
 
+
 class FcModule(nn.Module):
     def __init__(self,
                  in_features,
@@ -244,6 +245,7 @@ class FcModule(nn.Module):
     def forward(self, x):
         x = F.relu(self.fc(x))
         return self.dropout(x)
+
 
 class PortiloopNetwork(nn.Module):
     def __init__(self, config_dict):
@@ -312,7 +314,7 @@ class PortiloopNetwork(nn.Module):
                               num_layers=nb_rnn_layers,
                               dropout=0,
                               batch_first=True)
-     #       fc_size = hidden_size
+        #       fc_size = hidden_size
         else:
             self.first_fc = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
             self.seq_fc = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
@@ -364,7 +366,7 @@ class LoggerWandb:
             best_accuracy_validation,
             best_epoch,
             best_model,
-            accuracy_early_stopping,
+            f1_early_stopping,
             best_epoch_early_stopping,
             best_f1_score_validation,
             best_precision_validation):
@@ -382,7 +384,7 @@ class LoggerWandb:
             "f1_validation": f1_validation,
             "precision_validation": precision_validation,
             "recall_validation": recall_validation,
-            "accuracy_early_stopping": accuracy_early_stopping,
+            "f1_early_stopping": f1_early_stopping,
         })
         wandb.run.summary["best_accuracy_validation"] = best_accuracy_validation
         wandb.run.summary["best_epoch"] = best_epoch
@@ -535,8 +537,8 @@ def run(config_dict):
     best_model = None
 
     early_stopping_counter = 0
-    accuracy_early_stopping = None
-    best_accuracy_early_stopping = 0
+    f1_early_stopping = None
+    best_f1_early_stopping = 0
     best_epoch_early_stopping = 0
     best_precision_validation = 0
     best_f1_score_validation = 0
@@ -578,11 +580,11 @@ def run(config_dict):
         if precision_validation > best_precision_validation:
             best_precision_validation = precision_validation
 
-        accuracy_early_stopping = 0.0 if accuracy_early_stopping is None else accuracy_validation * early_stopping_smoothing_factor + accuracy_early_stopping * (
+        f1_early_stopping = 0.0 if f1_early_stopping is None else f1_validation * early_stopping_smoothing_factor + f1_early_stopping * (
                 1.0 - early_stopping_smoothing_factor)
 
-        if accuracy_early_stopping > best_accuracy_early_stopping:
-            best_accuracy_early_stopping = accuracy_early_stopping
+        if f1_early_stopping > best_f1_early_stopping:
+            best_f1_early_stopping = f1_early_stopping
             early_stopping_counter = 0
             best_epoch_early_stopping = epoch
         else:
@@ -598,7 +600,7 @@ def run(config_dict):
                    best_accuracy_validation=best_accuracy,
                    best_epoch=best_epoch,
                    best_model=best_model,
-                   accuracy_early_stopping=accuracy_early_stopping,
+                   f1_early_stopping=f1_early_stopping,
                    best_epoch_early_stopping=best_epoch_early_stopping,
                    best_f1_score_validation=best_f1_score_validation,
                    best_precision_validation=best_precision_validation)
@@ -618,7 +620,7 @@ if __name__ == "__main__":
     # hyperparameters
 
     batch_size_list = [128, 256, 512]
-    seq_len_list = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    seq_len_list = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     RNN_list = [True, False]
     RNN_weights = [0.8, 0.2]
     kernel_conv_list = [3, 5, 7, 9]
@@ -629,10 +631,10 @@ if __name__ == "__main__":
     dilation_pool_list = [1, 2, 3]
     nb_channel_list = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     hidden_size_list = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150]
-    dropout_list = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+    dropout_list = [0,  0.5]
     windows_size_s_list = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
     seq_stride_s_list = [0.025, 0.05, 0.075, 0.1, 0.125]
-    lr_adam_list = [0.0005,0.0003, 0.0001]
+    lr_adam_list = [0.0005, 0.0003, 0.0001]
     nb_conv_layers_list = [1, 2, 3, 4, 5, 6, 7, 8]
     nb_rnn_layers_list = [1, 2, 3]
     first_layer_dropout_list = [True, False]
@@ -648,16 +650,17 @@ if __name__ == "__main__":
                        nb_batch_per_epoch=1000)
 
     config_dict["batch_size"] = np.random.choice(batch_size_list).item()
-    config_dict["RNN"] = False # np.random.choice(RNN_list, p=RNN_weights).item()
+    config_dict["RNN"] = False  # np.random.choice(RNN_list, p=RNN_weights).item()
     config_dict["seq_len"] = np.random.choice(seq_len_list).item() if config_dict["RNN"] else 1
     config_dict["nb_channel"] = np.random.choice(nb_channel_list).item()
     config_dict["dropout"] = np.random.choice(dropout_list).item()
     config_dict["hidden_size"] = np.random.choice(hidden_size_list).item()
-    config_dict["seq_stride_s"] = np.random.choice(seq_stride_s_list).item()
+    config_dict["seq_stride_s"] = np.random.choice(seq_stride_s_list).item() if config_dict["RNN"] else 0.1  # could be changed
     config_dict["lr_adam"] = np.random.choice(lr_adam_list).item()
     config_dict["nb_rnn_layers"] = np.random.choice(nb_rnn_layers_list).item()
     config_dict["first_layer_dropout"] = np.random.choice(first_layer_dropout_list).item()
     config_dict["min_length"] = 1
+    config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
 
     nb_out = 0
     while nb_out < 1:
