@@ -156,7 +156,8 @@ class RandomSampler(Sampler):
         global recall_validation_factor
         cur_iter = 0
         seed()
-        proba = float(0.5 + 0.5 * (precision_validation_factor - recall_validation_factor)/(precision_validation_factor + recall_validation_factor))
+        epsilon = 1e-7
+        proba = float(0.5 + 0.5 * (precision_validation_factor - recall_validation_factor)/(precision_validation_factor + recall_validation_factor + epsilon))
         print(f"DEBUG : proba : {proba}")
 
         while cur_iter < self.length:
