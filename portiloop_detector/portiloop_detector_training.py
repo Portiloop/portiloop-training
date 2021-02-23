@@ -19,7 +19,7 @@ from argparse import ArgumentParser
 
 # all constants (no hyperparameters here!)
 
-filename_dataset = "dataset_big_250_matlab.txt"
+filename_dataset = "dataset_big_envelope_matlab.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 FULL_SPINDLE = True
 recall_validation_factor = 0.5
@@ -40,14 +40,15 @@ class SignalDataset(Dataset):
 
         self.data = pd.read_csv(self.path_file, header=None).to_numpy()
         split_data = np.array(
-            np.split(self.data, int(len(self.data) / (125 * fe))))  # 125 = nb point per sequence in the dataset
+            np.split(self.data, int(len(self.data) / (125 * fe))))  # 125 = nb seconds per sequence in the dataset
         np.random.seed(42)  # fixed seed value
         np.random.shuffle(split_data)
-        self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 2)))
+        self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 3)))
         len_data = np.shape(self.data)[1]
         self.data = self.data[:, int(start_ratio * len_data):int(end_ratio * len_data)]
         assert self.window_size <= len(self.data[0]), "Dataset smaller than window size."
         self.full_signal = torch.tensor(self.data[0], dtype=torch.float)
+        self.full_envelope = torch.tensor(self.data[1], dtype=torch.float)
         self.seq_len = seq_len  # 1 means single sample / no sequence ?
         self.idx_stride = seq_stride
         self.past_signal_len = self.seq_len * self.idx_stride
@@ -55,8 +56,8 @@ class SignalDataset(Dataset):
         # list of indices that can be sampled:
         self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
                         if
-                        not (self.data[1][idx + self.window_size - 1] == -1  # that are not ending in an unlabeled zone
-                             or self.data[1][
+                        not (self.data[2][idx + self.window_size - 1] == -1  # that are not ending in an unlabeled zone
+                             or self.data[2][
                                  idx + self.window_size - self.min_length] == -1  # nor with a min_length starting in an unlabeled zone
                              or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here # TODO: I think this can be tighter
 
@@ -70,31 +71,34 @@ class SignalDataset(Dataset):
 
         assert 0 <= idx <= self.length_dataset, f"Index out of range ({idx}/{self.length_dataset})."
         idx = self.indices[idx]
-        assert self.data[1][idx + self.window_size - 1] != -1 and self.data[1][
+        assert self.data[2][idx + self.window_size - 1] != -1 and self.data[2][
             idx + self.window_size - self.min_length] != -1, f"Bad index: {idx}."
 
         signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0,
                                                                                                                     self.window_size,
                                                                                                                     self.idx_stride)
+        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0,
+                                                                                                                    self.window_size,
+                                                                                                                    self.idx_stride)
 
         if not FULL_SPINDLE:
-            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
+            label = 1 if self.data[2][idx + self.window_size - 1] == 1 and self.data[2][
                 idx + self.window_size - self.min_length] != 1 else 0
         else:
-            label = 1 if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
+            label = 1 if self.data[2][idx + self.window_size - 1] == 1 and self.data[2][
                 idx + self.window_size - self.min_length] == 1 else 0
         label = self.labels[label]
 
-        return signal_seq, label
+        return signal_seq, envelope_seq, label
 
     def is_spindle(self, idx):
         assert 0 <= idx <= self.length_dataset, f"Index out of range ({idx}/{self.length_dataset})."
         idx = self.indices[idx]
         if not FULL_SPINDLE:
-            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
+            return True if self.data[2][idx + self.window_size - 1] == 1 and self.data[2][
                 idx + self.window_size - self.min_length] != 1 else False
         else:
-            return True if self.data[1][idx + self.window_size - 1] == 1 and self.data[1][
+            return True if self.data[2][idx + self.window_size - 1] == 1 and self.data[2][
                 idx + self.window_size - self.min_length] == 1 else False
 
 
@@ -252,7 +256,6 @@ class FcModule(nn.Module):
         x = F.relu(self.fc(x))
         return self.dropout(x)
 
-
 class PortiloopNetwork(nn.Module):
     def __init__(self, config_dict):
         super(PortiloopNetwork, self).__init__()
@@ -284,28 +287,28 @@ class PortiloopNetwork(nn.Module):
 
         self.RNN = RNN
 
-        self.first_layer = ConvPoolModule(in_channels=1,
-                                          out_channel=nb_channel,
-                                          kernel_conv=kernel_conv,
-                                          stride_conv=stride_conv,
-                                          conv_padding=conv_padding,
-                                          dilation_conv=dilation_conv,
-                                          kernel_pool=kernel_pool,
-                                          stride_pool=stride_pool,
-                                          pool_padding=pool_padding,
-                                          dilation_pool=dilation_pool,
-                                          dropout_p=dropout_p if first_layer_dropout else 0)
-        self.seq = nn.Sequential(*(ConvPoolModule(in_channels=nb_channel,
-                                                  out_channel=nb_channel,
-                                                  kernel_conv=kernel_conv,
-                                                  stride_conv=stride_conv,
-                                                  conv_padding=conv_padding,
-                                                  dilation_conv=dilation_conv,
-                                                  kernel_pool=kernel_pool,
-                                                  stride_pool=stride_pool,
-                                                  pool_padding=pool_padding,
-                                                  dilation_pool=dilation_pool,
-                                                  dropout_p=dropout_p) for _ in range(nb_conv_layers - 1)))
+        self.first_layer_input1 = ConvPoolModule(in_channels=1,
+                                                 out_channel=nb_channel,
+                                                 kernel_conv=kernel_conv,
+                                                 stride_conv=stride_conv,
+                                                 conv_padding=conv_padding,
+                                                 dilation_conv=dilation_conv,
+                                                 kernel_pool=kernel_pool,
+                                                 stride_pool=stride_pool,
+                                                 pool_padding=pool_padding,
+                                                 dilation_pool=dilation_pool,
+                                                 dropout_p=dropout_p if first_layer_dropout else 0)
+        self.seq_input1 = nn.Sequential(*(ConvPoolModule(in_channels=nb_channel,
+                                                         out_channel=nb_channel,
+                                                         kernel_conv=kernel_conv,
+                                                         stride_conv=stride_conv,
+                                                         conv_padding=conv_padding,
+                                                         dilation_conv=dilation_conv,
+                                                         kernel_pool=kernel_pool,
+                                                         stride_pool=stride_pool,
+                                                         pool_padding=pool_padding,
+                                                         dilation_pool=dilation_pool,
+                                                         dropout_p=dropout_p) for _ in range(nb_conv_layers - 1)))
         nb_out = window_size
 
         for _ in range(nb_conv_layers):
@@ -315,37 +318,84 @@ class PortiloopNetwork(nn.Module):
         output_cnn_size = int(nb_channel * nb_out)
         fc_size = output_cnn_size
         if RNN:
-            self.gru = nn.GRU(input_size=output_cnn_size,
-                              hidden_size=hidden_size,
-                              num_layers=nb_rnn_layers,
-                              dropout=0,
-                              batch_first=True)
+            self.gru_input1 = nn.GRU(input_size=output_cnn_size,
+                                     hidden_size=hidden_size,
+                                     num_layers=nb_rnn_layers,
+                                     dropout=0,
+                                     batch_first=True)
         #       fc_size = hidden_size
         else:
-            self.first_fc = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
-            self.seq_fc = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
+            self.first_fc_input1 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
+            self.seq_fc_input1 = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
+        self.first_layer_input2 = ConvPoolModule(in_channels=1,
+                                                 out_channel=nb_channel,
+                                                 kernel_conv=kernel_conv,
+                                                 stride_conv=stride_conv,
+                                                 conv_padding=conv_padding,
+                                                 dilation_conv=dilation_conv,
+                                                 kernel_pool=kernel_pool,
+                                                 stride_pool=stride_pool,
+                                                 pool_padding=pool_padding,
+                                                 dilation_pool=dilation_pool,
+                                                 dropout_p=dropout_p if first_layer_dropout else 0)
+        self.seq_input2 = nn.Sequential(*(ConvPoolModule(in_channels=nb_channel,
+                                                         out_channel=nb_channel,
+                                                         kernel_conv=kernel_conv,
+                                                         stride_conv=stride_conv,
+                                                         conv_padding=conv_padding,
+                                                         dilation_conv=dilation_conv,
+                                                         kernel_pool=kernel_pool,
+                                                         stride_pool=stride_pool,
+                                                         pool_padding=pool_padding,
+                                                         dilation_pool=dilation_pool,
+                                                         dropout_p=dropout_p) for _ in range(nb_conv_layers - 1)))
 
-        self.fc = nn.Linear(in_features=hidden_size,
+        if RNN:
+            self.gru_input2 = nn.GRU(input_size=output_cnn_size,
+                                     hidden_size=hidden_size,
+                                     num_layers=nb_rnn_layers,
+                                     dropout=0,
+                                     batch_first=True)
+        else:
+            self.first_fc_input2 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
+            self.seq_fc_input2 = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
+
+        self.fc = nn.Linear(in_features=2 * hidden_size,
                             out_features=2)
 
-    def forward(self, x1, h):
+    def forward(self, x1, x2, h1, h2):
         (batch_size, sequence_len, features) = x1.shape
         x1 = x1.view(-1, 1, features)
-        x1 = self.first_layer(x1)
-        x1 = self.seq(x1)
+        x1 = self.first_layer_input1(x1)
+        x1 = self.seq_input1(x1)
 
         x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
-        hn = None
+        hn1 = None
         if self.RNN:
             x1 = x1.view(batch_size, sequence_len, -1)
-            x1, hn = self.gru(x1, h)
+            x1, hn1 = self.gru_input1(x1, h1)
             x1 = x1[:, -1, :]
         else:
-            x1 = self.first_fc(x1)
-            x1 = self.seq_fc(x1)
-        x = self.fc(x1)
+            x1 = self.first_fc_input1(x1)
+            x1 = self.seq_fc_input1(x1)
+
+        x2 = x2.view(-1, 1, features)
+        x2 = self.first_layer_input2(x2)
+        x2 = self.seq_input2(x2)
+
+        x2 = torch.flatten(x2, start_dim=1, end_dim=-1)
+        hn2 = None
+        if self.RNN:
+            x2 = x2.view(batch_size, sequence_len, -1)
+            x2, hn2 = self.gru_input2(x2, h2)
+            x2 = x2[:, -1, :]
+        else:
+            x2 = self.first_fc_input2(x2)
+            x2 = self.seq_fc_input2(x2)
+        x = torch.cat((x1, x2), -1)
+        x = self.fc(x)
         x = F.softmax(x, dim=-1)
-        return x, hn
+        return x, hn1, hn2
 
 
 class LoggerWandb:
@@ -413,13 +463,15 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
     fn = 0
     loss = 0
     n = 0
-    h = torch.zeros((nb_rnn_layers, 1, hidden_size), device=device)
+    h1 = torch.zeros((nb_rnn_layers, 1, hidden_size), device=device)
+    h2 = torch.zeros((nb_rnn_layers, 1, hidden_size), device=device)
     with torch.no_grad():
         for batch_data in dataloader:
-            batch_samples, batch_labels = batch_data
-            batch_samples = batch_samples.to(device=device).float()
+            batch_samples_input1, batch_samples_input2, batch_labels = batch_data
+            batch_samples_input1 = batch_samples_input1.to(device=device).float()
+            batch_samples_input2 = batch_samples_input2.to(device=device).float()
             batch_labels = batch_labels.to(device=device).long()
-            output, h = net_copy(batch_samples, h)
+            output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, h1, h2)
 
             loss_py = criterion(output, batch_labels)
             loss += loss_py.item()
@@ -550,8 +602,8 @@ def run(config_dict):
     best_epoch_early_stopping = 0
     best_precision_validation = 0
     best_f1_score_validation = 0
-
-
+    h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
+    h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     for epoch in range(nb_epoch_max):
 
         print(f"DEBUG: epoch:{epoch}")
@@ -561,12 +613,14 @@ def run(config_dict):
         n = 0
 
         for batch_data in train_loader:
-            batch_samples, batch_labels = batch_data
-            batch_samples = batch_samples.to(device=device_train).float()
+            batch_samples_input1, batch_samples_input2, batch_labels = batch_data
+            batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
+            batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
             batch_labels = batch_labels.to(device=device_train).long()
 
             optimizer.zero_grad()
-            output, _ = net(batch_samples, torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train))
+
+            output, _, _ = net(batch_samples_input1, batch_samples_input2, h1_zero, h2_zero)
             loss = criterion(output, batch_labels)
             loss_train += loss.item()
             loss.backward()
@@ -641,7 +695,7 @@ if __name__ == "__main__":
     dilation_pool_list = [1, 2, 3]
     nb_channel_list = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     hidden_size_list = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150]
-    dropout_list = [0,  0.5]
+    dropout_list = [0, 0.5]
     windows_size_s_list = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
     seq_stride_s_list = [0.025, 0.05, 0.075, 0.1, 0.125]
     lr_adam_list = [0.0005, 0.0003, 0.0001]
