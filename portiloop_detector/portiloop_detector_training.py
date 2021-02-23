@@ -408,7 +408,7 @@ class LoggerWandb:
         self.best_epoch = 0
         self.experiment_name = experiment_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project="portiloop-f1-tuning", entity="portiloop", id=experiment_name, resume=None,
+        self.wandb_run = wandb.init(project="portiloop-envelope", entity="portiloop", id=experiment_name, resume=None,
                                     config=config_dict, reinit=True)
 
     def log(self,
