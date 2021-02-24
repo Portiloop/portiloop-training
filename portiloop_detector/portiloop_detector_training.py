@@ -21,7 +21,6 @@ from argparse import ArgumentParser
 
 filename_dataset = "dataset_big_envelope_matlab.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
-FULL_SPINDLE = True
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
 
@@ -39,8 +38,7 @@ class SignalDataset(Dataset):
         self.min_length = min_length
 
         self.data = pd.read_csv(self.path_file, header=None).to_numpy()
-        split_data = np.array(
-            np.split(self.data, int(len(self.data) / (125 * fe))))  # 125 = nb seconds per sequence in the dataset
+        split_data = np.array(np.split(self.data, int(len(self.data) / (125 * fe))))  # 125 = nb seconds per sequence in the dataset
         np.random.seed(42)  # fixed seed value
         np.random.shuffle(split_data)
         self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 3)))
@@ -55,51 +53,45 @@ class SignalDataset(Dataset):
 
         # list of indices that can be sampled:
         self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
-                        if
-                        not (self.data[2][idx + self.window_size - 1] == -1  # that are not ending in an unlabeled zone
-                             or self.data[2][
-                                 idx + self.window_size - self.min_length] == -1  # nor with a min_length starting in an unlabeled zone
-                             or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here # TODO: I think this can be tighter
+                        if not (self.data[2][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
+                                or self.data[2][idx + self.window_size - self.min_length] < 0  # nor with a min_length starting in an unlabeled zone
+                                or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here # TODO: I think this can be tighter
 
-        self.length_dataset = len(self.indices)
         self.labels = torch.tensor([0, 1], dtype=torch.long)
 
     def __len__(self):
-        return self.length_dataset
+        return len(self.indices)
 
     def __getitem__(self, idx):
-
-        assert 0 <= idx <= self.length_dataset, f"Index out of range ({idx}/{self.length_dataset})."
+        assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
         idx = self.indices[idx]
-        assert self.data[2][idx + self.window_size - 1] != -1 and self.data[2][
-            idx + self.window_size - self.min_length] != -1, f"Bad index: {idx}."
+        assert self.data[2][idx + self.window_size - 1] >= 0 and self.data[2][
+            idx + self.window_size - self.min_length] >= 0, f"Bad index: {idx}."
 
-        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0,
-                                                                                                                    self.window_size,
-                                                                                                                    self.idx_stride)
-        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0,
-                                                                                                                    self.window_size,
-                                                                                                                    self.idx_stride)
+        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
+        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
 
-        if not FULL_SPINDLE:
-            label = 1 if self.data[2][idx + self.window_size - 1] == 1 and self.data[2][
-                idx + self.window_size - self.min_length] != 1 else 0
-        else:
-            label = 1 if self.data[2][idx + self.window_size - 1] == 1 and self.data[2][
-                idx + self.window_size - self.min_length] == 1 else 0
+        # The following works because self.indices doesn't contain -2 labels in this superclass
+        label = 1 if (self.data[2][idx + self.window_size - 1] == 1 and self.data[2][idx + self.window_size - self.min_length] == 1) \
+                     or (self.data[2][idx + self.window_size - 1] == -2 and self.data[2][idx + self.window_size - self.min_length] == -2) else 0
         label = self.labels[label]
 
         return signal_seq, envelope_seq, label
 
     def is_spindle(self, idx):
-        assert 0 <= idx <= self.length_dataset, f"Index out of range ({idx}/{self.length_dataset})."
+        assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
         idx = self.indices[idx]
-        if not FULL_SPINDLE:
-            return True if self.data[2][idx + self.window_size - 1] == 1 and self.data[2][
-                idx + self.window_size - self.min_length] != 1 else False
-        else:
-            return True if self.data[2][idx + self.window_size - 1] == 1 and self.data[2][
-                idx + self.window_size - self.min_length] == 1 else False
+        return True if (self.data[2][idx + self.window_size - 1] == 1 and self.data[2][idx + self.window_size - self.min_length] == 1) \
+                       or (self.data[2][idx + self.window_size - 1] == -2 and self.data[2][idx + self.window_size - self.min_length] == -2) else False
+
+
+class SignalDatasetExtended(SignalDataset):
+    def __init__(self, filename, path, window_size=64, fe=250, min_length=15, seq_len=5, seq_stride=5, start_ratio=0.0, end_ratio=1.0):
+        super().__init__(filename, path, window_size=window_size, fe=fe, min_length=min_length, seq_len=seq_len, seq_stride=seq_stride, start_ratio=start_ratio, end_ratio=end_ratio)
+        self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
+                        if not (self.data[2][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
+                                or self.data[2][idx + self.window_size - self.min_length] < 0  # nor with a min_length starting in an unlabeled zone
+                                or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here # TODO: I think this can be tighter
 
 
 def get_class_idxs(dataset):
@@ -157,7 +149,7 @@ class RandomSampler(Sampler):
         cur_iter = 0
         seed()
         epsilon = 1e-7
-        proba = float(0.5 + 0.5 * (precision_validation_factor - recall_validation_factor)/(precision_validation_factor + recall_validation_factor + epsilon))
+        proba = float(0.5 + 0.5 * (precision_validation_factor - recall_validation_factor) / (precision_validation_factor + recall_validation_factor + epsilon))
         print(f"DEBUG : proba : {proba}")
 
         while cur_iter < self.length:
@@ -256,6 +248,7 @@ class FcModule(nn.Module):
     def forward(self, x):
         x = F.relu(self.fc(x))
         return self.dropout(x)
+
 
 class PortiloopNetwork(nn.Module):
     def __init__(self, config_dict):
@@ -401,12 +394,8 @@ class PortiloopNetwork(nn.Module):
 
 class LoggerWandb:
     def __init__(self, experiment_name, config_dict):
-        self.losses_train = []
-        self.losses_val = []
-        self.accuracies_train = []
-        self.accuracies_val = []
         self.best_model = None
-        self.best_epoch = 0
+        self.best_model_extended = None
         self.experiment_name = experiment_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
         self.wandb_run = wandb.init(project="portiloop-envelope", entity="portiloop", id=experiment_name, resume=None,
@@ -426,13 +415,20 @@ class LoggerWandb:
             f1_early_stopping,
             best_epoch_early_stopping,
             best_f1_score_validation,
-            best_precision_validation):
-        self.losses_train.append(loss_train)
-        self.accuracies_train.append(accuracy_train)
-        self.losses_val.append(loss_validation)
-        self.accuracies_val.append(accuracy_validation)
+            best_precision_validation,
+            accuracy_validation_extended,
+            loss_validation_extended,
+            f1_validation_extended,
+            precision_validation_extended,
+            recall_validation_extended,
+            best_accuracy_validation_extended,
+            best_epoch_extended,
+            best_model_extended,
+            best_f1_score_validation_extended,
+            best_precision_validation_extended
+            ):
         self.best_model = best_model
-        self.best_epoch = best_epoch
+        self.best_model_extended = best_model_extended
         wandb.log({
             "accuracy_train": accuracy_train,
             "loss_train": loss_train,
@@ -442,12 +438,21 @@ class LoggerWandb:
             "precision_validation": precision_validation,
             "recall_validation": recall_validation,
             "f1_early_stopping": f1_early_stopping,
+            "accuracy_validation_extended": accuracy_validation_extended,
+            "loss_validation_extended": loss_validation_extended,
+            "f1_validation_extended": f1_validation_extended,
+            "precision_validation_extended": precision_validation_extended,
+            "recall_validation_extended": recall_validation_extended,
         })
         wandb.run.summary["best_accuracy_validation"] = best_accuracy_validation
         wandb.run.summary["best_epoch"] = best_epoch
         wandb.run.summary["best_epoch_early_stopping"] = best_epoch_early_stopping
         wandb.run.summary["best_f1_score_validation"] = best_f1_score_validation
         wandb.run.summary["best_precision_validation"] = best_precision_validation
+        wandb.run.summary["best_accuracy_validation_extended"] = best_accuracy_validation_extended
+        wandb.run.summary["best_epoch_extended"] = best_epoch_extended
+        wandb.run.summary["best_f1_score_validation_extended"] = best_f1_score_validation_extended
+        wandb.run.summary["best_precision_validation_extended"] = best_precision_validation_extended
 
     def __del__(self):
         self.wandb_run.finish()
@@ -549,6 +554,15 @@ def run(config_dict):
                                   start_ratio=0.9,
                                   end_ratio=1)
 
+    ds_validation_extended = SignalDatasetExtended(filename=filename_dataset,
+                                                   path=path_dataset,
+                                                   window_size=window_size,
+                                                   fe=fe,
+                                                   min_length=min_length,
+                                                   seq_len=1,
+                                                   start_ratio=0.9,
+                                                   end_ratio=1)
+
     # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
 
     idx_true, idx_false = get_class_idxs(ds_train)
@@ -563,6 +577,10 @@ def run(config_dict):
                                         nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
                                         seq_stride=seq_stride)
 
+    samp_validation_extended = ValidationSampler(ds_validation_extended,
+                                                 nb_samples=int(len(ds_validation_extended) / max(seq_stride, div_val_samp)),
+                                                 seq_stride=seq_stride)
+
     train_loader = DataLoader(ds_train,
                               batch_size=batch_size,
                               sampler=samp_train,
@@ -576,6 +594,13 @@ def run(config_dict):
                                    num_workers=0,
                                    pin_memory=True,
                                    shuffle=False)
+
+    validation_loader_extended = DataLoader(ds_validation_extended,
+                                            batch_size=1,
+                                            sampler=samp_validation_extended,
+                                            num_workers=0,
+                                            pin_memory=True,
+                                            shuffle=False)
 
     # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
 
@@ -596,13 +621,19 @@ def run(config_dict):
     best_accuracy = 0
     best_epoch = 0
     best_model = None
-
-    early_stopping_counter = 0
-    f1_early_stopping = None
     best_f1_early_stopping = 0
     best_epoch_early_stopping = 0
     best_precision_validation = 0
     best_f1_score_validation = 0
+
+    best_accuracy_extended = 0
+    best_epoch_extended = 0
+    best_model_extended = None
+    best_precision_validation_extended = 0
+    best_f1_score_validation_extended = 0
+
+    early_stopping_counter = 0
+    f1_early_stopping = None
     h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     for epoch in range(nb_epoch_max):
@@ -634,8 +665,12 @@ def run(config_dict):
 
         accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
             validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
-        recall_validation_factor = recall_validation
-        precision_validation_factor = precision_validation
+        accuracy_validation_extended, loss_validation_extended, f1_validation_extended, precision_validation_extended, recall_validation_extended = get_accuracy_and_loss_pytorch(
+            validation_loader_extended, criterion, net, device_val, hidden_size, nb_rnn_layers)
+
+        recall_validation_factor = recall_validation_extended
+        precision_validation_factor = precision_validation_extended
+
         if accuracy_validation > best_accuracy:
             best_accuracy = accuracy_validation
             best_model = copy.deepcopy(net)
@@ -645,7 +680,16 @@ def run(config_dict):
         if precision_validation > best_precision_validation:
             best_precision_validation = precision_validation
 
-        f1_early_stopping = 0.0 if f1_early_stopping is None else f1_validation * early_stopping_smoothing_factor + f1_early_stopping * (
+        if accuracy_validation_extended > best_accuracy_extended:
+            best_accuracy_extended = accuracy_validation_extended
+            best_model_extended = copy.deepcopy(net)
+            best_epoch_extended = epoch
+        if f1_validation_extended > best_f1_score_validation_extended:
+            best_f1_score_validation_extended = f1_validation_extended
+        if precision_validation_extended > best_precision_validation_extended:
+            best_precision_validation_extended = precision_validation_extended
+
+        f1_early_stopping = 0.0 if f1_early_stopping is None else f1_validation_extended * early_stopping_smoothing_factor + f1_early_stopping * (
                 1.0 - early_stopping_smoothing_factor)
 
         if f1_early_stopping > best_f1_early_stopping:
@@ -668,7 +712,18 @@ def run(config_dict):
                    f1_early_stopping=f1_early_stopping,
                    best_epoch_early_stopping=best_epoch_early_stopping,
                    best_f1_score_validation=best_f1_score_validation,
-                   best_precision_validation=best_precision_validation)
+                   best_precision_validation=best_precision_validation,
+                   accuracy_validation_extended=accuracy_validation_extended,
+                   loss_validation_extended=loss_validation_extended,
+                   f1_validation_extended=f1_validation_extended,
+                   precision_validation_extended=precision_validation_extended,
+                   recall_validation_extended=recall_validation_extended,
+                   best_accuracy_validation_extended=best_accuracy_extended,
+                   best_epoch_extended=best_epoch_extended,
+                   best_model_extended=best_model_extended,
+                   best_f1_score_validation_extended=best_f1_score_validation_extended,
+                   best_precision_validation_extended=best_precision_validation_extended
+                   )
 
         if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
             print("Early stopping.")
