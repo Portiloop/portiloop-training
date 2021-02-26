@@ -59,7 +59,7 @@ class SignalDataset(Dataset):
                                 or self.data[2][idx + self.window_size - self.min_length] < 0  # nor with a min_length starting in an unlabeled zone
                                 or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
 
-        self.labels = torch.tensor([0, 1], dtype=torch.long)
+        self.labels = torch.tensor([0, 1], dtype=torch.float)
 
     def __len__(self):
         return len(self.indices)
@@ -390,7 +390,7 @@ class PortiloopNetwork(nn.Module):
             x2 = self.seq_fc_input2(x2)
         x = torch.cat((x1, x2), -1)
         x = self.fc(x)  # output size: 1
-        x = F.sigmoid(x)
+        x = torch.sigmoid(x)
         return x, hn1, hn2
 
 
@@ -478,16 +478,18 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             batch_samples_input1, batch_samples_input2, batch_labels = batch_data
             batch_samples_input1 = batch_samples_input1.to(device=device).float()
             batch_samples_input2 = batch_samples_input2.to(device=device).float()
-            batch_labels = batch_labels.to(device=device).long()
+            batch_labels = batch_labels.to(device=device).float()
             output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, h1, h2)
-
+            output = output.view(-1)
             loss_py = criterion(output, batch_labels)
             loss += loss_py.item()
 
-            output = output >= THRESHOLD
-            batch_labels = batch_labels >= THRESHOLD
+            output = (output >= THRESHOLD)
+            batch_labels = (batch_labels >= THRESHOLD)
 
             acc += (output == batch_labels).float().mean()
+            output = output.float()
+            batch_labels = batch_labels.float()
 
             # if output.ndim == 2:
             #     output = output.argmax(dim=1)
@@ -654,11 +656,13 @@ def run(config_dict):
             batch_samples_input1, batch_samples_input2, batch_labels = batch_data
             batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
             batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
-            batch_labels = batch_labels.to(device=device_train).long()
+            batch_labels = batch_labels.to(device=device_train).float()
 
             optimizer.zero_grad()
 
             output, _, _ = net(batch_samples_input1, batch_samples_input2, h1_zero, h2_zero)
+            output = output.view(-1)
+
             loss = criterion(output, batch_labels)
             loss_train += loss.item()
             loss.backward()
