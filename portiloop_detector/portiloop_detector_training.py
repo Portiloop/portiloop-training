@@ -19,6 +19,8 @@ from argparse import ArgumentParser
 
 # all constants (no hyperparameters here!)
 
+THRESHOLD = 0.5
+
 filename_dataset = "dataset_big_envelope_matlab.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
@@ -55,7 +57,7 @@ class SignalDataset(Dataset):
         self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
                         if not (self.data[2][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
                                 or self.data[2][idx + self.window_size - self.min_length] < 0  # nor with a min_length starting in an unlabeled zone
-                                or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here # TODO: I think this can be tighter
+                                or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
 
         self.labels = torch.tensor([0, 1], dtype=torch.long)
 
@@ -91,7 +93,7 @@ class SignalDatasetExtended(SignalDataset):
         self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
                         if not (self.data[2][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
                                 or self.data[2][idx + self.window_size - self.min_length] < 0  # nor with a min_length starting in an unlabeled zone
-                                or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here # TODO: I think this can be tighter
+                                or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
 
 
 def get_class_idxs(dataset):
@@ -354,8 +356,8 @@ class PortiloopNetwork(nn.Module):
             self.first_fc_input2 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
             self.seq_fc_input2 = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
 
-        self.fc = nn.Linear(in_features=2 * hidden_size,
-                            out_features=2)
+        self.fc = nn.Linear(in_features=2 * hidden_size,  # enveloppe and signal
+                            out_features=1)  # probability of being a spindle
 
     def forward(self, x1, x2, h1, h2):
         (batch_size, sequence_len, features) = x1.shape
@@ -387,8 +389,8 @@ class PortiloopNetwork(nn.Module):
             x2 = self.first_fc_input2(x2)
             x2 = self.seq_fc_input2(x2)
         x = torch.cat((x1, x2), -1)
-        x = self.fc(x)
-        x = F.softmax(x, dim=-1)
+        x = self.fc(x)  # output size: 1
+        x = F.sigmoid(x)
         return x, hn1, hn2
 
 
@@ -481,10 +483,14 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
 
             loss_py = criterion(output, batch_labels)
             loss += loss_py.item()
-            acc += (output.max(1)[1] == batch_labels).float().mean()
 
-            if output.ndim == 2:
-                output = output.argmax(dim=1)
+            output = output >= THRESHOLD
+            batch_labels = batch_labels >= THRESHOLD
+
+            acc += (output == batch_labels).float().mean()
+
+            # if output.ndim == 2:
+            #     output = output.argmax(dim=1)
 
             tp += (batch_labels * output).sum().to(torch.float32)
             tn += ((1 - batch_labels) * (1 - output)).sum().to(torch.float32)
@@ -607,7 +613,7 @@ def run(config_dict):
     net = PortiloopNetwork(config_dict).to(device=device_train)
     net = net.train()
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.MSELoss()
     optimizer = optim.Adam(net.parameters(), lr=lr_adam)
 
     losses_pytorch = []
@@ -657,7 +663,11 @@ def run(config_dict):
             loss_train += loss.item()
             loss.backward()
             optimizer.step()
-            accuracy_train += (output.max(1)[1] == batch_labels).float().mean()
+
+            output = output >= THRESHOLD
+            batch_labels = batch_labels >= THRESHOLD
+
+            accuracy_train += (output == batch_labels).float().mean()
             n += 1
 
         accuracy_train /= n
