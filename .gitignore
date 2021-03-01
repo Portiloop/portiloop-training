@@ -128,3 +128,6 @@ dmypy.json
 
 portiloop_detector/wandb/
 wandb/
+
+*.slxc
+portiloop_detector/slprj/
