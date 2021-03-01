@@ -21,7 +21,7 @@ from argparse import ArgumentParser
 
 THRESHOLD = 0.5
 
-filename_dataset = "dataset_big_envelope_fusion.txt"
+filename_dataset = "dataset_big_envelope_fusion_pf.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
@@ -41,7 +41,7 @@ class SignalDataset(Dataset):
         split_data = np.array(np.split(self.data, int(len(self.data) / (125 * fe))))  # 125 = nb seconds per sequence in the dataset
         np.random.seed(42)  # fixed seed value
         np.random.shuffle(split_data)
-        self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 3)))
+        self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
         len_data = np.shape(self.data)[1]
         self.data = self.data[:, int(start_ratio * len_data):int(end_ratio * len_data)]
         assert self.window_size <= len(self.data[0]), "Dataset smaller than window size."
@@ -53,7 +53,7 @@ class SignalDataset(Dataset):
 
         # list of indices that can be sampled:
         self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
-                        if not (self.data[2][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
+                        if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
                                 or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
 
         self.labels = torch.tensor([0, 1], dtype=torch.float)
@@ -64,19 +64,20 @@ class SignalDataset(Dataset):
     def __getitem__(self, idx):
         assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
         idx = self.indices[idx]
-        assert self.data[2][idx + self.window_size - 1] >= 0, f"Bad index: {idx}."
+        assert self.data[3][idx + self.window_size - 1] >= 0, f"Bad index: {idx}."
 
         signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
         envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
 
-        label = torch.tensor(self.data[2][idx + self.window_size - 1], dtype=torch.float)
+        ratio_pf = torch.tensor(self.data[2][idx + self.window_size - 1], dtype=torch.float)
+        label = torch.tensor(self.data[3][idx + self.window_size - 1], dtype=torch.float)
 
-        return signal_seq, envelope_seq, label
+        return signal_seq, envelope_seq, ratio_pf, label
 
     def is_spindle(self, idx):
         assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
         idx = self.indices[idx]
-        return True if (self.data[2][idx + self.window_size - 1] > THRESHOLD) else False
+        return True if (self.data[3][idx + self.window_size - 1] > THRESHOLD) else False
 
 
 def get_class_idxs(dataset):
@@ -339,10 +340,10 @@ class PortiloopNetwork(nn.Module):
             self.first_fc_input2 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
             self.seq_fc_input2 = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
 
-        self.fc = nn.Linear(in_features=2 * hidden_size,  # enveloppe and signal
+        self.fc = nn.Linear(in_features=2 * hidden_size + 1,  # enveloppe and signal + power features ratio
                             out_features=1)  # probability of being a spindle
 
-    def forward(self, x1, x2, h1, h2):
+    def forward(self, x1, x2, x3, h1, h2):
         (batch_size, sequence_len, features) = x1.shape
         x1 = x1.view(-1, 1, features)
         x1 = self.first_layer_input1(x1)
@@ -371,7 +372,8 @@ class PortiloopNetwork(nn.Module):
         else:
             x2 = self.first_fc_input2(x2)
             x2 = self.seq_fc_input2(x2)
-        x = torch.cat((x1, x2), -1)
+        x3 = x3.view(-1, 1)
+        x = torch.cat((x1, x2, x3), -1)
         x = self.fc(x)  # output size: 1
         x = torch.sigmoid(x)
         return x, hn1, hn2
@@ -437,11 +439,12 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
     h2 = torch.zeros((nb_rnn_layers, 1, hidden_size), device=device)
     with torch.no_grad():
         for batch_data in dataloader:
-            batch_samples_input1, batch_samples_input2, batch_labels = batch_data
+            batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
             batch_samples_input1 = batch_samples_input1.to(device=device).float()
             batch_samples_input2 = batch_samples_input2.to(device=device).float()
+            batch_samples_input3 = batch_samples_input3.to(device=device).float()
             batch_labels = batch_labels.to(device=device).float()
-            output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, h1, h2)
+            output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
             output = output.view(-1)
             loss_py = criterion(output, batch_labels)
             loss += loss_py.item()
@@ -580,14 +583,15 @@ def run(config_dict):
         n = 0
 
         for batch_data in train_loader:
-            batch_samples_input1, batch_samples_input2, batch_labels = batch_data
+            batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
             batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
             batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
+            batch_samples_input3 = batch_samples_input3.to(device=device_train).float()
             batch_labels = batch_labels.to(device=device_train).float()
 
             optimizer.zero_grad()
 
-            output, _, _ = net(batch_samples_input1, batch_samples_input2, h1_zero, h2_zero)
+            output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
             output = output.view(-1)
 
             loss = criterion(output, batch_labels)
