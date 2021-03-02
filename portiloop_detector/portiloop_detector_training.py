@@ -398,7 +398,7 @@ class LoggerWandb:
             best_accuracy_validation,
             best_epoch,
             best_model,
-            f1_early_stopping,
+            loss_early_stopping,
             best_epoch_early_stopping,
             best_f1_score_validation,
             best_precision_validation,
@@ -412,7 +412,7 @@ class LoggerWandb:
             "f1_validation": f1_validation,
             "precision_validation": precision_validation,
             "recall_validation": recall_validation,
-            "f1_early_stopping": f1_early_stopping,
+            "loss_early_stopping": loss_early_stopping,
         })
         wandb.run.summary["best_accuracy_validation"] = best_accuracy_validation
         wandb.run.summary["best_epoch"] = best_epoch
@@ -565,13 +565,13 @@ def run(config_dict):
     best_accuracy = 0
     best_epoch = 0
     best_model = None
-    best_f1_early_stopping = 0
+    best_loss_early_stopping = 0
     best_epoch_early_stopping = 0
     best_precision_validation = 0
     best_f1_score_validation = 0
 
     early_stopping_counter = 0
-    f1_early_stopping = None
+    loss_early_stopping = None
     h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     for epoch in range(nb_epoch_max):
@@ -623,11 +623,11 @@ def run(config_dict):
         if precision_validation > best_precision_validation:
             best_precision_validation = precision_validation
 
-        f1_early_stopping = 0.0 if f1_early_stopping is None else f1_validation * early_stopping_smoothing_factor + f1_early_stopping * (
+        loss_early_stopping = 1.0 if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
                 1.0 - early_stopping_smoothing_factor)
 
-        if f1_early_stopping > best_f1_early_stopping:
-            best_f1_early_stopping = f1_early_stopping
+        if loss_early_stopping < best_loss_early_stopping:
+            best_loss_early_stopping = loss_early_stopping
             early_stopping_counter = 0
             best_epoch_early_stopping = epoch
         else:
@@ -643,7 +643,7 @@ def run(config_dict):
                    best_accuracy_validation=best_accuracy,
                    best_epoch=best_epoch,
                    best_model=best_model,
-                   f1_early_stopping=f1_early_stopping,
+                   loss_early_stopping=loss_early_stopping,
                    best_epoch_early_stopping=best_epoch_early_stopping,
                    best_f1_score_validation=best_f1_score_validation,
                    best_precision_validation=best_precision_validation,
@@ -689,7 +689,7 @@ if __name__ == "__main__":
                        nb_epoch_max=1000000,
                        max_duration=int(11.5 * 3600),
                        nb_epoch_early_stopping_stop=200,
-                       early_stopping_smoothing_factor=0.02,
+                       early_stopping_smoothing_factor=0.2,
                        fe=250,
                        nb_batch_per_epoch=1000)
 
