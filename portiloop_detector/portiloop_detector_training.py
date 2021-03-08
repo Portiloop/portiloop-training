@@ -255,6 +255,8 @@ class PortiloopNetwork(nn.Module):
         nb_conv_layers = config_dict["nb_conv_layers"]
         nb_rnn_layers = config_dict["nb_rnn_layers"]
         first_layer_dropout = config_dict["first_layer_dropout"]
+        self.envelope_input = config_dict["envelope_input"]
+        self.power_features_input = config_dict["power_features_input"]
 
         conv_padding = int(kernel_conv // 2)
         pool_padding = int(kernel_pool // 2)
@@ -307,40 +309,45 @@ class PortiloopNetwork(nn.Module):
         else:
             self.first_fc_input1 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
             self.seq_fc_input1 = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
-        self.first_layer_input2 = ConvPoolModule(in_channels=1,
-                                                 out_channel=nb_channel,
-                                                 kernel_conv=kernel_conv,
-                                                 stride_conv=stride_conv,
-                                                 conv_padding=conv_padding,
-                                                 dilation_conv=dilation_conv,
-                                                 kernel_pool=kernel_pool,
-                                                 stride_pool=stride_pool,
-                                                 pool_padding=pool_padding,
-                                                 dilation_pool=dilation_pool,
-                                                 dropout_p=dropout_p if first_layer_dropout else 0)
-        self.seq_input2 = nn.Sequential(*(ConvPoolModule(in_channels=nb_channel,
-                                                         out_channel=nb_channel,
-                                                         kernel_conv=kernel_conv,
-                                                         stride_conv=stride_conv,
-                                                         conv_padding=conv_padding,
-                                                         dilation_conv=dilation_conv,
-                                                         kernel_pool=kernel_pool,
-                                                         stride_pool=stride_pool,
-                                                         pool_padding=pool_padding,
-                                                         dilation_pool=dilation_pool,
-                                                         dropout_p=dropout_p) for _ in range(nb_conv_layers - 1)))
+        if self.envelope_input:
+            self.first_layer_input2 = ConvPoolModule(in_channels=1,
+                                                     out_channel=nb_channel,
+                                                     kernel_conv=kernel_conv,
+                                                     stride_conv=stride_conv,
+                                                     conv_padding=conv_padding,
+                                                     dilation_conv=dilation_conv,
+                                                     kernel_pool=kernel_pool,
+                                                     stride_pool=stride_pool,
+                                                     pool_padding=pool_padding,
+                                                     dilation_pool=dilation_pool,
+                                                     dropout_p=dropout_p if first_layer_dropout else 0)
+            self.seq_input2 = nn.Sequential(*(ConvPoolModule(in_channels=nb_channel,
+                                                             out_channel=nb_channel,
+                                                             kernel_conv=kernel_conv,
+                                                             stride_conv=stride_conv,
+                                                             conv_padding=conv_padding,
+                                                             dilation_conv=dilation_conv,
+                                                             kernel_pool=kernel_pool,
+                                                             stride_pool=stride_pool,
+                                                             pool_padding=pool_padding,
+                                                             dilation_pool=dilation_pool,
+                                                             dropout_p=dropout_p) for _ in range(nb_conv_layers - 1)))
 
-        if RNN:
-            self.gru_input2 = nn.GRU(input_size=output_cnn_size,
-                                     hidden_size=hidden_size,
-                                     num_layers=nb_rnn_layers,
-                                     dropout=0,
-                                     batch_first=True)
-        else:
-            self.first_fc_input2 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
-            self.seq_fc_input2 = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
-
-        self.fc = nn.Linear(in_features=2 * hidden_size + 1,  # enveloppe and signal + power features ratio
+            if RNN:
+                self.gru_input2 = nn.GRU(input_size=output_cnn_size,
+                                         hidden_size=hidden_size,
+                                         num_layers=nb_rnn_layers,
+                                         dropout=0,
+                                         batch_first=True)
+            else:
+                self.first_fc_input2 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
+                self.seq_fc_input2 = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
+        fc_features = hidden_size
+        if self.envelope_input:
+            fc_features += hidden_size
+        if self.power_features_input:
+            fc_features += 1
+        self.fc = nn.Linear(in_features= fc_features,  # enveloppe and signal + power features ratio
                             out_features=1)  # probability of being a spindle
 
     def forward(self, x1, x2, x3, h1, h2):
@@ -358,22 +365,27 @@ class PortiloopNetwork(nn.Module):
         else:
             x1 = self.first_fc_input1(x1)
             x1 = self.seq_fc_input1(x1)
-
-        x2 = x2.view(-1, 1, features)
-        x2 = self.first_layer_input2(x2)
-        x2 = self.seq_input2(x2)
-
-        x2 = torch.flatten(x2, start_dim=1, end_dim=-1)
+        x = x1
         hn2 = None
-        if self.RNN:
-            x2 = x2.view(batch_size, sequence_len, -1)
-            x2, hn2 = self.gru_input2(x2, h2)
-            x2 = x2[:, -1, :]
-        else:
-            x2 = self.first_fc_input2(x2)
-            x2 = self.seq_fc_input2(x2)
-        x3 = x3.view(-1, 1)
-        x = torch.cat((x1, x2, x3), -1)
+        if self.envelope_input:
+            x2 = x2.view(-1, 1, features)
+            x2 = self.first_layer_input2(x2)
+            x2 = self.seq_input2(x2)
+
+            x2 = torch.flatten(x2, start_dim=1, end_dim=-1)
+            if self.RNN:
+                x2 = x2.view(batch_size, sequence_len, -1)
+                x2, hn2 = self.gru_input2(x2, h2)
+                x2 = x2[:, -1, :]
+            else:
+                x2 = self.first_fc_input2(x2)
+                x2 = self.seq_fc_input2(x2)
+            x = torch.cat((x, x2), -1)
+
+        if self.power_features_input:
+            x3 = x3.view(-1, 1)
+            x = torch.cat((x, x3), -1)
+
         x = self.fc(x)  # output size: 1
         x = torch.sigmoid(x)
         return x, hn1, hn2
@@ -384,7 +396,7 @@ class LoggerWandb:
         self.best_model = None
         self.experiment_name = experiment_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project="portiloop-envelope", entity="portiloop", id=experiment_name, resume=None,
+        self.wandb_run = wandb.init(project="portiloop-multiple_input", entity="portiloop", id=experiment_name, resume=None,
                                     config=config_dict, reinit=True)
 
     def log(self,
@@ -402,6 +414,7 @@ class LoggerWandb:
             best_epoch_early_stopping,
             best_f1_score_validation,
             best_precision_validation,
+            updated_model = False,
             ):
         self.best_model = best_model
         wandb.log({
@@ -419,6 +432,8 @@ class LoggerWandb:
         wandb.run.summary["best_epoch_early_stopping"] = best_epoch_early_stopping
         wandb.run.summary["best_f1_score_validation"] = best_f1_score_validation
         wandb.run.summary["best_precision_validation"] = best_precision_validation
+        if updated_model:
+            wandb.run.save(os.path.join(path_dataset, self.experiment_name), policy="live", base_path=path_dataset)
 
     def __del__(self):
         self.wandb_run.finish()
@@ -613,11 +628,14 @@ def run(config_dict):
 
         recall_validation_factor = recall_validation
         precision_validation_factor = precision_validation
-
+        updated_model = False
         if accuracy_validation > best_accuracy:
             best_accuracy = accuracy_validation
             best_model = copy.deepcopy(net)
             best_epoch = epoch
+            torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
+            updated_model = True
+
         if f1_validation > best_f1_score_validation:
             best_f1_score_validation = f1_validation
         if precision_validation > best_precision_validation:
@@ -647,7 +665,7 @@ def run(config_dict):
                    best_epoch_early_stopping=best_epoch_early_stopping,
                    best_f1_score_validation=best_f1_score_validation,
                    best_precision_validation=best_precision_validation,
-                   )
+                   updated_model=updated_model)
 
         if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
             print("Early stopping.")
@@ -682,6 +700,8 @@ if __name__ == "__main__":
     nb_conv_layers_list = [1, 2, 3, 4, 5, 6, 7, 8]
     nb_rnn_layers_list = [1, 2, 3]
     first_layer_dropout_list = [True, False]
+    envelope_input_list = [True, False]
+    power_features_input_list = [True, False]
 
     config_dict = dict(experiment_name=exp_name,
                        device_train="cuda:0",
@@ -689,7 +709,7 @@ if __name__ == "__main__":
                        nb_epoch_max=1000000,
                        max_duration=int(11.5 * 3600),
                        nb_epoch_early_stopping_stop=200,
-                       early_stopping_smoothing_factor=0.2,
+                       early_stopping_smoothing_factor=0.02,
                        fe=250,
                        nb_batch_per_epoch=1000)
 
@@ -703,6 +723,8 @@ if __name__ == "__main__":
     config_dict["lr_adam"] = np.random.choice(lr_adam_list).item()
     config_dict["nb_rnn_layers"] = np.random.choice(nb_rnn_layers_list).item()
     config_dict["first_layer_dropout"] = np.random.choice(first_layer_dropout_list).item()
+    config_dict["envelope_input"] = np.random.choice(envelope_input_list).item()
+    config_dict["power_features_input"] = np.random.choice(power_features_input_list).item()
     config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
 
     nb_out = 0
