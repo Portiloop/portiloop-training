@@ -580,7 +580,7 @@ def run(config_dict):
     best_accuracy = 0
     best_epoch = 0
     best_model = None
-    best_loss_early_stopping = 0
+    best_loss_early_stopping = 1
     best_epoch_early_stopping = 0
     best_precision_validation = 0
     best_f1_score_validation = 0
@@ -709,7 +709,7 @@ if __name__ == "__main__":
                        nb_epoch_max=1000000,
                        max_duration=int(11.5 * 3600),
                        nb_epoch_early_stopping_stop=200,
-                       early_stopping_smoothing_factor=0.02,
+                       early_stopping_smoothing_factor=0.01,
                        fe=250,
                        nb_batch_per_epoch=1000)
 
