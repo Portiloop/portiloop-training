@@ -1,7 +1,7 @@
 %% load
 path = "../dataset/";
-dataset = load(path+"dataset_big_envelope_fusion.txt");
-
+dataset = load(path+"dataset_big_fusion_standardized_envelope.txt");
+output_envelope = single(dataset);
 %% data selection
 Fs = 250;            % Sampling frequency                    
 T = 1/Fs;             % Sampling period       
@@ -11,7 +11,7 @@ t = (0:L-1)*T;        % Time vector
 f = Fs*(0:(L/2))/L;
 f28 = find(2 <= f & f<=8);
 f916 = find(9 <= f & f<=16);
-signal = dataset(:,1);
+signal = output_envelope(:,1);
 size_signal = size(signal,1);
 
 %% compute
@@ -24,9 +24,9 @@ end
 
 %% save 
 
-datasetupdate = [dataset(:,1), dataset(:,2), r, dataset(:,3)];
+datasetupdate = single([output_envelope(:,1), output_envelope(:,2), r, output_envelope(:,3)]);
 
-writematrix(datasetupdate, path+"dataset_big_envelope_fusion_pf.txt");
+writematrix(datasetupdate, path+"dataset_big_fusion_standardized_envelope_pf.txt");
 
 %% plot
 
