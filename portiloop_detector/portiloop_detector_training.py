@@ -21,7 +21,7 @@ from argparse import ArgumentParser
 
 THRESHOLD = 0.5
 
-filename_dataset = "dataset_big_envelope_fusion_pf.txt"
+filename_dataset = "dataset_big_fusion_standardized_envelope_pf.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
@@ -714,7 +714,7 @@ if __name__ == "__main__":
                        nb_batch_per_epoch=1000)
 
     config_dict["batch_size"] = np.random.choice(batch_size_list).item()
-    config_dict["RNN"] = np.random.choice(RNN_list, p=RNN_weights).item()
+    config_dict["RNN"] = True#np.random.choice(RNN_list, p=RNN_weights).item()
     config_dict["seq_len"] = np.random.choice(seq_len_list).item() if config_dict["RNN"] else 1
     config_dict["nb_channel"] = np.random.choice(nb_channel_list).item()
     config_dict["dropout"] = np.random.choice(dropout_list).item()
