@@ -347,7 +347,7 @@ class PortiloopNetwork(nn.Module):
             fc_features += hidden_size
         if self.power_features_input:
             fc_features += 1
-        self.fc = nn.Linear(in_features= fc_features,  # enveloppe and signal + power features ratio
+        self.fc = nn.Linear(in_features=fc_features,  # enveloppe and signal + power features ratio
                             out_features=1)  # probability of being a spindle
 
     def forward(self, x1, x2, x3, h1, h2):
@@ -414,7 +414,7 @@ class LoggerWandb:
             best_epoch_early_stopping,
             best_f1_score_validation,
             best_precision_validation,
-            updated_model = False,
+            updated_model=False,
             ):
         self.best_model = best_model
         wandb.log({
@@ -695,7 +695,7 @@ if __name__ == "__main__":
     hidden_size_list = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150]
     dropout_list = [0, 0.5]
     windows_size_s_list = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
-    seq_stride_s_list = [0.025, 0.05, 0.075, 0.1, 0.125]
+    seq_stride_s_list = [0.025, 0.05, 0.075, 0.1]  # , 0.125]
     lr_adam_list = [0.0005, 0.0003, 0.0001]
     nb_conv_layers_list = [1, 2, 3, 4, 5, 6, 7, 8]
     nb_rnn_layers_list = [1, 2, 3]
@@ -714,7 +714,7 @@ if __name__ == "__main__":
                        nb_batch_per_epoch=1000)
 
     config_dict["batch_size"] = np.random.choice(batch_size_list).item()
-    config_dict["RNN"] = True#np.random.choice(RNN_list, p=RNN_weights).item()
+    config_dict["RNN"] = True  # np.random.choice(RNN_list, p=RNN_weights).item()
     config_dict["seq_len"] = np.random.choice(seq_len_list).item() if config_dict["RNN"] else 1
     config_dict["nb_channel"] = np.random.choice(nb_channel_list).item()
     config_dict["dropout"] = np.random.choice(dropout_list).item()
@@ -723,7 +723,7 @@ if __name__ == "__main__":
     config_dict["lr_adam"] = np.random.choice(lr_adam_list).item()
     config_dict["nb_rnn_layers"] = np.random.choice(nb_rnn_layers_list).item()
     config_dict["first_layer_dropout"] = np.random.choice(first_layer_dropout_list).item()
-    config_dict["envelope_input"] = np.random.choice(envelope_input_list).item()
+    config_dict["envelope_input"] = True  # np.random.choice(envelope_input_list).item()
     config_dict["power_features_input"] = np.random.choice(power_features_input_list).item()
     config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
 
