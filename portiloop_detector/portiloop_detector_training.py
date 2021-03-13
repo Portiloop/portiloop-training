@@ -527,7 +527,10 @@ def run(config_dict):
     nb_weights = 0
     for i in net.parameters():
         nb_weights += len(i)
-    config_dict["estimator_size_memory"] = nb_weights*window_size*seq_len*batch_size
+    has_envelope = 1
+    if config_dict["envelope_input"]:
+        has_envelope = 2
+    config_dict["estimator_size_memory"] = nb_weights + window_size*seq_len*batch_size*has_envelope
 
     ds_train = SignalDataset(filename=filename_dataset,
                              path=path_dataset,
@@ -690,10 +693,10 @@ if __name__ == "__main__":
     RNN_list = [True, False]
     RNN_weights = [0.5, 0.5]
     kernel_conv_list = [3, 5, 7]  # , 9]
-    kernel_pool_list = [3, 5, 7]  # , 9]
+    kernel_pool_list = [3, 5, 7 , 9]
     stride_conv_list = [1, 2, 3, 4, 5]
     stride_pool_list = [1, 2, 3, 4, 5]
-    stride_pool_weights = np.array([1 / 10, 1 / 9, 1 / 1, 1 / 5, 1 / 2])
+    stride_pool_weights = np.array([1 / 8, 1 / 4, 1 / 1, 1 / 2, 1 / 1])
     stride_pool_weights = stride_pool_weights / np.sum(stride_pool_weights)
     dilation_conv_list = [1, 2, 3, 4, 5]
     dilation_pool_list = [1, 2, 3]
@@ -704,7 +707,7 @@ if __name__ == "__main__":
     seq_stride_s_list = [0.025, 0.05, 0.075, 0.1]  # , 0.125]
     lr_adam_list = [0.0005, 0.0003, 0.0001]
     nb_conv_layers_list = [1, 2, 3, 4, 5, 6, 7, 8]
-    nb_conv_layers_weights = np.array([1 / 7, 1 / 11, 1 / 1, 1 / 2, 1 / 1, 1 / 1, 1 / 1, 1 / 3])
+    nb_conv_layers_weights = np.array([1 / 4, 1 / 7, 1 / 1, 1 / 1, 1 / 1, 1 / 1, 1 / 1, 1 / 3])
     nb_conv_layers_weights = nb_conv_layers_weights / np.sum(nb_conv_layers_weights)
     nb_rnn_layers_list = [1, 2, 3]
     first_layer_dropout_list = [True, False]
