@@ -522,6 +522,13 @@ def run(config_dict):
     if device_val.startswith("cuda") or device_train.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
+    net = PortiloopNetwork(config_dict).to(device=device_train)
+    net = net.train()
+    nb_weights = 0
+    for i in net.parameters():
+        nb_weights += len(i)
+    config_dict["estimator_size_memory"] = nb_weights*window_size*seq_len*batch_size
+
     ds_train = SignalDataset(filename=filename_dataset,
                              path=path_dataset,
                              window_size=window_size,
@@ -568,9 +575,6 @@ def run(config_dict):
                                    shuffle=False)
 
     # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
-
-    net = PortiloopNetwork(config_dict).to(device=device_train)
-    net = net.train()
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(net.parameters(), lr=lr_adam)
