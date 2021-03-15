@@ -688,15 +688,15 @@ if __name__ == "__main__":
 
     # hyperparameters
 
-    batch_size_list = [128, 256, 512]
+    batch_size_list = [128, 256]
     seq_len_list = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     RNN_list = [True, False]
     RNN_weights = [0.5, 0.5]
-    kernel_conv_list = [3, 5, 7]  # , 9]
-    kernel_pool_list = [3, 5, 7 , 9]
-    stride_conv_list = [1, 2, 3, 4, 5]
+    kernel_conv_list = [5, 7]
+    kernel_pool_list = [3, 5, 7, 9]
+    stride_conv_list = [1, 2, 3]
     stride_pool_list = [1, 2, 3, 4, 5]
-    stride_pool_weights = np.array([1 / 8, 1 / 4, 1 / 1, 1 / 2, 1 / 1])
+    stride_pool_weights = np.array([1 / 5, 1 / 5, 1 / 3, 1 / 1, 1 / 1])
     stride_pool_weights = stride_pool_weights / np.sum(stride_pool_weights)
     dilation_conv_list = [1, 2, 3, 4, 5]
     dilation_pool_list = [1, 2, 3]
@@ -704,10 +704,10 @@ if __name__ == "__main__":
     hidden_size_list = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150]
     dropout_list = [0, 0.5]
     windows_size_s_list = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
-    seq_stride_s_list = [0.025, 0.05, 0.075, 0.1]  # , 0.125]
+    seq_stride_s_list = [0.025, 0.05, 0.075, 0.1]
     lr_adam_list = [0.0005, 0.0003, 0.0001]
     nb_conv_layers_list = [1, 2, 3, 4, 5, 6, 7, 8]
-    nb_conv_layers_weights = np.array([1 / 4, 1 / 7, 1 / 1, 1 / 1, 1 / 1, 1 / 1, 1 / 1, 1 / 3])
+    nb_conv_layers_weights = np.array([1 / 2, 1 / 6, 1 / 2, 1 / 1, 1 / 1, 1 / 1, 1 / 2, 1 / 1])
     nb_conv_layers_weights = nb_conv_layers_weights / np.sum(nb_conv_layers_weights)
     nb_rnn_layers_list = [1, 2, 3]
     first_layer_dropout_list = [True, False]
@@ -737,8 +737,6 @@ if __name__ == "__main__":
     config_dict["envelope_input"] = True  # np.random.choice(envelope_input_list).item()
     config_dict["power_features_input"] = np.random.choice(power_features_input_list).item()
     config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
-
-    rand_param = np.random.choice(range(8))
 
     nb_out = 0
     while nb_out < 1:
