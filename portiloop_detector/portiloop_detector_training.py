@@ -530,7 +530,7 @@ def run(config_dict):
     has_envelope = 1
     if config_dict["envelope_input"]:
         has_envelope = 2
-    config_dict["estimator_size_memory"] = nb_weights + window_size*seq_len*batch_size*has_envelope
+    config_dict["estimator_size_memory"] = nb_weights * window_size*seq_len*batch_size*has_envelope
 
     ds_train = SignalDataset(filename=filename_dataset,
                              path=path_dataset,
@@ -689,17 +689,17 @@ if __name__ == "__main__":
     # hyperparameters
 
     batch_size_list = [128, 256]
-    seq_len_list = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    seq_len_list = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     RNN_list = [True, False]
     RNN_weights = [0.5, 0.5]
     kernel_conv_list = [5, 7]
     kernel_pool_list = [3, 5, 7, 9]
-    stride_conv_list = [1, 2, 3]
+    stride_conv_list = [1]
     stride_pool_list = [1, 2, 3, 4, 5]
     stride_pool_weights = np.array([1 / 5, 1 / 5, 1 / 3, 1 / 1, 1 / 1])
     stride_pool_weights = stride_pool_weights / np.sum(stride_pool_weights)
-    dilation_conv_list = [1, 2, 3, 4, 5]
-    dilation_pool_list = [1, 2, 3]
+    dilation_conv_list = [1]
+    dilation_pool_list = [1]
     nb_channel_list = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     hidden_size_list = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150]
     dropout_list = [0, 0.5]
@@ -707,7 +707,7 @@ if __name__ == "__main__":
     seq_stride_s_list = [0.025, 0.05, 0.075, 0.1]
     lr_adam_list = [0.0005, 0.0003, 0.0001]
     nb_conv_layers_list = [1, 2, 3, 4, 5, 6, 7, 8]
-    nb_conv_layers_weights = np.array([1 / 2, 1 / 6, 1 / 2, 1 / 1, 1 / 1, 1 / 1, 1 / 2, 1 / 1])
+    nb_conv_layers_weights = np.array([1 / 11, 1 / 6, 1 / 5, 1 / 2, 1 / 2, 1 / 2, 1 / 2, 1 / 2])
     nb_conv_layers_weights = nb_conv_layers_weights / np.sum(nb_conv_layers_weights)
     nb_rnn_layers_list = [1, 2, 3]
     first_layer_dropout_list = [True, False]
