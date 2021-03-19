@@ -530,7 +530,7 @@ def run(config_dict):
     has_envelope = 1
     if config_dict["envelope_input"]:
         has_envelope = 2
-    config_dict["estimator_size_memory"] = nb_weights * window_size*seq_len*batch_size*has_envelope
+    config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
     ds_train = SignalDataset(filename=filename_dataset,
                              path=path_dataset,
@@ -682,37 +682,32 @@ def run(config_dict):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('--experiment_name', type=str)
+    parser.add_argument('--experiment_index', type=int)
     args = parser.parse_args()
 
     exp_name = args.experiment_name
+    exp_index = args.experiment_index % 8
 
     # hyperparameters
 
-    batch_size_list = [128, 256]
-    seq_len_list = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-    RNN_list = [True, False]
-    RNN_weights = [0.5, 0.5]
-    kernel_conv_list = [5, 7]
-    kernel_pool_list = [3, 5, 7, 9]
-    stride_conv_list = [1]
-    stride_pool_list = [1, 2, 3, 4, 5]
-    stride_pool_weights = np.array([1 / 1, 1 / 3, 1 / 6, 1 / 4, 1 / 14])
-    stride_pool_weights = stride_pool_weights / np.sum(stride_pool_weights)
-    dilation_conv_list = [1]
-    dilation_pool_list = [1]
-    nb_channel_list = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-    hidden_size_list = [5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150]
-    dropout_list = [0, 0.5]
-    windows_size_s_list = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
-    seq_stride_s_list = [0.025, 0.05, 0.075, 0.1]
-    lr_adam_list = [0.0005, 0.0003, 0.0001]
-    nb_conv_layers_list = [1, 2, 3, 4, 5, 6, 7, 8]
-    nb_conv_layers_weights = np.array([1 / 2, 1 / 2, 1 / 2, 1 / 3, 1 / 1, 1 / 4, 1 / 8, 1 / 8])
-    nb_conv_layers_weights = nb_conv_layers_weights / np.sum(nb_conv_layers_weights)
-    nb_rnn_layers_list = [1, 2, 3]
-    first_layer_dropout_list = [True, False]
-    envelope_input_list = [True, False]
-    power_features_input_list = [True, False]
+    batch_size_list = [256, 256, 128, 256, 256, 128, 256, 128]
+    seq_len_list = [90, 10, 100, 50, 20, 40, 20, 90]
+    kernel_conv_list = [7, 7, 5, 7, 5, 7, 5, 5]
+    kernel_pool_list = [9, 5, 7, 5, 3, 5, 3, 3]
+    stride_conv_list = [1, 1, 1, 1, 1, 1, 1, 1]
+    stride_pool_list = [3, 3, 5, 1, 1, 2, 1, 4]
+    dilation_conv_list = [1, 1, 1, 1, 1, 1, 1, 1]
+    dilation_pool_list = [1, 1, 1, 1, 1, 1, 1, 1]
+    nb_channel_list = [80, 70, 80, 20, 20, 10, 60, 90]
+    hidden_size_list = [70, 20, 5, 60, 15, 110, 40, 130]
+    dropout_list = [0, 0.5, 0, 0.5, 0.5, 0.5, 0.5, 0.5]
+    windows_size_s_list = [0.25, 0.4, 0.4, 0.6, 0.25, 0.9, 0.35, 0.35]
+    seq_stride_s_list = [0.075, 0.1, 0.075, 0.025, 0.1, 0.025, 0.025, 0.1]
+    lr_adam_list = [0.0001, 0.0005, 0.0001, 0.0003, 0.0003, 0.0005, 0.0001, 0.0005]
+    nb_conv_layers_list = [7, 4, 6, 4, 7, 1, 3, 4]
+    nb_rnn_layers_list = [3, 3, 3, 1, 1, 3, 3, 1]
+    first_layer_dropout_list = [False, False, True, False, False, True, True, False]
+    power_features_input_list = [False, True, False, False, True, False, True, False]
 
     config_dict = dict(experiment_name=exp_name,
                        device_train="cuda:0",
@@ -724,30 +719,30 @@ if __name__ == "__main__":
                        fe=250,
                        nb_batch_per_epoch=1000)
 
-    config_dict["batch_size"] = np.random.choice(batch_size_list).item()
-    config_dict["RNN"] = True  # np.random.choice(RNN_list, p=RNN_weights).item()
-    config_dict["seq_len"] = np.random.choice(seq_len_list).item() if config_dict["RNN"] else 1
-    config_dict["nb_channel"] = np.random.choice(nb_channel_list).item()
-    config_dict["dropout"] = np.random.choice(dropout_list).item()
-    config_dict["hidden_size"] = np.random.choice(hidden_size_list).item()
-    config_dict["seq_stride_s"] = np.random.choice(seq_stride_s_list).item() if config_dict["RNN"] else 0.1  # could be changed
-    config_dict["lr_adam"] = np.random.choice(lr_adam_list).item()
-    config_dict["nb_rnn_layers"] = np.random.choice(nb_rnn_layers_list).item()
-    config_dict["first_layer_dropout"] = np.random.choice(first_layer_dropout_list).item()
-    config_dict["envelope_input"] = True  # np.random.choice(envelope_input_list).item()
-    config_dict["power_features_input"] = np.random.choice(power_features_input_list).item()
+    config_dict["batch_size"] = batch_size_list[exp_index]
+    config_dict["RNN"] = True
+    config_dict["seq_len"] = seq_len_list[exp_index]
+    config_dict["nb_channel"] = nb_channel_list[exp_index]
+    config_dict["dropout"] = dropout_list[exp_index]
+    config_dict["hidden_size"] = hidden_size_list[exp_index]
+    config_dict["seq_stride_s"] = seq_stride_s_list[exp_index]
+    config_dict["lr_adam"] = lr_adam_list[exp_index]
+    config_dict["nb_rnn_layers"] = nb_rnn_layers_list[exp_index]
+    config_dict["first_layer_dropout"] = first_layer_dropout_list[exp_index]
+    config_dict["envelope_input"] = True
+    config_dict["power_features_input"] = power_features_input_list[exp_index]
     config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
 
     nb_out = 0
     while nb_out < 1:
-        config_dict["window_size_s"] = np.random.choice(windows_size_s_list).item()
-        config_dict["nb_conv_layers"] = np.random.choice(nb_conv_layers_list, p=nb_conv_layers_weights).item()
-        config_dict["stride_pool"] = np.random.choice(stride_pool_list, p=stride_pool_weights).item()
-        config_dict["stride_conv"] = np.random.choice(stride_conv_list).item()
-        config_dict["kernel_conv"] = np.random.choice(kernel_conv_list).item()
-        config_dict["kernel_pool"] = np.random.choice(kernel_pool_list).item()
-        config_dict["dilation_conv"] = np.random.choice(dilation_conv_list).item()
-        config_dict["dilation_pool"] = np.random.choice(dilation_pool_list).item()
+        config_dict["window_size_s"] = windows_size_s_list[exp_index]
+        config_dict["nb_conv_layers"] = nb_conv_layers_list[exp_index]
+        config_dict["stride_pool"] = stride_pool_list[exp_index]
+        config_dict["stride_conv"] = stride_conv_list[exp_index]
+        config_dict["kernel_conv"] = kernel_conv_list[exp_index]
+        config_dict["kernel_pool"] = kernel_pool_list[exp_index]
+        config_dict["dilation_conv"] = dilation_conv_list[exp_index]
+        config_dict["dilation_pool"] = dilation_pool_list[exp_index]
 
         stride_pool = config_dict["stride_pool"]
         stride_conv = config_dict["stride_conv"]
