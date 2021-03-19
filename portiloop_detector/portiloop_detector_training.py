@@ -713,7 +713,7 @@ if __name__ == "__main__":
                        device_train="cuda:0",
                        device_val="cpu",
                        nb_epoch_max=1000000,
-                       max_duration=int(11.5 * 3600),
+                       max_duration=int(71.5 * 3600),
                        nb_epoch_early_stopping_stop=200,
                        early_stopping_smoothing_factor=0.01,
                        fe=250,
