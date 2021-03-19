@@ -1,6 +1,6 @@
 %% load
 path = "../dataset/";
-dataset = load(path+"dataset_big_fusion_standardized_envelope.txt");
+dataset = load(path+"dataset_test_fusion_standardized_envelope.txt");
 output_envelope = single(dataset);
 %% data selection
 Fs = 250;            % Sampling frequency                    
@@ -26,7 +26,7 @@ end
 
 datasetupdate = single([output_envelope(:,1), output_envelope(:,2), r, output_envelope(:,3)]);
 
-writematrix(datasetupdate, path+"dataset_big_fusion_standardized_envelope_pf.txt");
+writematrix(datasetupdate, path+"dataset_test_fusion_standardized_envelope_pf.txt");
 
 %% plot
 

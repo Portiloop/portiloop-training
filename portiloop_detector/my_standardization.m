@@ -2,7 +2,12 @@
 path = "../dataset/";
 dataset = load(path+"dataset_big_envelope_fusion_pf.txt");
 
-%%
+%% load data from portiloop
+
+path = "../dataset/";
+dataset = [downsample(load(path+"elec_0_data_09082020_1"),2), load(path+"detVect_test_portiloop_data.txt"), load(path+"detVect_test_portiloop_data.txt"), load(path+"detVect_test_portiloop_data.txt")];
+
+%% 
 signal = dataset(:,1);
 spindles_gs = dataset(:,4) == 1;
 spindles_hugo = dataset(:,4) == 0.8;
@@ -49,4 +54,4 @@ axis([140 160 -20 20]);
 
 output_signal = single([sim_filtered(:,1), dataset(1:end-8,4)]);
 
-writematrix(output_signal, path+"dataset_big_fusion_standardized.txt");
+writematrix(output_signal, path+"dataset_test_fusion_standardized.txt");

@@ -2,6 +2,12 @@
 path = "../dataset/";
 dataset = load(path+"dataset_big_envelope_fusion_pf.txt");
 
+%% load data from portiloop
+
+path = "../dataset/";
+dataset = [downsample(load(path+"elec_0_data_09082020_1"),2), load(path+"detVect_test_portiloop_data.txt"), load(path+"detVect_test_portiloop_data.txt"), load(path+"detVect_test_portiloop_data.txt")];
+
+
 %% 
 
 signal = dataset(:,1);
@@ -92,8 +98,8 @@ end
 % axis([140 160 -20 20]);
 
 %% save
-dataset_final = load(path+"dataset_big_fusion_standardized.txt");
+dataset_final = load(path+"dataset_test_fusion_standardized.txt");
 
 output_envelope = single([dataset_final(:,1), envelope_homemade_simulink, dataset_final(:,2)]);
 
-writematrix(output_envelope, path+"dataset_big_fusion_standardized_envelope.txt");
+writematrix(output_envelope, path+"dataset_test_fusion_standardized_envelope.txt");
