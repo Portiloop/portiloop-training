@@ -414,6 +414,7 @@ class LoggerWandb:
             best_epoch_early_stopping,
             best_f1_score_validation,
             best_precision_validation,
+            best_recall_validation,
             updated_model=False,
             ):
         self.best_model = best_model
@@ -432,6 +433,7 @@ class LoggerWandb:
         wandb.run.summary["best_epoch_early_stopping"] = best_epoch_early_stopping
         wandb.run.summary["best_f1_score_validation"] = best_f1_score_validation
         wandb.run.summary["best_precision_validation"] = best_precision_validation
+        wandb.run.summary["best_recall_validation"] = best_recall_validation
         if updated_model:
             wandb.run.save(os.path.join(path_dataset, self.experiment_name), policy="live", base_path=path_dataset)
 
@@ -591,6 +593,7 @@ def run(config_dict):
     best_epoch_early_stopping = 0
     best_precision_validation = 0
     best_f1_score_validation = 0
+    best_recall_validation = 0
 
     early_stopping_counter = 0
     loss_early_stopping = None
@@ -642,11 +645,10 @@ def run(config_dict):
             best_epoch = epoch
             torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
             updated_model = True
-
-        if f1_validation > best_f1_score_validation:
             best_f1_score_validation = f1_validation
-        if precision_validation > best_precision_validation:
             best_precision_validation = precision_validation
+            best_recall_validation = recall_validation
+
 
         loss_early_stopping = 1.0 if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
                 1.0 - early_stopping_smoothing_factor)
@@ -672,6 +674,7 @@ def run(config_dict):
                    best_epoch_early_stopping=best_epoch_early_stopping,
                    best_f1_score_validation=best_f1_score_validation,
                    best_precision_validation=best_precision_validation,
+                   best_recall_validation=best_recall_validation,
                    updated_model=updated_model)
 
         if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
