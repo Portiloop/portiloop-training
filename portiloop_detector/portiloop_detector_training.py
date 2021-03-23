@@ -396,7 +396,7 @@ class LoggerWandb:
         self.best_model = None
         self.experiment_name = experiment_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project="portiloop-multiple_input", entity="portiloop", id=experiment_name, resume=None,
+        self.wandb_run = wandb.init(project="portiloop-multiple_input", entity="portiloop", id=experiment_name, resume="allow",
                                     config=config_dict, reinit=True)
 
     def log(self,
@@ -407,7 +407,7 @@ class LoggerWandb:
             f1_validation,
             precision_validation,
             recall_validation,
-            best_accuracy_validation,
+            best_model_accuracy_validation,
             best_epoch,
             best_model,
             loss_early_stopping,
@@ -429,19 +429,21 @@ class LoggerWandb:
             "recall_validation": recall_validation,
             "loss_early_stopping": loss_early_stopping,
         })
-        wandb.run.summary["best_accuracy_validation"] = best_accuracy_validation
         wandb.run.summary["best_epoch"] = best_epoch
         wandb.run.summary["best_epoch_early_stopping"] = best_epoch_early_stopping
         wandb.run.summary["best_model_f1_score_validation"] = best_model_f1_score_validation
         wandb.run.summary["best_model_precision_validation"] = best_model_precision_validation
         wandb.run.summary["best_model_recall_validation"] = best_model_recall_validation
         wandb.run.summary["best_model_loss_validation"] = best_model_loss_validation
+        wandb.run.summary["best_model_accuracy_validation"] = best_model_accuracy_validation
         if updated_model:
             wandb.run.save(os.path.join(path_dataset, self.experiment_name), policy="live", base_path=path_dataset)
 
     def __del__(self):
         self.wandb_run.finish()
 
+    def restore(self):
+        wandb.run.restore(self.experiment_name, root=path_dataset)
 
 def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers):
     net_copy = copy.deepcopy(net)
@@ -526,7 +528,22 @@ def run(config_dict):
     if device_val.startswith("cuda") or device_train.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
-    net = PortiloopNetwork(config_dict).to(device=device_train)
+    logger = LoggerWandb(experiment_name, config_dict)
+    net = PortiloopNetwork(config_dict)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(net.parameters(), lr=lr_adam)
+
+    first_epoch = 0
+    try:
+        logger.restore()
+        checkpoint = torch.load(path_dataset/experiment_name)
+        net.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        first_epoch = checkpoint['epoch']
+        print("DEBUG: Use checkpoint model")
+    except ValueError:
+        net = PortiloopNetwork(config_dict).to(device=device_train)
+        print("DEBUG: Create new model")
     net = net.train()
     nb_weights = 0
     for i in net.parameters():
@@ -583,12 +600,9 @@ def run(config_dict):
 
     # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(net.parameters(), lr=lr_adam)
 
-    logger = LoggerWandb(experiment_name, config_dict)
 
-    best_accuracy = 0
+    best_model_accuracy = 0
     best_epoch = 0
     best_model = None
     best_loss_early_stopping = 1
@@ -596,13 +610,13 @@ def run(config_dict):
     best_model_precision_validation = 0
     best_model_f1_score_validation = 0
     best_model_recall_validation = 0
-    best_model_loss_validation = 0
+    best_model_loss_validation = 1
 
     early_stopping_counter = 0
     loss_early_stopping = None
     h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
-    for epoch in range(nb_epoch_max):
+    for epoch in range(first_epoch, first_epoch+nb_epoch_max):
 
         print(f"DEBUG: epoch:{epoch}")
 
@@ -642,17 +656,21 @@ def run(config_dict):
         recall_validation_factor = recall_validation
         precision_validation_factor = precision_validation
         updated_model = False
-        if accuracy_validation > best_accuracy:
-            best_accuracy = accuracy_validation
+        if loss_validation < best_model_loss_validation:
             best_model = copy.deepcopy(net)
             best_epoch = epoch
-            torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
+            # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': best_model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+            }, path_dataset / experiment_name, _use_new_zipfile_serialization=False)
             updated_model = True
             best_model_f1_score_validation = f1_validation
             best_model_precision_validation = precision_validation
             best_model_recall_validation = recall_validation
             best_model_loss_validation = loss_validation
-
+            best_model_accuracy = accuracy_validation
 
         loss_early_stopping = 1.0 if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
                 1.0 - early_stopping_smoothing_factor)
@@ -671,7 +689,7 @@ def run(config_dict):
                    f1_validation=f1_validation,
                    precision_validation=precision_validation,
                    recall_validation=recall_validation,
-                   best_accuracy_validation=best_accuracy,
+                   best_model_accuracy_validation=best_model_accuracy,
                    best_epoch=best_epoch,
                    best_model=best_model,
                    loss_early_stopping=loss_early_stopping,
