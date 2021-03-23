@@ -136,7 +136,7 @@ class RandomSampler(Sampler):
         seed()
         epsilon = 1e-7
         proba = float(0.5 + 0.5 * (precision_validation_factor - recall_validation_factor) / (precision_validation_factor + recall_validation_factor + epsilon))
-        print(f"DEBUG : proba : {proba}")
+        print(f"DEBUG: proba: {proba}")
 
         while cur_iter < self.length:
             cur_iter += 1
@@ -445,6 +445,7 @@ class LoggerWandb:
     def restore(self):
         wandb.run.restore(self.experiment_name, root=path_dataset)
 
+
 def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers):
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
@@ -536,10 +537,12 @@ def run(config_dict):
     first_epoch = 0
     try:
         logger.restore()
-        checkpoint = torch.load(path_dataset/experiment_name)
+        checkpoint = torch.load(path_dataset / experiment_name)
         net.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        first_epoch = checkpoint['epoch']
+        first_epoch = checkpoint['epoch'] + 1
+        recall_validation_factor = checkpoint['recall_validation_factor']
+        precision_validation_factor = checkpoint['precision_validation_factor']
         print("DEBUG: Use checkpoint model")
     except (ValueError, FileNotFoundError):
         net = PortiloopNetwork(config_dict).to(device=device_train)
@@ -600,8 +603,6 @@ def run(config_dict):
 
     # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
 
-
-
     best_model_accuracy = 0
     best_epoch = 0
     best_model = None
@@ -616,9 +617,9 @@ def run(config_dict):
     loss_early_stopping = None
     h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
-    for epoch in range(first_epoch, first_epoch+nb_epoch_max):
+    for epoch in range(first_epoch, first_epoch + nb_epoch_max):
 
-        print(f"DEBUG: epoch:{epoch}")
+        print(f"DEBUG: epoch: {epoch}")
 
         accuracy_train = 0
         loss_train = 0
@@ -664,6 +665,8 @@ def run(config_dict):
                 'epoch': epoch,
                 'model_state_dict': best_model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
+                'recall_validation_factor': recall_validation_factor,
+                'precision_validation_factor': precision_validation_factor,
             }, path_dataset / experiment_name, _use_new_zipfile_serialization=False)
             updated_model = True
             best_model_f1_score_validation = f1_validation
