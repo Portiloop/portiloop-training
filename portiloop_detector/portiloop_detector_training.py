@@ -541,7 +541,7 @@ def run(config_dict):
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         first_epoch = checkpoint['epoch']
         print("DEBUG: Use checkpoint model")
-    except ValueError:
+    except (ValueError, FileNotFoundError):
         net = PortiloopNetwork(config_dict).to(device=device_train)
         print("DEBUG: Create new model")
     net = net.train()
