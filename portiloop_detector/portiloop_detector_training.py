@@ -135,7 +135,7 @@ class RandomSampler(Sampler):
         cur_iter = 0
         seed()
         epsilon = 1e-7
-    #    proba = float(0.5 + 0.5 * (precision_validation_factor - recall_validation_factor) / (precision_validation_factor + recall_validation_factor + epsilon))
+        #    proba = float(0.5 + 0.5 * (precision_validation_factor - recall_validation_factor) / (precision_validation_factor + recall_validation_factor + epsilon))
         proba = 0.5
         print(f"DEBUG: proba: {proba}")
 
@@ -546,7 +546,7 @@ def run(config_dict):
         precision_validation_factor = checkpoint['precision_validation_factor']
         print("DEBUG: Use checkpoint model")
     except (ValueError, FileNotFoundError):
-        net = PortiloopNetwork(config_dict).to(device=device_train)
+        #    net = PortiloopNetwork(config_dict).to(device=device_train)
         print("DEBUG: Create new model")
     net = net.train()
     nb_weights = 0
