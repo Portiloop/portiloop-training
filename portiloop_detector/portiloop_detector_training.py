@@ -716,28 +716,28 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     exp_name = args.experiment_name
-    exp_index = args.experiment_index % 5
+    exp_index = args.experiment_index % 6
 
     # hyperparameters
 
-    batch_size_list = [256, 256, 256, 256, 256]
-    seq_len_list = [10, 20, 10, 20, 10]
-    kernel_conv_list = [7, 5, 7, 5, 7]
-    kernel_pool_list = [5, 3, 5, 3, 5]
-    stride_conv_list = [1, 1, 1, 1, 1]
-    stride_pool_list = [3, 1, 3, 1, 1]
-    dilation_conv_list = [1, 1, 1, 1, 1]
-    dilation_pool_list = [1, 1, 1, 1, 1]
-    nb_channel_list = [70, 20, 70, 20, 70]
-    hidden_size_list = [20, 15, 20, 15, 20]
-    dropout_list = [0.5, 0.5, 0.5, 0.5, 0.5]
-    windows_size_s_list = [0.4, 0.25, 0.4, 0.25, 0.1]
-    seq_stride_s_list = [0.1, 0.1, 0.1, 0.1, 0.1]
-    lr_adam_list = [0.0005, 0.0003, 0.0005, 0.0003, 0.0005]
-    nb_conv_layers_list = [4, 7, 4, 7, 4]
-    nb_rnn_layers_list = [3, 1, 3, 1, 3]
-    first_layer_dropout_list = [False, False, False, False, False]
-    power_features_input_list = [True, True, False, False, True]
+    batch_size_list = [256, 256, 256, 256, 256, 256]
+    seq_len_list = [10, 20, 10, 20, 10, 10]
+    kernel_conv_list = [7, 5, 7, 5, 7, 7]
+    kernel_pool_list = [5, 3, 5, 3, 5, 5]
+    stride_conv_list = [1, 1, 1, 1, 1, 1]
+    stride_pool_list = [3, 1, 3, 1, 1, 1]
+    dilation_conv_list = [1, 1, 1, 1, 1, 1]
+    dilation_pool_list = [1, 1, 1, 1, 1, 1]
+    nb_channel_list = [70, 20, 70, 20, 70, 70]
+    hidden_size_list = [20, 15, 20, 15, 20, 20]
+    dropout_list = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+    windows_size_s_list = [0.4, 0.25, 0.4, 0.25, 0.1, 0.1]
+    seq_stride_s_list = [0.1, 0.1, 0.1, 0.1, 0.1, 0.05]
+    lr_adam_list = [0.0005, 0.0003, 0.0005, 0.0003, 0.0005, 0.0005]
+    nb_conv_layers_list = [4, 7, 4, 7, 4, 4]
+    nb_rnn_layers_list = [3, 1, 3, 1, 3, 3]
+    first_layer_dropout_list = [False, False, False, False, False, False]
+    power_features_input_list = [True, True, False, False, True, True]
 
     config_dict = dict(experiment_name=exp_name,
                        device_train="cuda:0",
