@@ -238,9 +238,10 @@ class ConvPoolModule(nn.Module):
                                  padding=pool_padding,
                                  dilation=dilation_pool)
         self.dropout = nn.Dropout(dropout_p)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
-        x = nn.ReLU(self.conv(x))
+        x = self.relu(self.conv(x))
         x = self.pool(x)
         return self.dropout(x)
 
@@ -254,9 +255,10 @@ class FcModule(nn.Module):
 
         self.fc = nn.Linear(in_features=in_features, out_features=out_features)
         self.dropout = nn.Dropout(dropout_p)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
-        x = nn.ReLU(self.fc(x))
+        x = self.relu(self.fc(x))
         return self.dropout(x)
 
 
