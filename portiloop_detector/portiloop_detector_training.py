@@ -406,7 +406,7 @@ class PortiloopNetwork(nn.Module):
             x2 = self.first_layer_input2(x2)
             x2 = self.seq_input2(x2)
 
-            x2 = flt.flatten(x2, start_dim=1, end_dim=-1)
+            x2 = torch.flatten(x2, start_dim=1, end_dim=-1)
             if self.RNN:
                 x2 = x2.view(batch_size, sequence_len, -1)
                 x2, hn2 = self.gru_input2(x2, h2)
