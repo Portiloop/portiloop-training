@@ -1,8 +1,8 @@
 import portiloop_detector_training as portiloop
 import numpy as np
 
-exp_index = 0
-experiment_name = "run_v2_BEST_6"
+exp_index = 3
+experiment_name = "run_v2_BEST_3"
 
 config_dict = portiloop.get_config_dict(exp_index, experiment_name)
 
@@ -138,7 +138,6 @@ param_list = ["w_ih", "w_hh", "b_ih", "b_hh"]
 param_name_list = ["WI", "WH", "B", "B"]
 counter = 0
 for param in net.gru_input1.parameters():
-    print(param.size())
     param = param.view(-1).detach().numpy()
     n = len(param)
 
@@ -153,7 +152,6 @@ for param in net.gru_input1.parameters():
 
 counter = 0
 for param in net.gru_input2.parameters():
-    print(param.size())
     param = param.view(-1).detach().numpy()
     n = len(param)
 
@@ -165,4 +163,27 @@ for param in net.gru_input2.parameters():
     input2_str += "};\n"
     file.write(input2_str)
     counter += 1
+
+param = net.fc.weight.view(-1).detach().numpy()
+n = len(param)
+
+fc_str = "static const parameter_fixed_type fc_weight[FC_INPUT_SIZE] = {"
+for i in range(n):
+    fc_str += str(param[i])
+    fc_str += ", "
+fc_str = fc_str[:-2]
+fc_str += "};\n"
+file.write(fc_str)
+
+param = net.fc.bias.detach().numpy()
+n = len(param)
+
+fc_str = "static const parameter_fixed_type fc_bias[FC_OUTPUT_SIZE] = {"
+for i in range(n):
+    fc_str += str(param[i])
+    fc_str += ", "
+fc_str = fc_str[:-2]
+fc_str += "};\n"
+file.write(fc_str)
+
 file.close()
