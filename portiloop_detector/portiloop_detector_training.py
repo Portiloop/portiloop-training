@@ -487,6 +487,11 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
     net_copy = net_copy.eval()
+    model_int8 = torch.quantization.convert(net_copy)
+
+    # run the model, relevant calculations will happen in int8
+    net_copy = model_int8(net_copy)
+
     acc = 0
     tp = 0
     tn = 0
@@ -589,7 +594,7 @@ def run(config_dict):
     net.qconfig = torch.quantization.get_default_qat_qconfig('qnnpack')
    # net_fused = torch.quantization.fuse_modules(net, [['conv', 'gru', 'relu', 'sigmoid', 'linear']])
     net_fused = net
-    net_prepared = torch.quantization.prepare_qat(net_fused)
+    net = torch.quantization.prepare_qat(net_fused)
 
     nb_weights = 0
     for i in net.parameters():
@@ -749,11 +754,6 @@ def run(config_dict):
         if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
             print("Early stopping.")
             break
-    net_prepared.eval()
-    model_int8 = torch.quantization.convert(net_prepared)
-
-    # run the model, relevant calculations will happen in int8
-    res = model_int8(net)
 
 def get_config_dict(index, name):
     config_dict = dict(experiment_name=name,
