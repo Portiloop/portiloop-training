@@ -2,6 +2,8 @@
 
 from pathlib import Path
 from math import floor
+
+from torch.quantization import QuantStub, DeQuantStub
 from torch.utils.data import Dataset, DataLoader
 import os
 import time
@@ -9,7 +11,7 @@ from torch.utils.data.sampler import Sampler
 from random import randint, seed
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
+#from torch.nn import functional as F
 import numpy as np
 import torch.optim as optim
 import pandas as pd
@@ -238,7 +240,7 @@ class ConvPoolModule(nn.Module):
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, x):
-        x = F.relu(self.conv(x))
+        x = nn.ReLU(self.conv(x))
         x = self.pool(x)
         return self.dropout(x)
 
@@ -254,7 +256,7 @@ class FcModule(nn.Module):
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, x):
-        x = F.relu(self.fc(x))
+        x = nn.ReLU(self.fc(x))
         return self.dropout(x)
 
 
@@ -371,8 +373,16 @@ class PortiloopNetwork(nn.Module):
             fc_features += 1
         self.fc = nn.Linear(in_features=fc_features,  # enveloppe and signal + power features ratio
                             out_features=1)  # probability of being a spindle
+        self.quant = QuantStub()
+        self.dequant = DeQuantStub()
 
     def forward(self, x1, x2, x3, h1, h2):
+        flt = torch.nn.quantized.FloatFunctional()
+        x1 = self.quant(x1)
+        x2 = self.quant(x2)
+        x3 = self.quant(x3)
+        h1 = self.quant(h1)
+        h2 = self.quant(h2)
         (batch_size, sequence_len, features) = x1.shape
         x1 = x1.view(-1, 1, features)
         x1 = self.first_layer_input1(x1)
@@ -394,7 +404,7 @@ class PortiloopNetwork(nn.Module):
             x2 = self.first_layer_input2(x2)
             x2 = self.seq_input2(x2)
 
-            x2 = torch.flatten(x2, start_dim=1, end_dim=-1)
+            x2 = flt.flatten(x2, start_dim=1, end_dim=-1)
             if self.RNN:
                 x2 = x2.view(batch_size, sequence_len, -1)
                 x2, hn2 = self.gru_input2(x2, h2)
@@ -402,14 +412,17 @@ class PortiloopNetwork(nn.Module):
             else:
                 x2 = self.first_fc_input2(x2)
                 x2 = self.seq_fc_input2(x2)
-            x = torch.cat((x, x2), -1)
+            x = flt.cat((x, x2), -1)
 
         if self.power_features_input:
             x3 = x3.view(-1, 1)
-            x = torch.cat((x, x3), -1)
+            x = flt.cat((x, x3), -1)
 
         x = self.fc(x)  # output size: 1
         x = torch.sigmoid(x)
+        x = self.dequant(x)
+        hn1 = self.dequant(hn1)
+        hn2 = self.dequant(hn2)
         return x, hn1, hn2
 
 
@@ -570,6 +583,12 @@ def run(config_dict):
         #    net = PortiloopNetwork(config_dict).to(device=device_train)
         print("DEBUG: Create new model")
     net = net.train()
+
+    net.qconfig = torch.quantization.get_default_qat_qconfig('qnnpack')
+   # net_fused = torch.quantization.fuse_modules(net, [['conv', 'gru', 'relu', 'sigmoid', 'linear']])
+    net_fused = net
+    net_prepared = torch.quantization.prepare_qat(net_fused)
+
     nb_weights = 0
     for i in net.parameters():
         nb_weights += len(i)
@@ -728,7 +747,11 @@ def run(config_dict):
         if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
             print("Early stopping.")
             break
+    net_prepared.eval()
+    model_int8 = torch.quantization.convert(net_prepared)
 
+    # run the model, relevant calculations will happen in int8
+    res = model_int8(net)
 
 def get_config_dict(index, name):
     config_dict = dict(experiment_name=name,
