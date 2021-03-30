@@ -394,9 +394,10 @@ class PortiloopNetwork(nn.Module):
         hn1 = None
         if self.RNN:
             x1 = x1.view(batch_size, sequence_len, -1)
-            print(x1)
-            print(h1)
-            x1, hn1 = self.gru_input1(x1, h1)
+            if self.training:
+                x1, hn1 = self.gru_input1(x1)
+            else:
+                x1, hn1 = self.gru_input1(x1, h1)
             x1 = x1[:, -1, :]
         else:
             x1 = self.first_fc_input1(x1)
@@ -411,7 +412,10 @@ class PortiloopNetwork(nn.Module):
             x2 = torch.flatten(x2, start_dim=1, end_dim=-1)
             if self.RNN:
                 x2 = x2.view(batch_size, sequence_len, -1)
-                x2, hn2 = self.gru_input2(x2, h2)
+                if self.training:
+                    x2, hn2 = self.gru_input2(x2)
+                else:
+                    x2, hn2 = self.gru_input2(x2, h2)
                 x2 = x2[:, -1, :]
             else:
                 x2 = self.first_fc_input2(x2)
