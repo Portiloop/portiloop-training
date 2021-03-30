@@ -472,6 +472,10 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
     net_copy = net_copy.eval()
+    net_copy = torch.quantization.quantize_dynamic(
+        net_copy, {nn.GRU, nn.Linear, nn.Conv1d}, dtype=torch.qint8
+    )
+
     acc = 0
     tp = 0
     tn = 0
