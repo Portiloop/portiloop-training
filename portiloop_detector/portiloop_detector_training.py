@@ -394,6 +394,8 @@ class PortiloopNetwork(nn.Module):
         hn1 = None
         if self.RNN:
             x1 = x1.view(batch_size, sequence_len, -1)
+            print(x1)
+            print(h1)
             x1, hn1 = self.gru_input1(x1, h1)
             x1 = x1[:, -1, :]
         else:
