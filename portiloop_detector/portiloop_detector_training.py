@@ -280,8 +280,8 @@ class PortiloopNetwork(nn.Module):
         self.envelope_input = config_dict["envelope_input"]
         self.power_features_input = config_dict["power_features_input"]
 
-        conv_padding = int(kernel_conv // 2)
-        pool_padding = int(kernel_pool // 2)
+        conv_padding = 0 #  int(kernel_conv // 2)
+        pool_padding = 0 #  int(kernel_pool // 2)
         window_size = int(window_size_s * fe)
         nb_out = window_size
 
