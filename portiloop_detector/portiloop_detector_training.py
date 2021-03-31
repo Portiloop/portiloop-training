@@ -776,8 +776,8 @@ def get_config_dict(index, name):
         fe = config_dict["fe"]
         nb_conv_layers = config_dict["nb_conv_layers"]
 
-        conv_padding = int(kernel_conv // 2)
-        pool_padding = int(kernel_pool // 2)
+        conv_padding = 0 #  int(kernel_conv // 2)
+        pool_padding = 0 #  int(kernel_pool // 2)
         window_size = int(window_size_s * fe)
         nb_out = window_size
 
