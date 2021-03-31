@@ -554,7 +554,7 @@ def run(config_dict):
     logger = LoggerWandb(experiment_name, config_dict)
     net = PortiloopNetwork(config_dict).to(device=device_train)
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(net.parameters(), lr=lr_adam)
+    optimizer = optim.AdamW(net.parameters(), lr=lr_adam)
 
     first_epoch = 0
     try:
