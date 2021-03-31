@@ -31,23 +31,24 @@ div_val_samp = 32
 # hyperparameters
 
 batch_size_list = [256, 256, 256, 256, 256, 256]
-seq_len_list = [10, 20, 10, 20, 10, 10]
-kernel_conv_list = [7, 5, 7, 5, 7, 7]
-kernel_pool_list = [5, 3, 5, 3, 5, 5]
+seq_len_list = [20, 30, 40, 20, 30, 40]
+kernel_conv_list = [5, 5, 5, 5, 5, 5]
+kernel_pool_list = [3, 3, 3, 3, 3, 3]
 stride_conv_list = [1, 1, 1, 1, 1, 1]
-stride_pool_list = [3, 1, 3, 1, 1, 1]
+stride_pool_list = [1, 1, 1, 1, 1, 1]
 dilation_conv_list = [1, 1, 1, 1, 1, 1]
 dilation_pool_list = [1, 1, 1, 1, 1, 1]
-nb_channel_list = [70, 20, 70, 20, 70, 70]
-hidden_size_list = [20, 15, 20, 15, 20, 20]
+nb_channel_list = [20, 20, 20, 20, 20, 20]
+hidden_size_list = [15, 15, 15, 15, 15, 15]
 dropout_list = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
-windows_size_s_list = [0.4, 0.25, 0.4, 0.25, 0.1, 0.1]
-seq_stride_s_list = [0.1, 0.1, 0.1, 0.1, 0.1, 0.05]
-lr_adam_list = [0.0005, 0.0003, 0.0005, 0.0003, 0.0005, 0.0005]
-nb_conv_layers_list = [4, 7, 4, 7, 4, 4]
-nb_rnn_layers_list = [3, 1, 3, 1, 3, 3]
+windows_size_s_list = [0.25, 0.25, 0.25, 0.25, 0.25, 0.25]
+seq_stride_s_list = [0.1, 0.08, 0.05, 0.1, 0.08, 0.05]
+lr_adam_list = [0.0003, 0.0003, 0.0003, 0.0003, 0.0003, 0.0003]
+nb_conv_layers_list = [7, 7, 7, 7, 7, 7]
+nb_rnn_layers_list = [1, 1, 1, 1, 1, 1]
 first_layer_dropout_list = [False, False, False, False, False, False]
-power_features_input_list = [True, True, False, False, True, True]
+power_features_input_list = [False, False, False, False, False, False]
+adam_w_list = [0, 0, 0, 0.01, 0.01, 0.01]
 
 
 # all classes and functions:
@@ -544,6 +545,7 @@ def run(config_dict):
     device_train = config_dict["device_train"]
     max_duration = config_dict["max_duration"]
     nb_rnn_layers = config_dict["nb_rnn_layers"]
+    adam_w = config_dict["adam_w"]
 
     window_size = int(window_size_s * fe)
     seq_stride = int(seq_stride_s * fe)
@@ -554,7 +556,7 @@ def run(config_dict):
     logger = LoggerWandb(experiment_name, config_dict)
     net = PortiloopNetwork(config_dict).to(device=device_train)
     criterion = nn.MSELoss()
-    optimizer = optim.AdamW(net.parameters(), lr=lr_adam)
+    optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
 
     first_epoch = 0
     try:
@@ -754,6 +756,7 @@ def get_config_dict(index, name):
     config_dict["envelope_input"] = True
     config_dict["power_features_input"] = power_features_input_list[index]
     config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
+    config_dict["adam_w"] = adam_w_list[index]
 
     nb_out = 0
     while nb_out < 1:

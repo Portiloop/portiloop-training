@@ -2,7 +2,7 @@ import portiloop_detector_training as portiloop
 import numpy as np
 
 exp_index = 3
-experiment_name = "run_v2_BEST_3"
+experiment_name = "run_v1_3080_20210331151824_3"
 
 config_dict = portiloop.get_config_dict(exp_index, experiment_name)
 
@@ -187,3 +187,8 @@ fc_str += "};\n"
 file.write(fc_str)
 
 file.close()
+
+for i in net.parameters():
+    for j in i.view(-1):
+        if (abs(j) > 1):
+            print(j)
