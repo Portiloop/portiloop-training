@@ -49,7 +49,6 @@ MAX_META_ITERATIONS = 1000  # maximum number of experiments
 EPOCHS_PER_EXPERIMENT = 1  # experiments are evaluated after this number of epoch by the meta learner
 
 EPSILON_NOISE = 0.1  # a completely random model will be selected this portion of the time, otherwise, it is sampled as a gaussian from the pareto front
-ACCEPT_NOISE = 0.00001  # the model will be accepted regardless of its predicted pareto-domination this portion of the time
 
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 
@@ -59,7 +58,7 @@ NB_BATCH_PER_EPOCH = 10000
 
 RUN_NAME = "pareto_search_4"
 
-NB_SAMPLED_MODELS_PER_ITERATION = 100  # number of models sampled per iteration, only the best predicted one is selected
+NB_SAMPLED_MODELS_PER_ITERATION = 200  # number of models sampled per iteration, only the best predicted one is selected
 
 
 # all classes and functions:
@@ -1017,37 +1016,52 @@ def wandb_plot_pareto(all_experiments, ordered_pareto_front):
     return wandb.Image(plt)
 
 
-# Custom Pareto efficiency (distance from closest Pareto point)
+# Custom Pareto efficiency (distance from Pareto)
+
+def dist_p_to_ab(v_a, v_b, v_p):
+    l2 = np.linalg.norm(v_a - v_b)**2
+    if l2 == 0.0:
+        return np.linalg.norm(v_p - v_a)
+    t = np.max(0.0, np.min(1.0, np.dot(v_p - v_a, v_b - v_a) / l2))
+    projection = v_a + t * (v_b - v_a)
+    return np.linalg.norm(v_p, projection)
+
 
 def vector_exp(experiment):
     return np.array([experiment["cost_software"], experiment["cost_hardware"]])
 
 
 def pareto_efficiency(experiment, pareto_front):
-    farthest = -1.0
-    v_experiment = vector_exp(experiment)
+    if len(pareto_front) < 2:
+        return 0.0
+    v_p = vector_exp(experiment)
     dominates = True
-    for exp in pareto_front:
+    all_dists = []
+    for i in range(len(pareto_front)):
+        exp = pareto_front[i]
         if exp["cost_software"] <= experiment["cost_software"] and exp["cost_hardware"] <= experiment["cost_hardware"]:
             dominates = False
-        dist = np.linalg.norm(vector_exp(exp) - v_experiment)
-        if dist > farthest:
-            farthest = dist
-    assert farthest >= 0.0
+        if i < len(pareto_front) - 1:
+            next = pareto_front[i+1]
+            v_a = vector_exp(exp)
+            v_b = vector_exp(next)
+            dist = dist_p_to_ab(v_a, v_b, v_p)
+            all_dists.append(dist)
+    assert len(all_dists) >= 1
+    res = np.min(all_dists)  # distance to pareto
     if not dominates:
-        return 0.0
-    return farthest
+        res *= -1.0
+    return res
 
 
 def exp_max_pareto_efficiency(experiments, pareto_front):
     assert len(experiments) >= 1
     if len(pareto_front) == 0:
         return experiments[0]
-    max_efficiency = 0.0
+    max_efficiency = -np.inf
     best_exp = None
     for exp in experiments:
         efficiency = pareto_efficiency(exp, pareto_front)
-        assert efficiency >= 0.0
         if efficiency >= max_efficiency:
             max_efficiency = efficiency
             best_exp = exp
@@ -1133,39 +1147,31 @@ if __name__ == "__main__":
         print(f"ITERATION N° {meta_iteration}")
 
         exp = {}
-
         exps = []
-        accept_noise = False
-
         model_selected = False
-
         meta_model.eval()
 
         while not model_selected:
-            accept_model = False
             exp = {}
-            while not accept_model:
-                # sample model
-                config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), pareto_front=pareto_front)
 
-                nb_params = nb_parameters(config_dict)
-                if nb_params > MAX_NB_PARAMETERS:
-                    continue
+            # sample model
+            config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), pareto_front=pareto_front)
 
-                with torch.no_grad():
-                    predicted_loss = meta_model(config_dict).item()
+            nb_params = nb_parameters(config_dict)
+            if nb_params > MAX_NB_PARAMETERS:
+                continue
 
-                exp["cost_hardware"] = nb_params
-                exp["cost_software"] = predicted_loss
-                exp["config_dict"] = config_dict
-                exp["unrounded"] = unrounded
+            with torch.no_grad():
+                predicted_loss = meta_model(config_dict).item()
 
-                accept_noise = random.choices(population=[True, False], weights=[ACCEPT_NOISE, 1.0 - ACCEPT_NOISE])[0]
-                if accept_noise:
-                    print(f"DEBUG: accept noise, len(exps): {len(exps)}")
-                accept_model = accept_noise or dominates_pareto(exp, pareto_front)
+            exp["cost_hardware"] = nb_params
+            exp["cost_software"] = predicted_loss
+            exp["config_dict"] = config_dict
+            exp["unrounded"] = unrounded
+
             exps.append(exp)
-            if accept_noise or len(exps) >= NB_SAMPLED_MODELS_PER_ITERATION:
+
+            if len(exps) >= NB_SAMPLED_MODELS_PER_ITERATION:
                 # select model
                 model_selected = True
                 exp = exp_max_pareto_efficiency(exps, pareto_front)
