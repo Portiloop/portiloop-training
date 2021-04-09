@@ -49,7 +49,7 @@ MAX_META_ITERATIONS = 1000  # maximum number of experiments
 EPOCHS_PER_EXPERIMENT = 1  # experiments are evaluated after this number of epoch by the meta learner
 
 EPSILON_NOISE = 0.01  # a completely random model will be selected this portion of the time, otherwise, it is sampled as a gaussian from the pareto front
-ACCEPT_NOISE = 0.01  # the model will be accepted regardless of its predicted pareto-domination this portion of the time
+ACCEPT_NOISE = 0.0001  # the model will be accepted regardless of its predicted pareto-domination this portion of the time
 
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 
@@ -1123,11 +1123,9 @@ if __name__ == "__main__":
         print(f"ITERATION N° {meta_iteration}")
 
         exp = {}
-        accept_noise = random.choices(population=[True, False], weights=[ACCEPT_NOISE, 1.0 - ACCEPT_NOISE])[0]
-        if accept_noise:
-            print("DEBUG: accept noise")
 
         exps = []
+        accept_noise = False
 
         model_selected = False
         while not model_selected:
@@ -1150,6 +1148,9 @@ if __name__ == "__main__":
                 exp["config_dict"] = config_dict
                 exp["unrounded"] = unrounded
 
+                accept_noise = random.choices(population=[True, False], weights=[ACCEPT_NOISE, 1.0 - ACCEPT_NOISE])[0]
+                if accept_noise:
+                    print("DEBUG: accept noise")
                 accept_model = accept_noise or dominates_pareto(exp, pareto_front)
             exps.append(exp)
             if accept_noise or len(exps) >= NB_SAMPLED_MODELS_PER_ITERATION:
