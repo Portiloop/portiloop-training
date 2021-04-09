@@ -57,7 +57,7 @@ META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
 NB_BATCH_PER_EPOCH = 10000
 
-RUN_NAME = "pareto_search_3"
+RUN_NAME = "pareto_search_4"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 100  # number of models sampled per iteration, only the best predicted one is selected
 
@@ -877,9 +877,8 @@ def sample_config_dict(name, pareto_front):
 
     config_dict["nb_out"] = nb_out
     config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
-    config_dict["unrounded"] = unrounded
 
-    return config_dict
+    return config_dict, unrounded
 
 
 def nb_parameters(config_dict):
@@ -1136,7 +1135,7 @@ if __name__ == "__main__":
             exp = {}
             while not accept_model:
                 # sample model
-                config_dict = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), pareto_front=pareto_front)
+                config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), pareto_front=pareto_front)
 
                 nb_params = nb_parameters(config_dict)
                 if nb_params > MAX_NB_PARAMETERS:
@@ -1149,6 +1148,7 @@ if __name__ == "__main__":
                 exp["cost_hardware"] = nb_params
                 exp["cost_software"] = predicted_loss
                 exp["config_dict"] = config_dict
+                exp["unrounded"] = unrounded
 
                 accept_model = accept_noise or dominates_pareto(exp, pareto_front)
             exps.append(exp)
