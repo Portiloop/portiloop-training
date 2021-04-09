@@ -1024,7 +1024,7 @@ def dist_p_to_ab(v_a, v_b, v_p):
         return np.linalg.norm(v_p - v_a)
     t = max(0.0, min(1.0, np.dot(v_p - v_a, v_b - v_a) / l2))
     projection = v_a + t * (v_b - v_a)
-    return np.linalg.norm(v_p, projection)
+    return np.linalg.norm(v_p - projection)
 
 
 def vector_exp(experiment):
@@ -1048,7 +1048,7 @@ def pareto_efficiency(experiment, pareto_front):
             dist = dist_p_to_ab(v_a, v_b, v_p)
             all_dists.append(dist)
     assert len(all_dists) >= 1
-    res = np.min(all_dists)  # distance to pareto
+    res = min(all_dists)  # distance to pareto
     if not dominates:
         res *= -1.0
     return res
