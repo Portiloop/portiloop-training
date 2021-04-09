@@ -48,8 +48,8 @@ div_val_samp = 32
 MAX_META_ITERATIONS = 1000  # maximum number of experiments
 EPOCHS_PER_EXPERIMENT = 1  # experiments are evaluated after this number of epoch by the meta learner
 
-EPSILON_NOISE = 0.01  # a completely random model will be selected this portion of the time, otherwise, it is sampled as a gaussian from the pareto front
-ACCEPT_NOISE = 0.0001  # the model will be accepted regardless of its predicted pareto-domination this portion of the time
+EPSILON_NOISE = 0.1  # a completely random model will be selected this portion of the time, otherwise, it is sampled as a gaussian from the pareto front
+ACCEPT_NOISE = 0.00001  # the model will be accepted regardless of its predicted pareto-domination this portion of the time
 
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 
@@ -1021,11 +1021,16 @@ def vector_exp(experiment):
 def pareto_efficiency(experiment, pareto_front):
     farthest = -1.0
     v_experiment = vector_exp(experiment)
+    dominates = True
     for exp in pareto_front:
+        if exp["cost_software"] <= experiment["cost_software"] and exp["cost_hardware"] <= experiment["cost_hardware"]:
+            dominates = False
         dist = np.linalg.norm(vector_exp(exp) - v_experiment)
         if dist > farthest:
             farthest = dist
     assert farthest >= 0.0
+    if not dominates:
+        return 0.0
     return farthest
 
 
@@ -1106,11 +1111,11 @@ if __name__ == "__main__":
     all_experiments, pareto_front = load_files()
 
     if all_experiments is None:
-        print(f"DEBUG: no files found, starting new run")
+        print(f"DEBUG: no meta dataset found, starting new run")
         all_experiments = []  # list of dictionaries
         pareto_front = []  # list of dictionaries, subset of all_experiments
     else:
-        print(f"DEBUG: existing run loaded")
+        print(f"DEBUG: existing meta dataset loaded")
 
     meta_model = SurrogateModel()
     meta_model.to(META_MODEL_DEVICE)
@@ -1150,7 +1155,7 @@ if __name__ == "__main__":
 
                 accept_noise = random.choices(population=[True, False], weights=[ACCEPT_NOISE, 1.0 - ACCEPT_NOISE])[0]
                 if accept_noise:
-                    print("DEBUG: accept noise")
+                    print(f"DEBUG: accept noise, len(exps): {len(exps)}")
                 accept_model = accept_noise or dominates_pareto(exp, pareto_front)
             exps.append(exp)
             if accept_noise or len(exps) >= NB_SAMPLED_MODELS_PER_ITERATION:
