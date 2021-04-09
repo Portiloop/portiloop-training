@@ -1009,7 +1009,8 @@ def wandb_plot_pareto(all_experiments, ordered_pareto_front):
     plt.plot(x_axis, y_axis, 'ro-')
     plt.xlabel("nb parameters")
     plt.ylabel("validation loss")
-    # plt.show()
+    plt.draw()
+    return wandb.Image(plt)
 
 
 # Custom Pareto efficiency (distance from closest Pareto point)
@@ -1086,11 +1087,11 @@ class LoggerWandbPareto:
             all_experiments,
             pareto_front
             ):
-        wandb_plot_pareto(all_experiments, pareto_front)
+        plt_img = wandb_plot_pareto(all_experiments, pareto_front)
         wandb.log({
             "surrogate_loss": surrogate_loss,
             "surprise": surprise,
-            "pareto_plot": wandb.Image(plt)
+            "pareto_plot": plt_img
         })
 
     def __del__(self):
