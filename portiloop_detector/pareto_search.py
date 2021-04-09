@@ -1090,7 +1090,7 @@ class LoggerWandbPareto:
         wandb.log({
             "surrogate_loss": surrogate_loss,
             "surprise": surprise,
-            "pareto_plot": plt
+            "pareto_plot": wandb.Image(plt)
         })
 
     def __del__(self):
