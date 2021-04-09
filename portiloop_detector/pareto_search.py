@@ -57,7 +57,7 @@ META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
 NB_BATCH_PER_EPOCH = 10000
 
-RUN_NAME = "pareto_search_1"
+RUN_NAME = "pareto_search_2"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 100  # number of models sampled per iteration, only the best predicted one is selected
 
@@ -942,16 +942,15 @@ def sort_pareto(pareto_front):
 
 
 def update_pareto(experiment, pareto):
-    dominates = False
     to_remove = []
     if len(pareto) == 0:
         dominates = True
     else:
         dominates = True
         for i, ep in enumerate(pareto):
-            if ep["cost_software"] <= experiment["cost_software"] and ep["cost_hardware"] <= experiment["cost_hardware"]:  # remove ep from pareto
+            if ep["cost_software"] <= experiment["cost_software"] and ep["cost_hardware"] <= experiment["cost_hardware"]:
                 dominates = False
-            if ep["cost_software"] > experiment["cost_software"] and ep["cost_hardware"] > experiment["cost_hardware"]:  # don't remove ep from pareto
+            if ep["cost_software"] > experiment["cost_software"] and ep["cost_hardware"] > experiment["cost_hardware"]:  # remove ep from pareto
                 to_remove.append(i)
     to_remove.sort(reverse=True)
     for i in to_remove:
@@ -963,13 +962,12 @@ def update_pareto(experiment, pareto):
 
 
 def dominates_pareto(experiment, pareto):
-    dominates = False
     if len(pareto) == 0:
         dominates = True
     else:
         dominates = True
-        for i, ep in enumerate(pareto):
-            if ep["cost_software"] <= experiment["cost_software"] and ep["cost_hardware"] <= experiment["cost_hardware"]:  # remove ep from pareto
+        for ep in pareto:
+            if ep["cost_software"] <= experiment["cost_software"] and ep["cost_hardware"] <= experiment["cost_hardware"]:
                 dominates = False
     return dominates
 
@@ -1126,6 +1124,8 @@ if __name__ == "__main__":
 
         exp = {}
         accept_noise = random.choices(population=[True, False], weights=[ACCEPT_NOISE, 1.0 - ACCEPT_NOISE])
+        if accept_noise:
+            print("DEBUG: accept noise")
 
         exps = []
 
@@ -1155,6 +1155,10 @@ if __name__ == "__main__":
                 # select model
                 model_selected = True
                 exp = exp_max_pareto_efficiency(exps, pareto_front)
+
+        config_dict = exp["config_dict"]
+        predicted_loss = exp["cost_software"]
+        nb_params = exp["cost_hardware"]
 
         print(f"config: {config_dict}")
         # print(unrounded)
