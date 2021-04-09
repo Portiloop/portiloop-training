@@ -999,6 +999,7 @@ def train_surrogate(net, all_experiments):
 
 
 def wandb_plot_pareto(all_experiments, ordered_pareto_front):
+    plt.clf()
     # all experiments:
     x_axis = [exp["cost_hardware"] for exp in all_experiments]
     y_axis = [exp["cost_software"] for exp in all_experiments]
