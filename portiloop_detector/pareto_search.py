@@ -895,8 +895,12 @@ class SurrogateModel(nn.Module):
         self.fc1 = nn.Linear(in_features=16,  # nb hyperparameters
                              out_features=200)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
+        self.d1 = nn.Dropout(0.5)
+
         self.fc2 = nn.Linear(in_features=200,
                              out_features=200)
+
+        self.d2 = nn.Dropout(0.5)
 
         self.fc3 = nn.Linear(in_features=200,
                              out_features=1)
@@ -925,8 +929,8 @@ class SurrogateModel(nn.Module):
 
         x_tensor = torch.tensor(x_list).to(self.device)
 
-        x_tensor = F.relu(self.fc1(x_tensor))
-        x_tensor = F.relu(self.fc2(x_tensor))
+        x_tensor = F.relu(self.d1(self.fc1(x_tensor)))
+        x_tensor = F.relu(self.d2(self.fc2(x_tensor)))
         x_tensor = self.fc3(x_tensor)
 
         return x_tensor
@@ -1134,6 +1138,9 @@ if __name__ == "__main__":
         accept_noise = False
 
         model_selected = False
+
+        meta_model.eval()
+
         while not model_selected:
             accept_model = False
             exp = {}
@@ -1145,7 +1152,6 @@ if __name__ == "__main__":
                 if nb_params > MAX_NB_PARAMETERS:
                     continue
 
-                meta_model.eval()
                 with torch.no_grad():
                     predicted_loss = meta_model(config_dict).item()
 
