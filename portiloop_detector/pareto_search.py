@@ -57,7 +57,7 @@ META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
 NB_BATCH_PER_EPOCH = 10000
 
-RUN_NAME = "pareto_search_2"
+RUN_NAME = "pareto_search_3"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 100  # number of models sampled per iteration, only the best predicted one is selected
 
@@ -875,10 +875,11 @@ def sample_config_dict(name, pareto_front):
             nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
             nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
 
-        config_dict["nb_out"] = nb_out
-        config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
+    config_dict["nb_out"] = nb_out
+    config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
+    config_dict["unrounded"] = unrounded
 
-    return config_dict, unrounded
+    return config_dict
 
 
 def nb_parameters(config_dict):
@@ -1135,7 +1136,7 @@ if __name__ == "__main__":
             exp = {}
             while not accept_model:
                 # sample model
-                config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), pareto_front=pareto_front)
+                config_dict = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), pareto_front=pareto_front)
 
                 nb_params = nb_parameters(config_dict)
                 if nb_params > MAX_NB_PARAMETERS:
@@ -1161,7 +1162,6 @@ if __name__ == "__main__":
         nb_params = exp["cost_hardware"]
 
         print(f"config: {config_dict}")
-        # print(unrounded)
 
         print(f"nb parameters: {nb_params}")
         print(f"predicted loss: {predicted_loss}")
