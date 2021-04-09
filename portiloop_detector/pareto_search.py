@@ -802,7 +802,7 @@ def sample_config_dict(name, pareto_front):
                        fe=250,
                        nb_batch_per_epoch=NB_BATCH_PER_EPOCH)
 
-    noise = random.choices(population=[True, False], weights=[EPSILON_NOISE, 1.0 - EPSILON_NOISE])
+    noise = random.choices(population=[True, False], weights=[EPSILON_NOISE, 1.0 - EPSILON_NOISE])[0]
 
     unrounded = {}
 
@@ -1123,7 +1123,7 @@ if __name__ == "__main__":
         print(f"ITERATION N° {meta_iteration}")
 
         exp = {}
-        accept_noise = random.choices(population=[True, False], weights=[ACCEPT_NOISE, 1.0 - ACCEPT_NOISE])
+        accept_noise = random.choices(population=[True, False], weights=[ACCEPT_NOISE, 1.0 - ACCEPT_NOISE])[0]
         if accept_noise:
             print("DEBUG: accept noise")
 
