@@ -1022,7 +1022,7 @@ def dist_p_to_ab(v_a, v_b, v_p):
     l2 = np.linalg.norm(v_a - v_b)**2
     if l2 == 0.0:
         return np.linalg.norm(v_p - v_a)
-    t = np.max(0.0, np.min(1.0, np.dot(v_p - v_a, v_b - v_a) / l2))
+    t = max(0.0, min(1.0, np.dot(v_p - v_a, v_b - v_a) / l2))
     projection = v_a + t * (v_b - v_a)
     return np.linalg.norm(v_p, projection)
 
