@@ -19,7 +19,7 @@ os.chdir(path_dataset)
 annotation_files = glob.glob("*MODA_GS.txt")
 signal_files = [(subject[0:-12] + " PSG.edf") for subject in annotation_files]
 fe = 256
-new_fe = 250
+new_fe = 256
 signal_list = []
 pre_sequence_length_s = 10
 file_to_remove = []
@@ -29,7 +29,8 @@ if len(annotation_files) > 15:
 for filename in signal_files:
     try:
         with pyedflib.EdfReader(filename) as edf_file:
-            indices = [i for i, s in enumerate(edf_file.getSignalLabels()) if 'C3' in s]
+            print(edf_file.getSignalLabels())
+            indices = [i for i, s in enumerate(edf_file.getSignalLabels()) if 'Fpz' in s or 'Fz' in s]
             signal = edf_file.readSignal(indices[0])
             assert edf_file.getSampleFrequency(indices[0]) == fe
             signal_list.append(signal)

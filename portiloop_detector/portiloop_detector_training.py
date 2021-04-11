@@ -60,7 +60,10 @@ class SignalDataset(Dataset):
         self.path_file = Path(path) / filename
 
         self.data = pd.read_csv(self.path_file, header=None).to_numpy()
-        split_data = np.array(np.split(self.data, int(len(self.data) / (125 * fe))))  # 125 = nb seconds per sequence in the dataset
+        if "portiloop" in filename:
+            split_data = np.array(np.split(self.data, int(len(self.data) / (900 * fe))))  # 900 = nb seconds per sequence in the dataset
+        else:
+            split_data = np.array(np.split(self.data, int(len(self.data) / (125 * fe))))  # 125 = nb seconds per sequence in the dataset
         np.random.seed(42)  # fixed seed value
         np.random.shuffle(split_data)
         self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))

@@ -135,3 +135,5 @@ portiloop_detector/slprj/
 *.fcf
 
 *.asv
+
+*.mat
