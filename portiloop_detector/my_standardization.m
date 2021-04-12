@@ -5,14 +5,16 @@ dataset = load(path+"dataset_big_envelope_fusion_pf.txt");
 %% load data from portiloop
 
 path = "../dataset/";
-dataset = load(path+"0707_portiloop_dataset_250.txt");
-dataset = [dataset, dataset, dataset, dataset];
+dataset = load(path+"0908_portiloop_dataset_250.txt");
+dataset_full = load(path+"0908_portiloop_dataset_250_standardized_envelope_pf_labeled.txt");
+dataset = [dataset, dataset_full(:, 2:end)];
 %% 
 signal = dataset(:,1);
 spindles_gs = dataset(:,4) == 1;
 spindles_hugo = dataset(:,4) == 0.8;
 fe = 250;
 tot_time = size(dataset, 1)/fe;
+time_vect = linspace(0,size_signal/fe, size_signal);
 
 %%
 out = sim('filter_lp_35',tot_time);
@@ -20,13 +22,13 @@ sim_filtered_lp = [out.filtered_simulink(10:end); out.filtered_simulink(end-7:en
 time_vect = out.tout(2:end);
 
 %%
-% sim_filtered_lp = lowpass(signal, 30, fe);
+%sim_filtered_lp = lowpass(signal, 30, fe);
 % % wo = 60/(250/2);  
 % % bw = wo/35;
 % % [b,a] = iirnotch(wo,bw);
 % % signal_filt = filtfilt(b, a, signal);
 % % sim_filtered_bp_notch = bandpass(signal_filt, [0.3 30], fe);
-% sim_filtered_bp = bandpass(signal, [0.3 30], fe);
+sim_filtered_lp = bandpass(signal, [0.5 35], fe);
 % time_vect = linspace(0, tot_time, tot_time*fe);
 % % figure
 % % hold on
@@ -78,7 +80,7 @@ while i < length(plot_data)-1
     end
     plot(time_vect(idx:i), plot_data(idx:i), 'Color', c);
 end
-axis([140 170 -20 20]);
+axis([0 30 -20 20]);
 title("lp");
 % plot_data = sim_filtered_bp(1:200*fe);
 % subplot(2, 1, 2)
@@ -101,12 +103,33 @@ title("lp");
 % end
 % axis([140 170 -5 5]);
 % title("bp");
+%% fft
+
+mydata=lp_standard;
+mysrate=fe;
+mynpnts=size(sim_filtered_lp, 1);
+%mydata_filtered=highpass(mydata,0.1,mysrate);
+%mydata=mydata_filtered;mynpnts = length(mydata);
+mytime  = (0:mynpnts-1)/mysrate;mydata_demean=mydata-mean(mydata);% plot the time-domain signal
+figure
+plot(mytime,mydata_demean)
+xlabel('Time (s)'), ylabel('Voltage ')
+zoom on% static spectral analysis
+myhz = linspace(0,mysrate/2,floor(mynpnts/2)+1);
+myampl = 2*abs(fft(mydata_demean)/mynpnts);
+mypowr = myampl.^2;
+figure
+hold on
+plot(myhz,myampl(1:length(myhz)),'k','linew',2)
+plot(myhz,mypowr(1:length(myhz)),'r','linew',2)
+
 
 %% save
 
-output_signal = single(lp_standard(:,1));%, dataset(1:end-8,4)]);
+%output_signal = single(lp_standard(:,1));%, dataset(1:end-8,4)]);
+output_signal = single([lp_standard(:,1), dataset(:, 2:end)]);
 
-writematrix(output_signal, path+"0707_portiloop_dataset_250_standardized.txt");
+writematrix(output_signal, path+"0908_portiloop_dataset_250_standardized_butter_envelope_pf_labeled.txt");
 
 %%
 plot(time_vect, output_signal);

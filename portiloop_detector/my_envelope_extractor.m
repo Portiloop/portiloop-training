@@ -5,7 +5,7 @@ dataset = load(path+"0707_portiloop_dataset_250_standardized.txt");
 %% load data from portiloop
 
 path = "../dataset/";
-dataset = load(path+"0707_portiloop_dataset_250.txt");
+dataset = load(path+"0908_portiloop_dataset_250.txt");
 dataset = [dataset, dataset, dataset, dataset];
 
 
@@ -44,6 +44,11 @@ signal_simulink = [time_vect' signal];
 out=sim("envelope_extractor_simulink");
 signal_filtered_simulink = [out.signal_filtered(10:end); out.signal_filtered(end-7:end)];
 time_vect_simulink = out.tout(2:end);
+
+%% matlab filter
+signal_filtered_simulink = bandpass(signal, [9 16], fe);
+
+%% standization
 moving_average = signal_filtered_simulink(1);
 moving_variance = 0;
 alpha = 0.001;
@@ -99,8 +104,8 @@ end
 % axis([140 160 -20 20]);
 
 %% save
-dataset_final = load(path+"0707_portiloop_dataset_250_standardized.txt");
+dataset_final = load(path+"0908_portiloop_dataset_250_standardized.txt");
 
 output_envelope = single([dataset_final(:,1), envelope_homemade_simulink]);
 
-writematrix(output_envelope, path+"0707_portiloop_dataset_250_standardized_envelope.txt");
+writematrix(output_envelope, path+"0908_portiloop_dataset_250_standardized_envelope.txt");

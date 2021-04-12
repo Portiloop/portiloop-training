@@ -21,7 +21,7 @@ from argparse import ArgumentParser
 
 THRESHOLD = 0.5
 
-filename_dataset = "dataset_big_fusion_standardized_envelope_pf.txt"
+filename_dataset = "0908_portiloop_dataset_250_standardized_butter_envelope_pf_labeled.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
@@ -422,7 +422,7 @@ class LoggerWandb:
         self.best_model = None
         self.experiment_name = experiment_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project="portiloop-multiple_input", entity="portiloop", id=experiment_name, resume="allow",
+        self.wandb_run = wandb.init(project="data-from-portiloop", entity="portiloop", id=experiment_name, resume="allow",
                                     config=config_dict, reinit=True)
 
     def log(self,
@@ -445,7 +445,7 @@ class LoggerWandb:
             updated_model=False,
             ):
         self.best_model = best_model
-        wandb.log({
+        self.wandb_run.log({
             "accuracy_train": accuracy_train,
             "loss_train": loss_train,
             "accuracy_validation": accuracy_validation,
@@ -455,21 +455,21 @@ class LoggerWandb:
             "recall_validation": recall_validation,
             "loss_early_stopping": loss_early_stopping,
         })
-        wandb.run.summary["best_epoch"] = best_epoch
-        wandb.run.summary["best_epoch_early_stopping"] = best_epoch_early_stopping
-        wandb.run.summary["best_model_f1_score_validation"] = best_model_f1_score_validation
-        wandb.run.summary["best_model_precision_validation"] = best_model_precision_validation
-        wandb.run.summary["best_model_recall_validation"] = best_model_recall_validation
-        wandb.run.summary["best_model_loss_validation"] = best_model_loss_validation
-        wandb.run.summary["best_model_accuracy_validation"] = best_model_accuracy_validation
+        self.wandb_run.summary["best_epoch"] = best_epoch
+        self.wandb_run.summary["best_epoch_early_stopping"] = best_epoch_early_stopping
+        self.wandb_run.summary["best_model_f1_score_validation"] = best_model_f1_score_validation
+        self.wandb_run.summary["best_model_precision_validation"] = best_model_precision_validation
+        self.wandb_run.summary["best_model_recall_validation"] = best_model_recall_validation
+        self.wandb_run.summary["best_model_loss_validation"] = best_model_loss_validation
+        self.wandb_run.summary["best_model_accuracy_validation"] = best_model_accuracy_validation
         if updated_model:
-            wandb.run.save(os.path.join(path_dataset, self.experiment_name), policy="live", base_path=path_dataset)
+            self.wandb_run.save(os.path.join(path_dataset, self.experiment_name), policy="live", base_path=path_dataset)
 
     def __del__(self):
         self.wandb_run.finish()
 
     def restore(self):
-        wandb.run.restore(self.experiment_name, root=path_dataset)
+        self.wandb_run.restore(self.experiment_name, root=path_dataset)
 
 
 def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers):
