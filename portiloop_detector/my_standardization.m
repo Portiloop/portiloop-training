@@ -14,6 +14,7 @@ spindles_gs = dataset(:,4) == 1;
 spindles_hugo = dataset(:,4) == 0.8;
 fe = 250;
 tot_time = size(dataset, 1)/fe;
+size_signal = size(dataset, 1);
 time_vect = linspace(0,size_signal/fe, size_signal);
 
 %%
@@ -129,7 +130,7 @@ plot(myhz,mypowr(1:length(myhz)),'r','linew',2)
 %output_signal = single(lp_standard(:,1));%, dataset(1:end-8,4)]);
 output_signal = single([lp_standard(:,1), dataset(:, 2:end)]);
 
-writematrix(output_signal, path+"0908_portiloop_dataset_250_standardized_butter_envelope_pf_labeled.txt");
+writematrix(output_signal, path+"0908_portiloop_dataset_250_standardized_simulink_envelope_pf_labeled.txt");
 
 %%
 plot(time_vect, output_signal);

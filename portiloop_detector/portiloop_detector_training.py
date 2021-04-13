@@ -21,7 +21,7 @@ from argparse import ArgumentParser
 
 THRESHOLD = 0.5
 
-filename_dataset = "0908_portiloop_dataset_250_standardized_butter_envelope_pf_labeled.txt"
+filename_dataset = "0908_portiloop_dataset_250_standardized_simulink_envelope_pf_labeled.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
