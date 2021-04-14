@@ -18,7 +18,7 @@ size_signal = size(dataset, 1);
 time_vect = linspace(0,size_signal/fe, size_signal);
 
 %%
-out = sim('filter_lp_35',tot_time);
+out = sim('filter_lp',tot_time);
 sim_filtered_lp = [out.filtered_simulink(10:end); out.filtered_simulink(end-7:end)];
 time_vect = out.tout(2:end);
 

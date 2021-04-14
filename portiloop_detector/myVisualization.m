@@ -28,4 +28,4 @@ while i < length(plot_data)-1
     end
     plot(time_vect(idx:i), plot_data(idx:i), 'Color', c);
 end
-axis([0 30 -20 20]);
+axis([1800 1830 -20 20]);
