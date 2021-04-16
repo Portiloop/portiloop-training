@@ -20,6 +20,7 @@ from argparse import ArgumentParser
 # all constants (no hyperparameters here!)
 
 THRESHOLD = 0.5
+WANDB_PROJECT = "data-from-portiloop"
 
 filename_dataset = "0908_portiloop_dataset_250_standardized_simulink_envelope_pf_labeled.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
@@ -418,11 +419,11 @@ class PortiloopNetwork(nn.Module):
 
 
 class LoggerWandb:
-    def __init__(self, experiment_name, config_dict):
+    def __init__(self, experiment_name, config_dict, project_name):
         self.best_model = None
         self.experiment_name = experiment_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project="data-from-portiloop", entity="portiloop", id=experiment_name, resume="allow",
+        self.wandb_run = wandb.init(project=project_name, entity="portiloop", id=experiment_name, resume="allow",
                                     config=config_dict, reinit=True)
 
     def log(self,
