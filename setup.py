@@ -13,6 +13,7 @@ install_requires = [
     'wandb',
     'pyedflib',
     'scipy',
+    'matplotlib',
 ]
 
 setup(name='portiloop',
