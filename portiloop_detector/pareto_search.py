@@ -19,6 +19,7 @@ import numpy as np
 import torch.optim as optim
 import copy
 import wandb
+
 # all constants (no hyperparameters here!)
 
 THRESHOLD = 0.5
@@ -578,10 +579,9 @@ def pareto_efficiency(experiment, pareto_front, histo):
     if not dominates:
         res *= -1.0
     # subtract density around number of parameters
-    idx = np.where(histo[1] > experiment["cost_hardware"])[0][0]-1
-    res -= histo[0][idx]
-
-
+    if not (experiment["cost_hardware"] > histo[1][-1] or experiment["cost_hardware"] < histo[1][0]):
+        idx = np.where(histo[1] > experiment["cost_hardware"])[0][0] - 1
+        res -= histo[0][idx]
     return res
 
 
