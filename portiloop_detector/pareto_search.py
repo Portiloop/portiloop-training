@@ -45,12 +45,13 @@ EPSILON_NOISE = 0.1  # a completely random model will be selected this portion o
 EPSILON_EXP_NOISE = 0.1
 
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
+MAX_LOSS = 0.1  # to normalize distances
 
 META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
 NB_BATCH_PER_EPOCH = 10000
 
-RUN_NAME = "pareto_search_4"
+RUN_NAME = "pareto_search_5"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 200  # number of models sampled per iteration, only the best predicted one is selected
 
@@ -534,9 +535,9 @@ def wandb_plot_pareto(all_experiments, ordered_pareto_front):
     x_axis = [exp["cost_hardware"] for exp in ordered_pareto_front]
     y_axis = [exp["cost_software"] for exp in ordered_pareto_front]
     plt.plot(x_axis, y_axis, 'ro-')
-    plt.xlabel("nb parameters")
-    plt.ylabel("validation loss")
-    plt.ylim(top=0.1)
+    plt.xlabel(f"nb parameters / {MAX_NB_PARAMETERS}")
+    plt.ylabel(f"validation loss / {MAX_LOSS}")
+    plt.ylim(top=1.0)
     plt.draw()
     return wandb.Image(plt)
 
@@ -556,7 +557,7 @@ def vector_exp(experiment):
     return np.array([experiment["cost_software"], experiment["cost_hardware"]])
 
 
-def pareto_efficiency(experiment, pareto_front):
+def pareto_efficiency(experiment, pareto_front, histo):
     if len(pareto_front) < 2:
         return 0.0
     v_p = vector_exp(experiment)
@@ -576,6 +577,11 @@ def pareto_efficiency(experiment, pareto_front):
     res = min(all_dists)  # distance to pareto
     if not dominates:
         res *= -1.0
+    # subtract density around number of parameters
+    idx = np.where(histo[1] > experiment["cost_hardware"])[0][0]-1
+    res -= histo[0][idx]
+
+
     return res
 
 
@@ -585,10 +591,12 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
     if noise or len(pareto_front) == 0:
         return random.choice(experiments)
     else:
+        assert len(all_experiments) != 0
+        histo = np.histogram([exp["cost_hardware"] for exp in all_experiments], bins=10)
         max_efficiency = -np.inf
         best_exp = None
         for exp in experiments:
-            efficiency = pareto_efficiency(exp, pareto_front)
+            efficiency = pareto_efficiency(exp, pareto_front, histo)
             if efficiency >= max_efficiency:
                 max_efficiency = efficiency
                 best_exp = exp
@@ -692,8 +700,8 @@ if __name__ == "__main__":
             with torch.no_grad():
                 predicted_loss = meta_model(config_dict).item()
 
-            exp["cost_hardware"] = nb_params
-            exp["cost_software"] = predicted_loss
+            exp["cost_hardware"] = nb_params / MAX_NB_PARAMETERS
+            exp["cost_software"] = predicted_loss / MAX_LOSS
             exp["config_dict"] = config_dict
             exp["unrounded"] = unrounded
 
@@ -714,7 +722,7 @@ if __name__ == "__main__":
         print(f"predicted loss: {predicted_loss}")
         print("training...")
 
-        exp["cost_software"] = run(config_dict)
+        exp["cost_software"] = run(config_dict) / MAX_LOSS
 
         pareto_front = update_pareto(exp, pareto_front)
         all_experiments.append(exp)
