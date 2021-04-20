@@ -42,6 +42,7 @@ MAX_META_ITERATIONS = 1000  # maximum number of experiments
 EPOCHS_PER_EXPERIMENT = 1  # experiments are evaluated after this number of epoch by the meta learner
 
 EPSILON_NOISE = 0.1  # a completely random model will be selected this portion of the time, otherwise, it is sampled as a gaussian from the pareto front
+EPSILON_EXP_NOISE = 0.1
 
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 
@@ -269,31 +270,33 @@ def run(config_dict):
 # hyperparameters
 
 # batch_size_range_t = ["i", 256, 256]
-seq_len_range_t = ["i", 20, 50]
-kernel_conv_range_t = ["i", 3, 7]
-kernel_pool_range_t = ["i", 3, 3]
-stride_conv_range_t = ["i", 1, 1]
-stride_pool_range_t = ["i", 1, 1]
-dilation_conv_range_t = ["i", 1, 1]
-dilation_pool_range_t = ["i", 1, 1]
+lr_adam_range_t = ["f", 0.0003, 0.0003]
+
+seq_len_range_t = ["i", 10, 50]
+
+kernel_conv_range_t = ["i", 3, 9]
+kernel_pool_range_t = ["i", 3, 5]
+stride_conv_range_t = ["i", 1, 3]
+stride_pool_range_t = ["i", 1, 3]
+dilation_conv_range_t = ["i", 1, 5]
+dilation_pool_range_t = ["i", 1, 5]
 nb_channel_range_t = ["i", 10, 50]
 hidden_size_range_t = ["i", 2, 100]
 dropout_range_t = ["f", 0.5, 0.5]
 window_size_s_range_t = ["f", 0.05, 0.1]
 seq_stride_s_range_t = ["f", 0.05, 0.1]
-lr_adam_range_t = ["f", 0.0003, 0.0003]
-nb_conv_layers_range_t = ["i", 1, 9]
+nb_conv_layers_range_t = ["i", 1, 7]
 nb_rnn_layers_range_t = ["i", 1, 5]
 # first_layer_dropout_range_t = ["b", False, False]
 # power_features_input_range_t = ["b", False, False]
-adam_w_range_t = ["f", 0.0, 0.01]
+adam_w_range_t = ["f", 0.01, 0.01]
 
 
 def clip(x, min_x, max_x):
     return max(min(x, max_x), min_x)
 
 
-def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=1.0):
+def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     type_t = range_t[0]
     min_t = range_t[1]
     max_t = range_t[2]
@@ -312,7 +315,7 @@ def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=1.0):
     return res, res_unrounded
 
 
-def sample_config_dict(name, pareto_front):
+def sample_config_dict(name, previous_exp):
     config_dict = dict(experiment_name=name,
                        device_train="cuda:0",
                        device_val="cpu",
@@ -338,7 +341,7 @@ def sample_config_dict(name, pareto_front):
     nb_out = 0
     while nb_out < 1:
 
-        if len(pareto_front) == 0 or noise:
+        if previous_exp == {} or noise:
             # sample completely randomly
             config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t)
             config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t)
@@ -358,8 +361,8 @@ def sample_config_dict(name, pareto_front):
             config_dict["dilation_pool"], unrounded["dilation_pool"] = sample_from_range(dilation_pool_range_t)
         else:
             # sample gaussian from one of the previous experiments in the pareto front
-            previous_experiment = random.choice(pareto_front)
-            previous_unrounded = previous_experiment["unrounded"]
+            # previous_experiment = random.choice(pareto_front)
+            previous_unrounded = previous_exp["unrounded"]
             config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t, previous_unrounded["seq_len"])
             config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t, previous_unrounded["nb_channel"])
             config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t, previous_unrounded["dropout"])
@@ -576,19 +579,21 @@ def pareto_efficiency(experiment, pareto_front):
     return res
 
 
-def exp_max_pareto_efficiency(experiments, pareto_front):
+def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
     assert len(experiments) >= 1
-    if len(pareto_front) == 0:
-        return experiments[0]
-    max_efficiency = -np.inf
-    best_exp = None
-    for exp in experiments:
-        efficiency = pareto_efficiency(exp, pareto_front)
-        if efficiency >= max_efficiency:
-            max_efficiency = efficiency
-            best_exp = exp
-    assert best_exp is not None
-    return best_exp
+    noise = random.choices(population=[True, False], weights=[EPSILON_EXP_NOISE, 1.0 - EPSILON_EXP_NOISE])[0]
+    if noise or len(pareto_front) == 0:
+        return random.choice(experiments)
+    else:
+        max_efficiency = -np.inf
+        best_exp = None
+        for exp in experiments:
+            efficiency = pareto_efficiency(exp, pareto_front)
+            if efficiency >= max_efficiency:
+                max_efficiency = efficiency
+                best_exp = exp
+        assert best_exp is not None
+        return best_exp
 
 
 def dump_files(all_experiments, pareto_front):
@@ -669,6 +674,7 @@ if __name__ == "__main__":
         print(f"ITERATION N° {meta_iteration}")
 
         exp = {}
+        prev_exp = {}
         exps = []
         model_selected = False
         meta_model.eval()
@@ -677,7 +683,7 @@ if __name__ == "__main__":
             exp = {}
 
             # sample model
-            config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), pareto_front=pareto_front)
+            config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), previous_exp=prev_exp)
 
             nb_params = nb_parameters(config_dict)
             if nb_params > MAX_NB_PARAMETERS:
@@ -696,7 +702,7 @@ if __name__ == "__main__":
             if len(exps) >= NB_SAMPLED_MODELS_PER_ITERATION:
                 # select model
                 model_selected = True
-                exp = exp_max_pareto_efficiency(exps, pareto_front)
+                exp = exp_max_pareto_efficiency(exps, pareto_front, all_experiments)
 
         config_dict = exp["config_dict"]
         predicted_loss = exp["cost_software"]
@@ -712,6 +718,8 @@ if __name__ == "__main__":
 
         pareto_front = update_pareto(exp, pareto_front)
         all_experiments.append(exp)
+
+        prev_exp = exp
 
         print(f"actual loss: {exp['cost_software']}")
         surprise = exp['cost_software'] - predicted_loss
