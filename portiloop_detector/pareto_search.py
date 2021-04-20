@@ -528,16 +528,16 @@ def train_surrogate(net, all_experiments):
 def wandb_plot_pareto(all_experiments, ordered_pareto_front):
     plt.clf()
     # all experiments:
-    x_axis = [exp["cost_hardware"] for exp in all_experiments]
-    y_axis = [exp["cost_software"] for exp in all_experiments]
+    x_axis = [exp["cost_hardware"] * MAX_NB_PARAMETERS for exp in all_experiments]
+    y_axis = [exp["cost_software"] * MAX_LOSS for exp in all_experiments]
     plt.plot(x_axis, y_axis, 'bo')
     # pareto:
-    x_axis = [exp["cost_hardware"] for exp in ordered_pareto_front]
-    y_axis = [exp["cost_software"] for exp in ordered_pareto_front]
+    x_axis = [exp["cost_hardware"] * MAX_NB_PARAMETERS for exp in ordered_pareto_front]
+    y_axis = [exp["cost_software"] * MAX_LOSS for exp in ordered_pareto_front]
     plt.plot(x_axis, y_axis, 'ro-')
-    plt.xlabel(f"nb parameters / {MAX_NB_PARAMETERS}")
-    plt.ylabel(f"validation loss / {MAX_LOSS}")
-    plt.ylim(top=1.0)
+    plt.xlabel(f"nb parameters")
+    plt.ylabel(f"validation loss")
+    plt.ylim(top=0.1)
     plt.draw()
     return wandb.Image(plt)
 
@@ -718,8 +718,8 @@ if __name__ == "__main__":
 
         print(f"config: {config_dict}")
 
-        print(f"nb parameters: {nb_params}")
-        print(f"predicted loss: {predicted_loss}")
+        print(f"nb parameters: {nb_params * MAX_NB_PARAMETERS}")
+        print(f"predicted loss: {predicted_loss * MAX_LOSS}")
         print("training...")
 
         exp["cost_software"] = run(config_dict) / MAX_LOSS
@@ -729,9 +729,9 @@ if __name__ == "__main__":
 
         prev_exp = exp
 
-        print(f"actual loss: {exp['cost_software']}")
+        print(f"actual loss: {exp['cost_software'] * MAX_LOSS}")
         surprise = exp['cost_software'] - predicted_loss
-        print(f"surprise: {surprise}")
+        print(f"surprise: {surprise * MAX_LOSS}")
         print("training surrogate model...")
 
         meta_model.train()
