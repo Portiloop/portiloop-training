@@ -513,10 +513,12 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
             efficiency = pareto_efficiency(exp, all_experiments)
             if histo[1][0] <= exp["cost_hardware"] <= histo[1][-1]:
                 idx = np.where(histo[1] <= exp["cost_hardware"])[0][-1]
-                efficiency -= histo[0][idx]
+                nerf = histo[0][idx]
+                efficiency -= nerf
             if efficiency >= max_efficiency:
                 max_efficiency = efficiency
                 best_exp = exp
+                print(f"DEBUG: nerf: {nerf}")
         assert best_exp is not None
         return best_exp
 
