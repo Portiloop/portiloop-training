@@ -465,12 +465,12 @@ def pareto_efficiency(experiment, all_experiments):
     if len(all_experiments) < 1:
         return 0.0
 
-    nb_dominated = 0
+    nb_domining = 0
     for exp in all_experiments:
-        if exp["cost_software"] > experiment["cost_software"] and exp["cost_hardware"] > experiment["cost_hardware"]:
-            nb_dominated += 1
+        if exp["cost_software"] < experiment["cost_software"] and exp["cost_hardware"] < experiment["cost_hardware"]:
+            nb_domining += 1
 
-    return float(nb_dominated) / len(all_experiments)
+    return 1.0 - float(nb_domining) / len(all_experiments)
 
     # v_p = vector_exp(experiment)
     # dominates = True
