@@ -428,14 +428,17 @@ def train_surrogate(net, all_experiments):
 
 def wandb_plot_pareto(all_experiments, ordered_pareto_front):
     plt.clf()
-    # all experiments:
-    x_axis = [exp["cost_hardware"] for exp in all_experiments]
-    y_axis = [exp["cost_software"] for exp in all_experiments]
+    # all experiments minus last dot:
+    x_axis = [exp["cost_hardware"] for exp in all_experiments[:-1]]
+    y_axis = [exp["cost_software"] for exp in all_experiments[:-1]]
     plt.plot(x_axis, y_axis, 'bo')
     # pareto:
     x_axis = [exp["cost_hardware"] for exp in ordered_pareto_front]
     y_axis = [exp["cost_software"] for exp in ordered_pareto_front]
     plt.plot(x_axis, y_axis, 'ro-')
+    # last dot
+    plt.plot(all_experiments[-1]["cost_hardware"], all_experiments[-1]["cost_software"], 'go')
+
     plt.xlabel(f"nb parameters")
     plt.ylabel(f"validation loss")
     plt.ylim(top=0.1)
@@ -639,7 +642,7 @@ if __name__ == "__main__":
         print("training surrogate model...")
 
         meta_model.train()
-        meta_model, mean_loss = train_surrogate(meta_model, all_experiments)
+        meta_model, mean_loss = train_surrogate(meta_model, deepcopy(all_experiments))
 
         print(f"surrogate model loss: {mean_loss}")
 
