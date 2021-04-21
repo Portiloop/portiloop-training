@@ -458,7 +458,7 @@ def vector_exp(experiment):
     return np.array([experiment["cost_software"] / MAX_LOSS, experiment["cost_hardware"] / MAX_NB_PARAMETERS])
 
 
-def pareto_efficiency(experiment, pareto_front, histo):
+def pareto_efficiency(experiment, pareto_front):
     if len(pareto_front) < 2:
         return 0.0
     v_p = vector_exp(experiment)
@@ -479,10 +479,6 @@ def pareto_efficiency(experiment, pareto_front, histo):
     if not dominates:
         res *= -1.0
     # subtract density around number of parameters
-    print(res)
-    if not (experiment["cost_hardware"] > histo[1][-1] or experiment["cost_hardware"] < histo[1][0]):
-        idx = np.where(histo[1] > experiment["cost_hardware"])[0][0] - 1
-        res -= histo[0][idx]
     return res
 
 
@@ -493,12 +489,10 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
         return random.choice(experiments)
     else:
         assert len(all_experiments) != 0
-        histo = np.histogram([exp["cost_hardware"] for exp in all_experiments], bins=100)
-       # histo[0] /= np.sum(histo[0])
         max_efficiency = -np.inf
         best_exp = None
         for exp in experiments:
-            efficiency = pareto_efficiency(exp, pareto_front, histo)
+            efficiency = pareto_efficiency(exp, pareto_front)
             if efficiency >= max_efficiency:
                 max_efficiency = efficiency
                 best_exp = exp
