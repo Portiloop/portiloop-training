@@ -529,12 +529,12 @@ def train_surrogate(net, all_experiments):
 def wandb_plot_pareto(all_experiments, ordered_pareto_front):
     plt.clf()
     # all experiments:
-    x_axis = [exp["cost_hardware"] * MAX_NB_PARAMETERS for exp in all_experiments]
-    y_axis = [exp["cost_software"] * MAX_LOSS for exp in all_experiments]
+    x_axis = [exp["cost_hardware"] for exp in all_experiments]
+    y_axis = [exp["cost_software"] for exp in all_experiments]
     plt.plot(x_axis, y_axis, 'bo')
     # pareto:
-    x_axis = [exp["cost_hardware"] * MAX_NB_PARAMETERS for exp in ordered_pareto_front]
-    y_axis = [exp["cost_software"] * MAX_LOSS for exp in ordered_pareto_front]
+    x_axis = [exp["cost_hardware"] for exp in ordered_pareto_front]
+    y_axis = [exp["cost_software"] for exp in ordered_pareto_front]
     plt.plot(x_axis, y_axis, 'ro-')
     plt.xlabel(f"nb parameters")
     plt.ylabel(f"validation loss")
@@ -555,7 +555,7 @@ def dist_p_to_ab(v_a, v_b, v_p):
 
 
 def vector_exp(experiment):
-    return np.array([experiment["cost_software"], experiment["cost_hardware"]])
+    return np.array([experiment["cost_software"]/MAX_LOSS, experiment["cost_hardware"]/MAX_NB_PARAMETERS])
 
 
 def pareto_efficiency(experiment, pareto_front, histo):
@@ -700,8 +700,8 @@ if __name__ == "__main__":
             with torch.no_grad():
                 predicted_loss = meta_model(config_dict).item()
 
-            exp["cost_hardware"] = nb_params / MAX_NB_PARAMETERS
-            exp["cost_software"] = predicted_loss / MAX_LOSS
+            exp["cost_hardware"] = nb_params
+            exp["cost_software"] = predicted_loss
             exp["config_dict"] = config_dict
             exp["unrounded"] = unrounded
 
@@ -718,20 +718,20 @@ if __name__ == "__main__":
 
         print(f"config: {config_dict}")
 
-        print(f"nb parameters: {nb_params * MAX_NB_PARAMETERS}")
-        print(f"predicted loss: {predicted_loss * MAX_LOSS}")
+        print(f"nb parameters: {nb_params}")
+        print(f"predicted loss: {predicted_loss}")
         print("training...")
 
-        exp["cost_software"] = run(config_dict) / MAX_LOSS
+        exp["cost_software"] = run(config_dict)
 
         pareto_front = update_pareto(exp, pareto_front)
         all_experiments.append(exp)
 
         prev_exp = exp
 
-        print(f"actual loss: {exp['cost_software'] * MAX_LOSS}")
+        print(f"actual loss: {exp['cost_software']}")
         surprise = exp['cost_software'] - predicted_loss
-        print(f"surprise: {surprise * MAX_LOSS}")
+        print(f"surprise: {surprise}")
         print("training surrogate model...")
 
         meta_model.train()
