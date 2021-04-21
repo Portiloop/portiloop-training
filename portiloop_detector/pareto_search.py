@@ -458,28 +458,36 @@ def vector_exp(experiment):
     return np.array([experiment["cost_software"] / MAX_LOSS, experiment["cost_hardware"] / MAX_NB_PARAMETERS])
 
 
-def pareto_efficiency(experiment, pareto_front):
-    if len(pareto_front) < 2:
+def pareto_efficiency(experiment, all_experiments):
+    if len(all_experiments) < 1:
         return 0.0
-    v_p = vector_exp(experiment)
-    dominates = True
-    all_dists = []
-    for i in range(len(pareto_front)):
-        exp = pareto_front[i]
-        if exp["cost_software"] <= experiment["cost_software"] and exp["cost_hardware"] <= experiment["cost_hardware"]:
-            dominates = False
-        if i < len(pareto_front) - 1:
-            next = pareto_front[i + 1]
-            v_a = vector_exp(exp)
-            v_b = vector_exp(next)
-            dist = dist_p_to_ab(v_a, v_b, v_p)
-            all_dists.append(dist)
-    assert len(all_dists) >= 1
-    res = min(all_dists)  # distance to pareto
-    if not dominates:
-        res *= -1.0
-    # subtract density around number of parameters
-    return res
+
+    nb_dominated = 0
+    for exp in all_experiments:
+        if exp["cost_software"] > experiment["cost_software"] and exp["cost_hardware"] > experiment["cost_hardware"]:
+            nb_dominated += 1
+
+    return float(nb_dominated) / len(all_experiments)
+
+    # v_p = vector_exp(experiment)
+    # dominates = True
+    # all_dists = []
+    # for i in range(len(pareto_front)):
+    #     exp = pareto_front[i]
+    #     if exp["cost_software"] <= experiment["cost_software"] and exp["cost_hardware"] <= experiment["cost_hardware"]:
+    #         dominates = False
+    #     if i < len(pareto_front) - 1:
+    #         next = pareto_front[i + 1]
+    #         v_a = vector_exp(exp)
+    #         v_b = vector_exp(next)
+    #         dist = dist_p_to_ab(v_a, v_b, v_p)
+    #         all_dists.append(dist)
+    # assert len(all_dists) >= 1
+    # res = min(all_dists)  # distance to pareto
+    # if not dominates:
+    #     res *= -1.0
+    # # subtract density around number of parameters
+    # return res
 
 
 def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
@@ -492,7 +500,7 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
         max_efficiency = -np.inf
         best_exp = None
         for exp in experiments:
-            efficiency = pareto_efficiency(exp, pareto_front)
+            efficiency = pareto_efficiency(exp, all_experiments)
             if efficiency >= max_efficiency:
                 max_efficiency = efficiency
                 best_exp = exp
