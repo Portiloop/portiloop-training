@@ -34,9 +34,6 @@ path_pareto = Path(__file__).absolute().parent.parent / 'pareto'
 # path_dataset = Path(path)
 # path_pareto = Path("/content/drive/MyDrive/Data/pareto_results/")
 
-recall_validation_factor = 0.5
-precision_validation_factor = 0.5
-
 div_val_samp = 32
 
 MAX_META_ITERATIONS = 1000  # maximum number of experiments
@@ -60,15 +57,9 @@ NB_SAMPLED_MODELS_PER_ITERATION = 200  # number of models sampled per iteration,
 # run:
 
 def run(config_dict):
-    global precision_validation_factor
-    global recall_validation_factor
     _t_start = time.time()
-    # print(f"DEBUG: config_dict: {config_dict}")
-    experiment_name = config_dict["experiment_name"]
     nb_epoch_max = config_dict["nb_epoch_max"]
     nb_batch_per_epoch = config_dict["nb_batch_per_epoch"]
-    nb_epoch_early_stopping_stop = config_dict["nb_epoch_early_stopping_stop"]
-    early_stopping_smoothing_factor = config_dict["early_stopping_smoothing_factor"]
     batch_size = config_dict["batch_size"]
     seq_len = config_dict["seq_len"]
     window_size_s = config_dict["window_size_s"]
@@ -78,7 +69,6 @@ def run(config_dict):
     hidden_size = config_dict["hidden_size"]
     device_val = config_dict["device_val"]
     device_train = config_dict["device_train"]
-    max_duration = config_dict["max_duration"]
     nb_rnn_layers = config_dict["nb_rnn_layers"]
     adam_w = config_dict["adam_w"]
 
@@ -88,24 +78,10 @@ def run(config_dict):
     if device_val.startswith("cuda") or device_train.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
-    # logger = LoggerWandb(experiment_name, config_dict)
     net = PortiloopNetwork(config_dict).to(device=device_train)
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
 
-    first_epoch = 0
-    # try:
-    #     logger.restore()
-    #     checkpoint = torch.load(path_dataset / experiment_name)
-    #     net.load_state_dict(checkpoint['model_state_dict'])
-    #     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    #     first_epoch = checkpoint['epoch'] + 1
-    #     recall_validation_factor = checkpoint['recall_validation_factor']
-    #     precision_validation_factor = checkpoint['precision_validation_factor']
-    #     print("DEBUG: Use checkpoint model")
-    # except (ValueError, FileNotFoundError):
-    #     #    net = PortiloopNetwork(config_dict).to(device=device_train)
-    #     print("DEBUG: Create new model")
     net = net.train()
     nb_weights = 0
     for i in net.parameters():
@@ -131,8 +107,6 @@ def run(config_dict):
                                   seq_len=1,
                                   start_ratio=0.9,
                                   end_ratio=1)
-
-    # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
 
     idx_true, idx_false = get_class_idxs(ds_train)
 
@@ -160,29 +134,13 @@ def run(config_dict):
                                    pin_memory=True,
                                    shuffle=False)
 
-    # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
-
-    best_model_accuracy = 0
-    best_epoch = 0
-    best_model = None
-    best_loss_early_stopping = 1
-    best_epoch_early_stopping = 0
-    best_model_precision_validation = 0
-    best_model_f1_score_validation = 0
-    best_model_recall_validation = 0
     best_model_loss_validation = 1
 
-    early_stopping_counter = 0
-    loss_early_stopping = None
     h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
-    for epoch in range(first_epoch, first_epoch + nb_epoch_max):
+    for epoch in range(nb_epoch_max):
 
         # print(f"DEBUG: epoch: {epoch}")
-
-        accuracy_train = 0
-        loss_train = 0
-        n = 0
 
         for batch_data in train_loader:
             batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
@@ -197,101 +155,40 @@ def run(config_dict):
             output = output.view(-1)
 
             loss = criterion(output, batch_labels)
-            loss_train += loss.item()
             loss.backward()
             optimizer.step()
 
-            output = output >= THRESHOLD
-            batch_labels = batch_labels >= THRESHOLD
-
-            accuracy_train += (output == batch_labels).float().mean()
-            n += 1
-
-        accuracy_train /= n
-        loss_train /= n
-
-        accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
+        _, loss_validation, _, _, _ = get_accuracy_and_loss_pytorch(
             validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
-
-        recall_validation_factor = recall_validation
-        precision_validation_factor = precision_validation
-        updated_model = False
         if loss_validation < best_model_loss_validation:
-            best_model = copy.deepcopy(net)
-            best_epoch = epoch
-            # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': best_model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'recall_validation_factor': recall_validation_factor,
-                'precision_validation_factor': precision_validation_factor,
-            }, path_dataset / experiment_name, _use_new_zipfile_serialization=False)
-            updated_model = True
-            best_model_f1_score_validation = f1_validation
-            best_model_precision_validation = precision_validation
-            best_model_recall_validation = recall_validation
             best_model_loss_validation = loss_validation
-            best_model_accuracy = accuracy_validation
-
-        loss_early_stopping = 1.0 if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
-                1.0 - early_stopping_smoothing_factor)
-
-        if loss_early_stopping < best_loss_early_stopping:
-            best_loss_early_stopping = loss_early_stopping
-            early_stopping_counter = 0
-            best_epoch_early_stopping = epoch
-        else:
-            early_stopping_counter += 1
-
-        # logger.log(accuracy_train=accuracy_train,
-        #            loss_train=loss_train,
-        #            accuracy_validation=accuracy_validation,
-        #            loss_validation=loss_validation,
-        #            f1_validation=f1_validation,
-        #            precision_validation=precision_validation,
-        #            recall_validation=recall_validation,
-        #            best_model_accuracy_validation=best_model_accuracy,
-        #            best_epoch=best_epoch,
-        #            best_model=best_model,
-        #            loss_early_stopping=loss_early_stopping,
-        #            best_epoch_early_stopping=best_epoch_early_stopping,
-        #            best_model_f1_score_validation=best_model_f1_score_validation,
-        #            best_model_precision_validation=best_model_precision_validation,
-        #            best_model_recall_validation=best_model_recall_validation,
-        #            best_model_loss_validation=best_model_loss_validation,
-        #            updated_model=updated_model)
-
-        if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
-            print("Early stopping.")
-            break
-
     return best_model_loss_validation
 
 
 # hyperparameters
 
 # batch_size_range_t = ["i", 256, 256]
-lr_adam_range_t = ["f", 0.0003, 0.0003]
+# lr_adam_range_t = ["f", 0.0003, 0.0003]
 
 seq_len_range_t = ["i", 10, 50]
-
 kernel_conv_range_t = ["i", 3, 9]
 kernel_pool_range_t = ["i", 3, 5]
-stride_conv_range_t = ["i", 1, 3]
-stride_pool_range_t = ["i", 1, 3]
+stride_conv_range_t = ["i", 1, 5]
+stride_pool_range_t = ["i", 1, 5]
 dilation_conv_range_t = ["i", 1, 5]
 dilation_pool_range_t = ["i", 1, 5]
-nb_channel_range_t = ["i", 10, 50]
+nb_channel_range_t = ["i", 1, 50]
 hidden_size_range_t = ["i", 2, 100]
-dropout_range_t = ["f", 0.5, 0.5]
 window_size_s_range_t = ["f", 0.05, 0.1]
 seq_stride_s_range_t = ["f", 0.05, 0.1]
 nb_conv_layers_range_t = ["i", 1, 7]
 nb_rnn_layers_range_t = ["i", 1, 5]
+
+
+# dropout_range_t = ["f", 0.5, 0.5]
 # first_layer_dropout_range_t = ["b", False, False]
 # power_features_input_range_t = ["b", False, False]
-adam_w_range_t = ["f", 0.01, 0.01]
+# adam_w_range_t = ["f", 0.01, 0.01]
 
 
 def clip(x, min_x, max_x):
@@ -339,6 +236,9 @@ def sample_config_dict(name, previous_exp):
     config_dict["batch_size"] = 256
     config_dict["first_layer_dropout"] = False
     config_dict["power_features_input"] = False
+    config_dict["dropout"] = 0.5
+    config_dict["lr_adam"] = 0.0003
+    config_dict["adam_w"] = 0.01
 
     nb_out = 0
     while nb_out < 1:
@@ -347,12 +247,12 @@ def sample_config_dict(name, previous_exp):
             # sample completely randomly
             config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t)
             config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t)
-            config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t)
+            #  config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t)
             config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t)
             config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t)
-            config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t)
+            # config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t)
             config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t)
-            config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t)
+            #    config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t)
             config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t)
             config_dict["nb_conv_layers"], unrounded["nb_conv_layers"] = sample_from_range(nb_conv_layers_range_t)
             config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t)
@@ -367,12 +267,12 @@ def sample_config_dict(name, previous_exp):
             previous_unrounded = previous_exp["unrounded"]
             config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t, previous_unrounded["seq_len"])
             config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t, previous_unrounded["nb_channel"])
-            config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t, previous_unrounded["dropout"])
+            # config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t, previous_unrounded["dropout"])
             config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t, previous_unrounded["hidden_size"])
             config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t, previous_unrounded["seq_stride_s"])
-            config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t, previous_unrounded["lr_adam"])
+            # config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t, previous_unrounded["lr_adam"])
             config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t, previous_unrounded["nb_rnn_layers"])
-            config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t, previous_unrounded["adam_w"])
+            # config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t, previous_unrounded["adam_w"])
             config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t, previous_unrounded["window_size_s"])
             config_dict["nb_conv_layers"], unrounded["nb_conv_layers"] = sample_from_range(nb_conv_layers_range_t, previous_unrounded["nb_conv_layers"])
             config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t, previous_unrounded["stride_pool"])
@@ -418,7 +318,7 @@ class SurrogateModel(nn.Module):
     def __init__(self):
         super(SurrogateModel, self).__init__()
 
-        self.fc1 = nn.Linear(in_features=16,  # nb hyperparameters
+        self.fc1 = nn.Linear(in_features=13,  # nb hyperparameters
                              out_features=200)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
         self.d1 = nn.Dropout(0.5)
@@ -438,12 +338,12 @@ class SurrogateModel(nn.Module):
     def forward(self, config_dict):
         x_list = [config_dict["seq_len"],
                   config_dict["nb_channel"],
-                  config_dict["dropout"],
+                 # config_dict["dropout"],
                   config_dict["hidden_size"],
                   config_dict["seq_stride_s"],
-                  config_dict["lr_adam"],
+                  #config_dict["lr_adam"],
                   config_dict["nb_rnn_layers"],
-                  config_dict["adam_w"],
+                  #config_dict["adam_w"],
                   config_dict["window_size_s"],
                   config_dict["nb_conv_layers"],
                   config_dict["stride_pool"],
@@ -555,7 +455,7 @@ def dist_p_to_ab(v_a, v_b, v_p):
 
 
 def vector_exp(experiment):
-    return np.array([experiment["cost_software"]/MAX_LOSS, experiment["cost_hardware"]/MAX_NB_PARAMETERS])
+    return np.array([experiment["cost_software"] / MAX_LOSS, experiment["cost_hardware"] / MAX_NB_PARAMETERS])
 
 
 def pareto_efficiency(experiment, pareto_front, histo):
