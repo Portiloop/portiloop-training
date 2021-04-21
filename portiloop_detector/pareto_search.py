@@ -505,16 +505,17 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
         return random.choice(experiments)
     else:
         assert len(all_experiments) != 0
-        histo = np.histogram([exp["cost_hardware"] for exp in all_experiments], bins=100, density=True)
+        histo = np.histogram([exp["cost_hardware"] for exp in all_experiments], bins=100, density=True, range=(0, MAX_NB_PARAMETERS))
 
         max_efficiency = -np.inf
         best_exp = None
         for exp in experiments:
             efficiency = pareto_efficiency(exp, all_experiments)
-            if histo[1][0] <= exp["cost_hardware"] <= histo[1][-1]:
-                idx = np.where(histo[1] <= exp["cost_hardware"])[0][-1]
-                nerf = histo[0][idx] * MAX_NB_PARAMETERS
-                efficiency -= nerf
+            assert histo[1][0] <= exp["cost_hardware"] <= histo[1][-1]
+            idx = np.where(histo[1] <= exp["cost_hardware"])[0][-1]
+            nerf = histo[0][idx] * MAX_NB_PARAMETERS
+            print(f"DEBUG: {exp['cost_hardware']}: efficiency:{efficiency}, nerf:{nerf}")
+            efficiency -= nerf
             if efficiency >= max_efficiency:
                 max_efficiency = efficiency
                 best_exp = exp
