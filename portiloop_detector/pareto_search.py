@@ -338,12 +338,12 @@ class SurrogateModel(nn.Module):
     def forward(self, config_dict):
         x_list = [config_dict["seq_len"],
                   config_dict["nb_channel"],
-                 # config_dict["dropout"],
+                  # config_dict["dropout"],
                   config_dict["hidden_size"],
                   config_dict["seq_stride_s"],
-                  #config_dict["lr_adam"],
+                  # config_dict["lr_adam"],
                   config_dict["nb_rnn_layers"],
-                  #config_dict["adam_w"],
+                  # config_dict["adam_w"],
                   config_dict["window_size_s"],
                   config_dict["nb_conv_layers"],
                   config_dict["stride_pool"],
@@ -479,6 +479,7 @@ def pareto_efficiency(experiment, pareto_front, histo):
     if not dominates:
         res *= -1.0
     # subtract density around number of parameters
+    print(res)
     if not (experiment["cost_hardware"] > histo[1][-1] or experiment["cost_hardware"] < histo[1][0]):
         idx = np.where(histo[1] > experiment["cost_hardware"])[0][0] - 1
         res -= histo[0][idx]
@@ -492,7 +493,8 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
         return random.choice(experiments)
     else:
         assert len(all_experiments) != 0
-        histo = np.histogram([exp["cost_hardware"] for exp in all_experiments], bins=10)
+        histo = np.histogram([exp["cost_hardware"] for exp in all_experiments], bins=100)
+        histo[0] /= np.sum(histo[0])
         max_efficiency = -np.inf
         best_exp = None
         for exp in experiments:
