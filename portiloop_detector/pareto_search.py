@@ -39,8 +39,8 @@ div_val_samp = 32
 MAX_META_ITERATIONS = 1000  # maximum number of experiments
 EPOCHS_PER_EXPERIMENT = 1  # experiments are evaluated after this number of epoch by the meta learner
 
-EPSILON_NOISE = 0.1  # a completely random model will be selected this portion of the time, otherwise, it is sampled as a gaussian from the pareto front
-EPSILON_EXP_NOISE = 0.1
+EPSILON_NOISE = 0.1  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
+EPSILON_EXP_NOISE = 0.05  # a random experiment is selected within all sampled experiments this portion of the time
 
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 MAX_LOSS = 0.1  # to normalize distances
@@ -51,7 +51,7 @@ NB_BATCH_PER_EPOCH = 10000
 
 RUN_NAME = "pareto_search_5"
 
-NB_SAMPLED_MODELS_PER_ITERATION = 200  # number of models sampled per iteration, only the best predicted one is selected
+NB_SAMPLED_MODELS_PER_ITERATION = 500  # number of models sampled per iteration, only the best predicted one is selected
 
 
 # run:
@@ -518,12 +518,14 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
             assert histo[1][0] <= exp["cost_hardware"] <= histo[1][-1]
             idx = np.where(histo[1] <= exp["cost_hardware"])[0][-1]
             nerf = histo[0][idx] * MAX_NB_PARAMETERS
-            print(f"DEBUG: {exp['cost_hardware']}: efficiency:{efficiency}, nerf:{nerf}")
             efficiency -= nerf
             if efficiency >= max_efficiency:
                 max_efficiency = efficiency
                 best_exp = exp
+                best_efficiency = efficiency + nerf
+                best_nerf = nerf
         assert best_exp is not None
+        print(f"DEBUG: selected {best_exp['cost_hardware']}: efficiency:{best_efficiency}, nerf:{best_nerf}")
         return best_exp
 
 
