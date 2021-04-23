@@ -8,7 +8,6 @@ import glob
 import pandas as pd
 import pyedflib
 import numpy as np
-from sklearn.preprocessing import scale
 from time import time
 from pathlib import Path
 import os
@@ -19,9 +18,9 @@ os.chdir(path_dataset)
 annotation_files = glob.glob("*MODA_GS.txt")
 signal_files = [(subject[0:-12] + " PSG.edf") for subject in annotation_files]
 fe = 256
-new_fe = 256
+new_fe = 250
 signal_list = []
-pre_sequence_length_s = 10
+pre_sequence_length_s = 30
 file_to_remove = []
 size_dataset = 'small'
 if len(annotation_files) > 15:
@@ -36,7 +35,7 @@ for filename in signal_files:
             signal_list.append(signal)
     except OSError:
         file_to_remove.append(filename)
-        print("File " + filename[:-8] + " ignored because of corruption")
+        print("File " + filename + " ignored because of corruption")
 
 for filename in file_to_remove:
     signal_files.remove(filename)
@@ -62,20 +61,20 @@ for i, seq in enumerate(sequence_list):
             continue
         endIdx = int(endSeq * new_fe)
         lenSignal = endIdx - startIdx
-        signal_seq_list[i][index] = scale(signal_list[i][int(startIdx * fe / new_fe):int(endIdx * fe / new_fe)])
-        spindle_seq_list[i][index] = np.zeros((lenSignal,), dtype=np.int32)
+        signal_seq_list[i][index] = signal_list[i][int(startIdx * fe / new_fe):int(endIdx * fe / new_fe)]
+        spindle_seq_list[i][index] = np.zeros((lenSignal,), dtype=float)
         spindle_seq_list[i][index][:pre_sequence_length] = -1
         for temp, spindleRow in spindle_seq.iterrows():
             startSpin = int(spindleRow["startSec"] * new_fe) - startIdx
             endSpin = int((spindleRow["startSec"] + spindleRow["durationSec"]) * new_fe) - startIdx
-            spindle_seq_list[i][index][startSpin:endSpin] = 1
+            spindle_seq_list[i][index][startSpin:endSpin] = spindleRow["score"]
 
 signal = np.hstack(np.hstack(signal_seq_list))
 spindle = np.hstack(np.hstack(spindle_seq_list))
 
 if fe == new_fe:
-    np.savetxt("dataset_" + size_dataset + ".txt", np.transpose((signal, spindle)), fmt='%e,%d')
+    np.savetxt("dataset_" + size_dataset + ".txt", np.transpose((signal, spindle)), fmt='%e,%f')
 else:
-    np.savetxt("data_to_resample.txt", np.transpose(signal), fmt='%e')
-    np.savetxt("spindles_annotations_at_" + str(new_fe) + "hz.txt", np.transpose(spindle), fmt='%d')
+    np.savetxt(f"dataset_{size_dataset}_at_{fe}_to_resample.txt", np.transpose(signal), fmt='%e')
+    np.savetxt(f"spindles_annotations_at_{new_fe}hz.txt", np.transpose(spindle), fmt='%f')
 print("tot_time = ", str(time() - t_start))
