@@ -414,12 +414,6 @@ def dominates_pareto(experiment, pareto):
 def train_surrogate(net, all_experiments):
     optimizer = torch.optim.SGD(net.parameters(), lr=0.1, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
     loss = nn.MSELoss()
-
-    # DEFAULT_META_EPOCHS = 100  # default number of meta-epochs before entering meta train/val training regime
-    # START_META_TRAIN_VAL_AFTER = 200  # minimum number of experiments in the dataset before using a validation set
-    # META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
-    # MAX_META_EPOCHS = 1000  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
-
     if len(all_experiments) < START_META_TRAIN_VAL_AFTER:  # no train/val
         net.train()
         losses = []
@@ -438,9 +432,7 @@ def train_surrogate(net, all_experiments):
                 l.backward()
                 torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
                 optimizer.step()
-        net.eval()
         mean_loss = np.mean(losses)
-        # print(f"DEBUG: mean_loss:{mean_loss}")
     else:  # train/val regime
         random.shuffle(all_experiments)
         sep = int(META_TRAIN_VAL_RATIO * len(all_experiments))
@@ -469,7 +461,7 @@ def train_surrogate(net, all_experiments):
             samples = [exp["config_dict"] for exp in validation_set]
             labels = [exp["cost_software"] for exp in validation_set]
             losses = []
-            with torch.no_grad:
+            with torch.no_grad():
                 for i, sample in enumerate(samples):
                     pred = net(sample)
                     targ = torch.tensor([labels[i], ])
@@ -491,10 +483,10 @@ def train_surrogate(net, all_experiments):
                 print(f"DEBUG: meta training did not converge after epoch:{epoch}")
                 break
         net = best_model
-        net.eval()
         mean_loss = best_val_loss
-        # print(f"DEBUG: mean_loss:{mean_loss}")
+    net.eval()
     return net, mean_loss
+
 
 def wandb_plot_pareto(all_experiments, ordered_pareto_front):
     plt.clf()
@@ -659,11 +651,16 @@ if __name__ == "__main__":
         print(f"DEBUG: no meta dataset found, starting new run")
         all_experiments = []  # list of dictionaries
         pareto_front = []  # list of dictionaries, subset of all_experiments
+        meta_model = SurrogateModel()
+        meta_model.to(META_MODEL_DEVICE)
     else:
         print(f"DEBUG: existing meta dataset loaded")
-
-    meta_model = SurrogateModel()
-    meta_model.to(META_MODEL_DEVICE)
+        print("training new surrogate model...")
+        meta_model = SurrogateModel()
+        meta_model.to(META_MODEL_DEVICE)
+        meta_model.train()
+        meta_model, meta_loss = train_surrogate(meta_model, deepcopy(all_experiments))
+        print(f"surrogate model loss: {meta_loss}")
 
     # main meta-learning procedure:
 
