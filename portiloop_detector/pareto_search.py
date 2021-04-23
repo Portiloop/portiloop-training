@@ -412,7 +412,7 @@ def dominates_pareto(experiment, pareto):
 
 
 def train_surrogate(net, all_experiments):
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.1, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
     loss = nn.MSELoss()
     if len(all_experiments) < START_META_TRAIN_VAL_AFTER:  # no train/val
         net.train()
