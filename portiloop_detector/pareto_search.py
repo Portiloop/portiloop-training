@@ -53,6 +53,11 @@ RUN_NAME = "pareto_search_5"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 500  # number of models sampled per iteration, only the best predicted one is selected
 
+DEFAULT_META_EPOCHS = 100  # default number of meta-epochs before entering meta train/val training regime
+START_META_TRAIN_VAL_AFTER = 200  # minimum number of experiments in the dataset before using a validation set
+META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
+MAX_META_EPOCHS = 1000  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
+META_EARLY_STOPPING = 10  # meta early stopping after this number of unsuccessful meta epochs
 
 # run:
 
@@ -409,26 +414,87 @@ def dominates_pareto(experiment, pareto):
 def train_surrogate(net, all_experiments):
     optimizer = torch.optim.SGD(net.parameters(), lr=0.1, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
     loss = nn.MSELoss()
-    losses = []
-    nb_epochs = min(len(all_experiments), 100)
-    for epoch in range(nb_epochs):
-        random.shuffle(all_experiments)
-        samples = [exp["config_dict"] for exp in all_experiments]
-        labels = [exp["cost_software"] for exp in all_experiments]
-        for i, sample in enumerate(samples):
-            optimizer.zero_grad()
-            pred = net(sample)
-            targ = torch.tensor([labels[i], ])
-            assert pred.shape == targ.shape, f"pred.shape:{pred.shape} != targ.shape:{targ.shape}"
-            l = loss(pred, targ)
-            losses.append(l.item())
-            l.backward()
-            torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
-            optimizer.step()
-    mean_loss = np.mean(losses)
-    # print(f"DEBUG: mean_loss:{mean_loss}")
-    return net, mean_loss
 
+    # DEFAULT_META_EPOCHS = 100  # default number of meta-epochs before entering meta train/val training regime
+    # START_META_TRAIN_VAL_AFTER = 200  # minimum number of experiments in the dataset before using a validation set
+    # META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
+    # MAX_META_EPOCHS = 1000  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
+
+    if len(all_experiments) < START_META_TRAIN_VAL_AFTER:  # no train/val
+        net.train()
+        losses = []
+        nb_epochs = min(len(all_experiments), 100)
+        for epoch in range(nb_epochs):
+            random.shuffle(all_experiments)
+            samples = [exp["config_dict"] for exp in all_experiments]
+            labels = [exp["cost_software"] for exp in all_experiments]
+            for i, sample in enumerate(samples):
+                optimizer.zero_grad()
+                pred = net(sample)
+                targ = torch.tensor([labels[i], ])
+                assert pred.shape == targ.shape, f"pred.shape:{pred.shape} != targ.shape:{targ.shape}"
+                l = loss(pred, targ)
+                losses.append(l.item())
+                l.backward()
+                torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
+                optimizer.step()
+        net.eval()
+        mean_loss = np.mean(losses)
+        # print(f"DEBUG: mean_loss:{mean_loss}")
+    else:  # train/val regime
+        random.shuffle(all_experiments)
+        sep = int(META_TRAIN_VAL_RATIO * len(all_experiments))
+        training_set = all_experiments[:sep]
+        validation_set = all_experiments[sep:]
+        best_val_loss = np.inf
+        best_model = None
+        early_stopping_counter = 0
+        for epoch in range(MAX_META_EPOCHS):
+            # training
+            net.train()
+            random.shuffle(training_set)
+            samples = [exp["config_dict"] for exp in training_set]
+            labels = [exp["cost_software"] for exp in training_set]
+            for i, sample in enumerate(samples):
+                optimizer.zero_grad()
+                pred = net(sample)
+                targ = torch.tensor([labels[i], ])
+                assert pred.shape == targ.shape, f"pred.shape:{pred.shape} != targ.shape:{targ.shape}"
+                l = loss(pred, targ)
+                l.backward()
+                torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
+                optimizer.step()
+            # validation
+            net.eval()
+            samples = [exp["config_dict"] for exp in validation_set]
+            labels = [exp["cost_software"] for exp in validation_set]
+            losses = []
+            with torch.no_grad:
+                for i, sample in enumerate(samples):
+                    pred = net(sample)
+                    targ = torch.tensor([labels[i], ])
+                    assert pred.shape == targ.shape, f"pred.shape:{pred.shape} != targ.shape:{targ.shape}"
+                    l = loss(pred, targ)
+                    losses.append(l.item())
+            mean_loss = np.mean(losses)
+            if mean_loss < best_val_loss:
+                best_val_loss = mean_loss
+                early_stopping_counter = 0
+                best_model = deepcopy(net)
+            else:
+                early_stopping_counter += 1
+            # early stopping:
+            if early_stopping_counter >= META_EARLY_STOPPING:
+                print(f"DEBUG: meta training converged at epoch:{epoch} (-{META_EARLY_STOPPING})")
+                break
+            elif epoch == MAX_META_EPOCHS - 1:
+                print(f"DEBUG: meta training did not converge after epoch:{epoch}")
+                break
+        net = best_model
+        net.eval()
+        mean_loss = best_val_loss
+        # print(f"DEBUG: mean_loss:{mean_loss}")
+    return net, mean_loss
 
 def wandb_plot_pareto(all_experiments, ordered_pareto_front):
     plt.clf()
@@ -664,11 +730,11 @@ if __name__ == "__main__":
         meta_model.to(META_MODEL_DEVICE)
 
         meta_model.train()
-        meta_model, mean_loss = train_surrogate(meta_model, deepcopy(all_experiments))
+        meta_model, meta_loss = train_surrogate(meta_model, deepcopy(all_experiments))
 
-        print(f"surrogate model loss: {mean_loss}")
+        print(f"surrogate model loss: {meta_loss}")
 
         dump_files(all_experiments, pareto_front)
-        logger.log(surrogate_loss=mean_loss, surprise=surprise, all_experiments=all_experiments, pareto_front=pareto_front)
+        logger.log(surrogate_loss=meta_loss, surprise=surprise, all_experiments=all_experiments, pareto_front=pareto_front)
 
     print(f"End of meta-training.")
