@@ -49,7 +49,7 @@ META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
 NB_BATCH_PER_EPOCH = 10000
 
-RUN_NAME = "pareto_search_5"
+RUN_NAME = "pareto_search_6"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 500  # number of models sampled per iteration, only the best predicted one is selected
 
@@ -58,6 +58,7 @@ START_META_TRAIN_VAL_AFTER = 200  # minimum number of experiments in the dataset
 META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
 MAX_META_EPOCHS = 1000  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
 META_EARLY_STOPPING = 10  # meta early stopping after this number of unsuccessful meta epochs
+
 
 # run:
 
@@ -219,7 +220,41 @@ def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     return res, res_unrounded
 
 
-def sample_config_dict(name, previous_exp):
+def same_config_dict(config1, config2):
+    flag = 0
+    if config1["seq_len"] != config2["seq_len"]:
+        flag += 1
+    if config1["nb_channel"] != config2["nb_channel"]:
+        flag += 1
+    #  config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t)
+    if config1["hidden_size"] != config2["hidden_size"]:
+        flag += 1
+    if config1["seq_stride_s"] != config2["seq_stride_s"]:
+        flag += 1
+    # config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t)
+    if config1["nb_rnn_layers"] != config2["nb_rnn_layers"]:
+        flag += 1
+    #    config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t)
+    if config1["window_size_s"] != config2["window_size_s"]:
+        flag += 1
+    if config1["nb_conv_layers"] != config2["nb_conv_layers"]:
+        flag += 1
+    if config1["stride_pool"] != config2["stride_pool"]:
+        flag += 1
+    if config1["stride_conv"] != config2["stride_conv"]:
+        flag += 1
+    if config1["kernel_conv"] != config2["kernel_conv"]:
+        flag += 1
+    if config1["kernel_pool"] != config2["kernel_pool"]:
+        flag += 1
+    if config1["dilation_conv"] != config2["dilation_conv"]:
+        flag += 1
+    if config1["dilation_pool"] != config2["dilation_pool"]:
+        flag += 1
+    return flag == 0
+
+
+def sample_config_dict(name, previous_exp, all_exp):
     config_dict = dict(experiment_name=name,
                        device_train="cuda:0",
                        device_val="cpu",
@@ -244,67 +279,74 @@ def sample_config_dict(name, previous_exp):
     config_dict["dropout"] = 0.5
     config_dict["lr_adam"] = 0.0003
     config_dict["adam_w"] = 0.01
+    flag_in_exps = True
+    while flag_in_exps:
+        nb_out = 0
+        while nb_out < 1:
 
-    nb_out = 0
-    while nb_out < 1:
+            if previous_exp == {} or noise:
+                # sample completely randomly
+                config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t)
+                config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t)
+                #  config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t)
+                config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t)
+                config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t)
+                # config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t)
+                config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t)
+                #    config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t)
+                config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t)
+                config_dict["nb_conv_layers"], unrounded["nb_conv_layers"] = sample_from_range(nb_conv_layers_range_t)
+                config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t)
+                config_dict["stride_conv"], unrounded["stride_conv"] = sample_from_range(stride_conv_range_t)
+                config_dict["kernel_conv"], unrounded["kernel_conv"] = sample_from_range(kernel_conv_range_t)
+                config_dict["kernel_pool"], unrounded["kernel_pool"] = sample_from_range(kernel_pool_range_t)
+                config_dict["dilation_conv"], unrounded["dilation_conv"] = sample_from_range(dilation_conv_range_t)
+                config_dict["dilation_pool"], unrounded["dilation_pool"] = sample_from_range(dilation_pool_range_t)
+            else:
+                # sample gaussian from one of the previous experiments in the pareto front
+                # previous_experiment = random.choice(pareto_front)
+                previous_unrounded = previous_exp["unrounded"]
+                config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t, previous_unrounded["seq_len"])
+                config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t, previous_unrounded["nb_channel"])
+                # config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t, previous_unrounded["dropout"])
+                config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t, previous_unrounded["hidden_size"])
+                config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t, previous_unrounded["seq_stride_s"])
+                # config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t, previous_unrounded["lr_adam"])
+                config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t, previous_unrounded["nb_rnn_layers"])
+                # config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t, previous_unrounded["adam_w"])
+                config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t, previous_unrounded["window_size_s"])
+                config_dict["nb_conv_layers"], unrounded["nb_conv_layers"] = sample_from_range(nb_conv_layers_range_t, previous_unrounded["nb_conv_layers"])
+                config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t, previous_unrounded["stride_pool"])
+                config_dict["stride_conv"], unrounded["stride_conv"] = sample_from_range(stride_conv_range_t, previous_unrounded["stride_conv"])
+                config_dict["kernel_conv"], unrounded["kernel_conv"] = sample_from_range(kernel_conv_range_t, previous_unrounded["kernel_conv"])
+                config_dict["kernel_pool"], unrounded["kernel_pool"] = sample_from_range(kernel_pool_range_t, previous_unrounded["kernel_pool"])
+                config_dict["dilation_conv"], unrounded["dilation_conv"] = sample_from_range(dilation_conv_range_t, previous_unrounded["dilation_conv"])
+                config_dict["dilation_pool"], unrounded["dilation_pool"] = sample_from_range(dilation_pool_range_t, previous_unrounded["dilation_pool"])
 
-        if previous_exp == {} or noise:
-            # sample completely randomly
-            config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t)
-            config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t)
-            #  config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t)
-            config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t)
-            config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t)
-            # config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t)
-            config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t)
-            #    config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t)
-            config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t)
-            config_dict["nb_conv_layers"], unrounded["nb_conv_layers"] = sample_from_range(nb_conv_layers_range_t)
-            config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t)
-            config_dict["stride_conv"], unrounded["stride_conv"] = sample_from_range(stride_conv_range_t)
-            config_dict["kernel_conv"], unrounded["kernel_conv"] = sample_from_range(kernel_conv_range_t)
-            config_dict["kernel_pool"], unrounded["kernel_pool"] = sample_from_range(kernel_pool_range_t)
-            config_dict["dilation_conv"], unrounded["dilation_conv"] = sample_from_range(dilation_conv_range_t)
-            config_dict["dilation_pool"], unrounded["dilation_pool"] = sample_from_range(dilation_pool_range_t)
-        else:
-            # sample gaussian from one of the previous experiments in the pareto front
-            # previous_experiment = random.choice(pareto_front)
-            previous_unrounded = previous_exp["unrounded"]
-            config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t, previous_unrounded["seq_len"])
-            config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t, previous_unrounded["nb_channel"])
-            # config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t, previous_unrounded["dropout"])
-            config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t, previous_unrounded["hidden_size"])
-            config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t, previous_unrounded["seq_stride_s"])
-            # config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t, previous_unrounded["lr_adam"])
-            config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t, previous_unrounded["nb_rnn_layers"])
-            # config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t, previous_unrounded["adam_w"])
-            config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t, previous_unrounded["window_size_s"])
-            config_dict["nb_conv_layers"], unrounded["nb_conv_layers"] = sample_from_range(nb_conv_layers_range_t, previous_unrounded["nb_conv_layers"])
-            config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t, previous_unrounded["stride_pool"])
-            config_dict["stride_conv"], unrounded["stride_conv"] = sample_from_range(stride_conv_range_t, previous_unrounded["stride_conv"])
-            config_dict["kernel_conv"], unrounded["kernel_conv"] = sample_from_range(kernel_conv_range_t, previous_unrounded["kernel_conv"])
-            config_dict["kernel_pool"], unrounded["kernel_pool"] = sample_from_range(kernel_pool_range_t, previous_unrounded["kernel_pool"])
-            config_dict["dilation_conv"], unrounded["dilation_conv"] = sample_from_range(dilation_conv_range_t, previous_unrounded["dilation_conv"])
-            config_dict["dilation_pool"], unrounded["dilation_pool"] = sample_from_range(dilation_pool_range_t, previous_unrounded["dilation_pool"])
+            stride_pool = config_dict["stride_pool"]
+            stride_conv = config_dict["stride_conv"]
+            kernel_conv = config_dict["kernel_conv"]
+            kernel_pool = config_dict["kernel_pool"]
+            window_size_s = config_dict["window_size_s"]
+            dilation_conv = config_dict["dilation_conv"]
+            dilation_pool = config_dict["dilation_pool"]
+            fe = config_dict["fe"]
+            nb_conv_layers = config_dict["nb_conv_layers"]
 
-        stride_pool = config_dict["stride_pool"]
-        stride_conv = config_dict["stride_conv"]
-        kernel_conv = config_dict["kernel_conv"]
-        kernel_pool = config_dict["kernel_pool"]
-        window_size_s = config_dict["window_size_s"]
-        dilation_conv = config_dict["dilation_conv"]
-        dilation_pool = config_dict["dilation_pool"]
-        fe = config_dict["fe"]
-        nb_conv_layers = config_dict["nb_conv_layers"]
+            conv_padding = 0  # int(kernel_conv // 2)
+            pool_padding = 0  # int(kernel_pool // 2)
+            window_size = int(window_size_s * fe)
+            nb_out = window_size
 
-        conv_padding = 0  # int(kernel_conv // 2)
-        pool_padding = 0  # int(kernel_pool // 2)
-        window_size = int(window_size_s * fe)
-        nb_out = window_size
-
-        for _ in range(nb_conv_layers):
-            nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
-            nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
+            for _ in range(nb_conv_layers):
+                nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
+                nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
+        flag_in_exps = False
+        for exp in all_experiments:
+            if same_config_dict(exp, config_dict):
+                flag_in_exps = True
+                print(f"DEBUG : config already tried = {config_dict}")
+                break
 
     config_dict["nb_out"] = nb_out
     config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
@@ -679,7 +721,7 @@ if __name__ == "__main__":
             exp = {}
 
             # sample model
-            config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), previous_exp=prev_exp)
+            config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), previous_exp=prev_exp, all_exp=all_experiments)
 
             nb_params = nb_parameters(config_dict)
             if nb_params > MAX_NB_PARAMETERS:
