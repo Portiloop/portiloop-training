@@ -23,7 +23,7 @@ while len(all_experiments) > 0:
         if same_config_dict(e['config_dict'], same_configs[0]['config_dict']):
             same_configs.append(e)
             all_experiments.remove(e)
-    exp['cost_software'] = np.mean([e['cost_software'] for e in same_configs])
+    exp['cost_software'] = float(np.mean([e['cost_software'] for e in same_configs]))
     new_all_exp.append(exp)
     pareto_front = update_pareto(exp, pareto_front)
 
