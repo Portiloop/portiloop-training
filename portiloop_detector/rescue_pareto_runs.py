@@ -20,7 +20,7 @@ while len(all_experiments) > 0:
     same_configs = [exp]
     all_exps_copy = copy.deepcopy(all_experiments)
     for e in all_exps_copy:
-        if same_config_dict(e, same_configs[0]):
+        if same_config_dict(e['config_dict'], same_configs[0]['config_dict']):
             same_configs.append(e)
             all_experiments.remove(e)
     exp['cost_software'] = np.mean([e['cost_software'] for e in same_configs])
