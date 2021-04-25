@@ -22,6 +22,8 @@ new_fe = 250
 signal_list = []
 pre_sequence_length_s = 30
 file_to_remove = []
+reference_list = pd.read_csv("8_MODA_primChan_180sjt.txt", delim_whitespace=True)
+
 size_dataset = 'small'
 if len(annotation_files) > 15:
     size_dataset = 'big'
@@ -29,9 +31,15 @@ for filename in signal_files:
     try:
         with pyedflib.EdfReader(filename) as edf_file:
             print(edf_file.getSignalLabels())
-            indices = [i for i, s in enumerate(edf_file.getSignalLabels()) if 'Fpz' in s or 'Fz' in s]
-            signal = edf_file.readSignal(indices[0])
-            assert edf_file.getSampleFrequency(indices[0]) == fe
+            indices_C3 = [i for i, s in enumerate(edf_file.getSignalLabels()) if 'C3' in s]
+            signal = edf_file.readSignal(indices_C3[0])
+            assert edf_file.getSampleFrequency(indices_C3[0]) == fe
+            if 'C3-A2' in reference_list[reference_list["subject"] == filename[:-8] + ".edf"]["channel"].values:
+                indices_A2_CLE = [i for i, s in enumerate(edf_file.getSignalLabels()) if 'A2' in s]
+                ref = edf_file.readSignal(indices_A2_CLE[0])
+                assert edf_file.getSampleFrequency(indices_A2_CLE[0]) == fe
+                assert len(ref) == len(signal)
+                signal -= ref
             signal_list.append(signal)
     except OSError:
         file_to_remove.append(filename)
