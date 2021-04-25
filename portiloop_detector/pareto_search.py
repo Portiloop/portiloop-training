@@ -343,8 +343,7 @@ def sample_config_dict(name, previous_exp, all_exp):
                 nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
         flag_in_exps = False
         for exp in all_experiments:
-            print(f"DEBUG: config exp : {exp}")
-            if same_config_dict(exp, config_dict):
+            if same_config_dict(exp['config_dict'], config_dict):
                 flag_in_exps = True
                 print(f"DEBUG : config already tried = {config_dict}")
                 break
