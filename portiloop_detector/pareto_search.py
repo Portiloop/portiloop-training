@@ -49,7 +49,7 @@ META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
 NB_BATCH_PER_EPOCH = 10000
 
-RUN_NAME = "pareto_search_6"
+RUN_NAME = "pareto_search_5"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 500  # number of models sampled per iteration, only the best predicted one is selected
 
