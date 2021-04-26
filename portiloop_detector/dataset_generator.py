@@ -30,7 +30,7 @@ if len(annotation_files) > 15:
 for filename in signal_files:
     try:
         with pyedflib.EdfReader(filename) as edf_file:
-            print(edf_file.getSignalLabels())
+            # print(edf_file.getSignalLabels())
             indices_C3 = [i for i, s in enumerate(edf_file.getSignalLabels()) if 'C3' in s]
             signal = edf_file.readSignal(indices_C3[0])
             assert edf_file.getSampleFrequency(indices_C3[0]) == fe
