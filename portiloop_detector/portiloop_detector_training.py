@@ -19,10 +19,10 @@ from argparse import ArgumentParser
 
 # all constants (no hyperparameters here!)
 
-THRESHOLD = 0.5
+THRESHOLD = 0.25
 WANDB_PROJECT = "data-from-portiloop"
 
-filename_dataset = "0908_portiloop_dataset_250_standardized_simulink_envelope_pf_labeled.txt"
+filename_dataset = "dataset_big_250_matlab_standardized_envelope_pf.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
@@ -31,25 +31,25 @@ div_val_samp = 32
 
 # hyperparameters
 
-batch_size_list = [256, 256, 256, 256, 256, 256]
-seq_len_list = [20, 30, 40, 20, 30, 40]
-kernel_conv_list = [5, 5, 5, 5, 5, 5]
-kernel_pool_list = [3, 3, 3, 3, 3, 3]
-stride_conv_list = [1, 1, 1, 1, 1, 1]
-stride_pool_list = [1, 1, 1, 1, 1, 1]
-dilation_conv_list = [1, 1, 1, 1, 1, 1]
-dilation_pool_list = [1, 1, 1, 1, 1, 1]
-nb_channel_list = [20, 20, 20, 20, 20, 20]
-hidden_size_list = [15, 15, 15, 15, 15, 15]
-dropout_list = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
-windows_size_s_list = [0.25, 0.25, 0.25, 0.25, 0.25, 0.25]
-seq_stride_s_list = [0.1, 0.08, 0.05, 0.1, 0.08, 0.05]
-lr_adam_list = [0.0003, 0.0003, 0.0003, 0.0003, 0.0003, 0.0003]
-nb_conv_layers_list = [7, 7, 7, 7, 7, 7]
-nb_rnn_layers_list = [1, 1, 1, 1, 1, 1]
-first_layer_dropout_list = [False, False, False, False, False, False]
-power_features_input_list = [False, False, False, False, False, False]
-adam_w_list = [0, 0, 0, 0.01, 0.01, 0.01]
+batch_size_list = [256, 256, 256]
+seq_len_list = [20, 30, 40]
+kernel_conv_list = [5, 5, 5]
+kernel_pool_list = [3, 3, 3]
+stride_conv_list = [1, 1, 1]
+stride_pool_list = [1, 1, 1]
+dilation_conv_list = [1, 1, 1]
+dilation_pool_list = [1, 1, 1]
+nb_channel_list = [20, 20, 20]
+hidden_size_list = [15, 15, 15]
+dropout_list = [0.5, 0.5, 0.5]
+windows_size_s_list = [0.25, 0.25, 0.25]
+seq_stride_s_list = [0.1, 0.1, 0.1]
+lr_adam_list = [0.0003, 0.0003, 0.0003]
+nb_conv_layers_list = [7, 7, 7]
+nb_rnn_layers_list = [1, 1, 1]
+first_layer_dropout_list = [False, False, False]
+power_features_input_list = [False, False, False]
+adam_w_list = [0.01, 0.01, 0.01]
 
 
 # all classes and functions:

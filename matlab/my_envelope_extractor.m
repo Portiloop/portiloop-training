@@ -1,6 +1,6 @@
 %% load data
 path = "../dataset/";
-dataset = load(path+"0707_portiloop_dataset_250_standardized.txt");
+dataset = load(path+"dataset_big_250_matlab.txt");
 
 %% load data from portiloop
 
@@ -16,8 +16,8 @@ signal = dataset(:,1);
 size_signal = size(signal,1);
 tot_time =size_signal/fe;
 
-spindles_simulink = dataset(:,2) == 1;
-spindles = dataset(:,2) == 1;
+%spindles_simulink = dataset(:,2) > 0.2;
+%spindles = dataset(:,2) == 1;
 duration = size_signal/fe;
 time_vect = linspace(0,size_signal/fe, size_signal);
 signal_simulink = [time_vect' signal];
@@ -104,8 +104,8 @@ end
 % axis([140 160 -20 20]);
 
 %% save
-dataset_final = load(path+"0908_portiloop_dataset_250_standardized.txt");
+dataset_final = load(path+"dataset_big_250_matlab_standardized.txt");
 
-output_envelope = single([dataset_final(:,1), envelope_homemade_simulink]);
+output_envelope = single([dataset_final(:,1), envelope_homemade_simulink, dataset_final(:, 2)]);
 
-writematrix(output_envelope, path+"0908_portiloop_dataset_250_standardized_envelope.txt");
+writematrix(output_envelope, path+"dataset_big_250_matlab_standardized_envelope.txt");

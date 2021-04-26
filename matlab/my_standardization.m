@@ -1,17 +1,16 @@
 %% load data
 path = "../dataset/";
-dataset = load(path+"dataset_big_envelope_fusion_pf.txt");
+dataset = load(path+"dataset_big_250_matlab.txt");
 
 %% load data from portiloop
 
 path = "../dataset/";
 dataset = load(path+"0908_portiloop_dataset_250.txt");
-dataset_full = load(path+"0908_portiloop_dataset_250_standardized_envelope_pf_labeled.txt");
-dataset = [dataset, dataset_full(:, 2:end)];
+%dataset_full = load(path+"0908_portiloop_dataset_250_standardized_envelope_pf_labeled.txt");
+%dataset = [dataset, dataset_full(:, 2:end)];
 %% 
 signal = dataset(:,1);
-spindles_gs = dataset(:,4) == 1;
-spindles_hugo = dataset(:,4) == 0.8;
+spindles_gs = dataset(:,2) > 0.25;
 fe = 250;
 tot_time = size(dataset, 1)/fe;
 size_signal = size(dataset, 1);
@@ -29,7 +28,7 @@ time_vect = out.tout(2:end);
 % % [b,a] = iirnotch(wo,bw);
 % % signal_filt = filtfilt(b, a, signal);
 % % sim_filtered_bp_notch = bandpass(signal_filt, [0.3 30], fe);
-sim_filtered_lp = bandpass(signal, [0.5 35], fe);
+%sim_filtered_lp = bandpass(signal, [0.5 35], fe);
 % time_vect = linspace(0, tot_time, tot_time*fe);
 % % figure
 % % hold on
@@ -128,9 +127,9 @@ plot(myhz,mypowr(1:length(myhz)),'r','linew',2)
 %% save
 
 %output_signal = single(lp_standard(:,1));%, dataset(1:end-8,4)]);
-output_signal = single([lp_standard(:,1), dataset(:, 2:end)]);
+output_signal = single([lp_standard(:,1), spindle_250]);
 
-writematrix(output_signal, path+"0908_portiloop_dataset_250_standardized_simulink_envelope_pf_labeled.txt");
+writematrix(output_signal, path+"dataset_big_250_matlab_standardized.txt");
 
 %%
 plot(time_vect, output_signal);

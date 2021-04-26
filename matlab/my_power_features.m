@@ -1,6 +1,6 @@
 %% load
-path = "../dataset/13042021_night_lp35hz/";
-dataset = load(path+"13042021_portiloop_dataset_250_standardized_envelope.txt");
+path = "../dataset/";
+dataset = load(path+"dataset_big_250_matlab_standardized_envelope.txt");
 output_signal = single(dataset);
 %% data selection
 Fs = 250;            % Sampling frequency                    
@@ -24,9 +24,9 @@ end
 
 %% save 
 
-datasetupdate = single([output_signal(:,1), output_signal(:,2), r]);
+datasetupdate = single([output_signal(:,1), output_signal(:,2), r, output_signal(:,3)]);
 
-writematrix(datasetupdate, path+"13042021_portiloop_dataset_250_standardized_envelope_pf.txt");
+writematrix(datasetupdate, path+"dataset_big_250_matlab_standardized_envelope_pf.txt");
 
 %% plot
 
