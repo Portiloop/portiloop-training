@@ -20,7 +20,7 @@ from argparse import ArgumentParser
 # all constants (no hyperparameters here!)
 
 THRESHOLD = 0.25
-WANDB_PROJECT = "data-from-portiloop"
+WANDB_PROJECT = "portiloop-multiple_input"
 
 filename_dataset = "dataset_big_250_matlab_standardized_envelope_pf.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
@@ -557,7 +557,7 @@ def run(config_dict):
     if device_val.startswith("cuda") or device_train.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
-    logger = LoggerWandb(experiment_name, config_dict)
+    logger = LoggerWandb(experiment_name, config_dict, WANDB_PROJECT)
     net = PortiloopNetwork(config_dict).to(device=device_train)
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
