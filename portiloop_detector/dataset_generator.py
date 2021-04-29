@@ -87,8 +87,8 @@ signal = np.hstack(np.hstack(signal_seq_list))
 spindle = np.hstack(np.hstack(spindle_seq_list))
 
 if fe == new_fe:
-    np.savetxt("dataset_" + size_dataset + ".txt", np.transpose((signal, spindle)), fmt='%e,%f')
+    np.savetxt("dataset_p1_" + size_dataset + ".txt", np.transpose((signal, spindle)), fmt='%e,%f')
 else:
-    np.savetxt(f"dataset_{size_dataset}_at_{fe}_to_resample.txt", np.transpose(signal), fmt='%e')
-    np.savetxt(f"spindles_annotations_{size_dataset}_at_{new_fe}hz.txt", np.transpose(spindle), fmt='%f')
+    np.savetxt(f"dataset_p1_{size_dataset}_at_{fe}_to_resample.txt", np.transpose(signal), fmt='%e')
+    np.savetxt(f"spindles_annotations_p1_{size_dataset}_at_{new_fe}hz.txt", np.transpose(spindle), fmt='%f')
 print("tot_time = ", str(time() - t_start))
