@@ -19,7 +19,7 @@ from argparse import ArgumentParser
 
 # all constants (no hyperparameters here!)
 
-THRESHOLD = 0.25
+THRESHOLD = 0.2
 WANDB_PROJECT = "portiloop-multiple_input"
 
 filename_dataset = "dataset_big_250_matlab_standardized_envelope_pf.txt"

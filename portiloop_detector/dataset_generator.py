@@ -15,7 +15,10 @@ import os
 t_start = time()
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 os.chdir(path_dataset)
+p1_list = pd.read_csv("6_segListSrcDataLoc_p1.txt", delim_whitespace=True)
+p1_subject_list = list(dict.fromkeys(p1_list["subjectID"]))
 annotation_files = glob.glob("*MODA_GS.txt")
+annotation_files = [files for files in annotation_files if files[0:-12] in p1_subject_list]
 signal_files = [(subject[0:-12] + " PSG.edf") for subject in annotation_files]
 fe = 256
 new_fe = 250
