@@ -1,7 +1,7 @@
 """
 Pareto-optimal hyperparameter search (meta-learning)
 """
-from portiloop_detector_training import PortiloopNetwork, SignalDataset, get_class_idxs, ValidationSampler, RandomSampler, out_dim, get_accuracy_and_loss_pytorch
+from portiloop_detector_training import PortiloopNetwork, SignalDataset, get_class_idxs, ValidationSampler, RandomSampler, out_dim, get_accuracy_and_loss_pytorch, filename_dataset
 
 # all imports
 import random
@@ -24,8 +24,6 @@ import wandb
 
 THRESHOLD = 0.5
 WANDB_PROJECT = "pareto"
-
-filename_dataset = "dataset_p1_big_fusion_standardized_envelope_pf.txt"
 
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 path_pareto = Path(__file__).absolute().parent.parent / 'pareto'
