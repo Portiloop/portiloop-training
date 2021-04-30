@@ -14,6 +14,7 @@ install_requires = [
     'pyedflib',
     'scipy',
     'matplotlib',
+    'requests',
 ]
 
 setup(name='portiloop',
