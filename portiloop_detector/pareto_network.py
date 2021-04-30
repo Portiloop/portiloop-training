@@ -669,8 +669,10 @@ def main(args):
         print("INFO: now running: server")
         Server()
     elif args.worker:
+        Worker(server_ip=IP_SERVER)
         print("INFO: now running: worker")
     elif args.meta:
+        MetaLearner(server_ip=IP_SERVER)
         print("INFO: now running: meta")
     else:
         print("ERROR: wrong argument")
