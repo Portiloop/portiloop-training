@@ -502,7 +502,7 @@ class MetaLearner:
                             to_remove = i
                             break
                     assert to_remove >= 0
-                    launched_experiments.remove(to_remove)
+                    launched_experiments.pop(to_remove)
                     pareto_front = update_pareto(res, pareto_front)
                     finished_experiments.append(res)
                     prev_exp = res
