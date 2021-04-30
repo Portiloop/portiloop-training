@@ -21,6 +21,7 @@ from argparse import ArgumentParser
 
 THRESHOLD = 0.2
 WANDB_PROJECT = "portiloop-multiple_input"
+CLASSIFICATION = True
 
 filename_dataset = "dataset_p1_big_250_matlab_standardized_envelope_pf.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
@@ -377,8 +378,11 @@ class PortiloopNetwork(nn.Module):
             fc_features += hidden_size
         if self.power_features_input:
             fc_features += 1
+        out_features = 1
+        if CLASSIFICATION:
+            out_features = 2
         self.fc = nn.Linear(in_features=fc_features,  # enveloppe and signal + power features ratio
-                            out_features=1)  # probability of being a spindle
+                            out_features=out_features)  # probability of being a spindle
 
     def forward(self, x1, x2, x3, h1, h2):
         (batch_size, sequence_len, features) = x1.shape
@@ -417,7 +421,10 @@ class PortiloopNetwork(nn.Module):
             x = torch.cat((x, x3), -1)
 
         x = self.fc(x)  # output size: 1
-        x = torch.sigmoid(x)
+        if CLASSIFICATION:
+            x = torch.softmax(x, dim=-1)
+        else:
+            x = torch.sigmoid(x)
         return x, hn1, hn2
 
 
@@ -496,20 +503,21 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             batch_samples_input2 = batch_samples_input2.to(device=device).float()
             batch_samples_input3 = batch_samples_input3.to(device=device).float()
             batch_labels = batch_labels.to(device=device).float()
+            if CLASSIFICATION:
+                batch_labels = (batch_labels >= THRESHOLD)
             output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
             output = output.view(-1)
             loss_py = criterion(output, batch_labels)
             loss += loss_py.item()
-
-            output = (output >= THRESHOLD)
-            batch_labels = (batch_labels >= THRESHOLD)
-
+            if not CLASSIFICATION:
+                output = (output >= THRESHOLD)
+                batch_labels = (batch_labels >= THRESHOLD)
+            else:
+                if output.ndim == 2:
+                    output = output.argmax(dim=1)
             acc += (output == batch_labels).float().mean()
             output = output.float()
             batch_labels = batch_labels.float()
-
-            # if output.ndim == 2:
-            #     output = output.argmax(dim=1)
 
             tp += (batch_labels * output).sum().to(torch.float32)
             tn += ((1 - batch_labels) * (1 - output)).sum().to(torch.float32)
@@ -563,7 +571,7 @@ def run(config_dict):
 
     logger = LoggerWandb(experiment_name, config_dict, WANDB_PROJECT)
     net = PortiloopNetwork(config_dict).to(device=device_train)
-    criterion = nn.MSELoss()
+    criterion = nn.MSELoss() if not CLASSIFICATION else nn.CrossEntropyLoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
 
     first_epoch = 0
@@ -666,6 +674,8 @@ def run(config_dict):
             batch_labels = batch_labels.to(device=device_train).float()
 
             optimizer.zero_grad()
+            if CLASSIFICATION:
+                batch_labels = (batch_labels >= THRESHOLD)
 
             output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
             output = output.view(-1)
@@ -675,9 +685,12 @@ def run(config_dict):
             loss.backward()
             optimizer.step()
 
-            output = output >= THRESHOLD
-            batch_labels = batch_labels >= THRESHOLD
-
+            if not CLASSIFICATION:
+                output = (output >= THRESHOLD)
+                batch_labels = (batch_labels >= THRESHOLD)
+            else:
+                if output.ndim == 2:
+                    output = output.argmax(dim=1)
             accuracy_train += (output == batch_labels).float().mean()
             n += 1
 
