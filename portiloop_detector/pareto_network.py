@@ -12,7 +12,7 @@ import datetime
 from copy import deepcopy
 import pickle
 
-from portiloop_detector.pareto_search import LoggerWandbPareto, load_files, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, same_config_dict, update_pareto, sample_config_dict, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, dump_files, run
+from pareto_search import LoggerWandbPareto, load_files, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, same_config_dict, update_pareto, sample_config_dict, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, dump_files, run
 
 
 IP_SERVER = "45.74.221.204"
