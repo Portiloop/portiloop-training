@@ -506,15 +506,17 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             if CLASSIFICATION:
                 batch_labels = (batch_labels >= THRESHOLD)
             output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
-            if CLASSIFICATION:
-                if output.ndim == 2:
-                    output = output.argmax(dim=1)
-            output = output.view(-1)
+            if not CLASSIFICATION:
+                output = output.view(-1)
             loss_py = criterion(output, batch_labels)
             loss += loss_py.item()
             if not CLASSIFICATION:
                 output = (output >= THRESHOLD)
                 batch_labels = (batch_labels >= THRESHOLD)
+            else:
+                if output.ndim == 2:
+                    output = output.argmax(dim=1)
+
             acc += (output == batch_labels).float().mean()
             output = output.float()
             batch_labels = batch_labels.float()
@@ -678,10 +680,9 @@ def run(config_dict):
                 batch_labels = (batch_labels >= THRESHOLD)
 
             output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
-            if CLASSIFICATION:
-                if output.ndim == 2:
-                    output = output.argmax(dim=1)
-            output = output.view(-1)
+
+            if not CLASSIFICATION:
+                output = output.view(-1)
 
             loss = criterion(output, batch_labels)
             loss_train += loss.item()
@@ -691,6 +692,9 @@ def run(config_dict):
             if not CLASSIFICATION:
                 output = (output >= THRESHOLD)
                 batch_labels = (batch_labels >= THRESHOLD)
+            else:
+                if output.ndim == 2:
+                    output = output.argmax(dim=1)
             accuracy_train += (output == batch_labels).float().mean()
             n += 1
 
