@@ -25,7 +25,7 @@ import wandb
 THRESHOLD = 0.5
 WANDB_PROJECT = "pareto"
 
-filename_dataset = "dataset_big_fusion_standardized_envelope_pf.txt"
+filename_dataset = "dataset_p1_big_fusion_standardized_envelope_pf.txt"
 
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 path_pareto = Path(__file__).absolute().parent.parent / 'pareto'
@@ -47,9 +47,9 @@ MAX_LOSS = 0.1  # to normalize distances
 
 META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
-NB_BATCH_PER_EPOCH = 10000
+NB_BATCH_PER_EPOCH = 1000
 
-RUN_NAME = "pareto_search_5"
+RUN_NAME = "pareto_search_7"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 500  # number of models sampled per iteration, only the best predicted one is selected
 
