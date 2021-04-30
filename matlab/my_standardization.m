@@ -10,7 +10,7 @@ dataset = load(path+"0908_portiloop_dataset_250.txt");
 %dataset = [dataset, dataset_full(:, 2:end)];
 %% 
 signal = dataset(:,1);
-spindles_gs = dataset(:,2) > 0.25;
+spindles_gs = dataset(:,2) > 0.2;
 fe = 250;
 tot_time = size(dataset, 1)/fe;
 size_signal = size(dataset, 1);
@@ -60,30 +60,9 @@ for i=2:size(lp_standard,1)
 end
 % sim_filtered_bp = normalize(sim_filtered_bp);
 
-plot_data = lp_standard(1:1800*fe);
-figure
-% subplot(2, 1, 1)
-hold on
-i = 0;
-while i < length(plot_data)-1
-    i = i+1;
-    idx = i;
-    while i < length(plot_data)-1 && spindles_gs(i+1) == spindles_gs(idx) && spindles_hugo(i+1) == spindles_hugo(idx)
-       i = i + 1; 
-    end
-    c = 'b';
-    if spindles_gs(idx)
-       c = 'r'; 
-    end
-    if spindles_hugo(idx)
-       c = 'm'; 
-    end
-    plot(time_vect(idx:i), plot_data(idx:i), 'Color', c);
-end
-axis([0 30 -20 20]);
-title("lp");
-% plot_data = sim_filtered_bp(1:200*fe);
-% subplot(2, 1, 2)
+% plot_data = lp_standard(1:1800*fe);
+% figure
+% % subplot(2, 1, 1)
 % hold on
 % i = 0;
 % while i < length(plot_data)-1
@@ -101,8 +80,29 @@ title("lp");
 %     end
 %     plot(time_vect(idx:i), plot_data(idx:i), 'Color', c);
 % end
-% axis([140 170 -5 5]);
-% title("bp");
+% axis([0 30 -20 20]);
+% title("lp");
+% % plot_data = sim_filtered_bp(1:200*fe);
+% % subplot(2, 1, 2)
+% % hold on
+% % i = 0;
+% % while i < length(plot_data)-1
+% %     i = i+1;
+% %     idx = i;
+% %     while i < length(plot_data)-1 && spindles_gs(i+1) == spindles_gs(idx) && spindles_hugo(i+1) == spindles_hugo(idx)
+% %        i = i + 1; 
+% %     end
+% %     c = 'b';
+% %     if spindles_gs(idx)
+% %        c = 'r'; 
+% %     end
+% %     if spindles_hugo(idx)
+% %        c = 'm'; 
+% %     end
+% %     plot(time_vect(idx:i), plot_data(idx:i), 'Color', c);
+% % end
+% % axis([140 170 -5 5]);
+% % title("bp");
 %% fft
 
 mydata=lp_standard;
@@ -127,9 +127,9 @@ plot(myhz,mypowr(1:length(myhz)),'r','linew',2)
 %% save
 
 %output_signal = single(lp_standard(:,1));%, dataset(1:end-8,4)]);
-output_signal = single([lp_standard(:,1), spindle_250]);
+output_signal_standarized = single([lp_standard(:,1), dataset(:,2)]);
 
-writematrix(output_signal, path+"dataset_big_250_matlab_standardized.txt");
+writematrix(output_signal_standarized, path+"dataset_p1_big_250_matlab_standardized.txt");
 
 %%
-plot(time_vect, output_signal);
+plot(time_vect, output_signal_standarized);

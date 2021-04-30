@@ -22,7 +22,7 @@ from argparse import ArgumentParser
 THRESHOLD = 0.2
 WANDB_PROJECT = "portiloop-multiple_input"
 
-filename_dataset = "dataset_big_250_matlab_standardized_envelope_pf.txt"
+filename_dataset = "dataset_p1_big_250_matlab_standardized_envelope_pf.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5

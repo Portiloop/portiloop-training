@@ -104,8 +104,8 @@ end
 % axis([140 160 -20 20]);
 
 %% save
-dataset_final = load(path+"dataset_big_250_matlab_standardized.txt");
+dataset_final = load(path+"dataset_p1_big_250_matlab_standardized.txt");
 
-output_envelope = single([dataset_final(:,1), envelope_homemade_simulink, dataset_final(:, 2)]);
+output_envelope = single([output_signal_standarized(:,1), envelope_homemade_simulink, output_signal_standarized(:, 2)]);
 
-writematrix(output_envelope, path+"dataset_big_250_matlab_standardized_envelope.txt");
+writematrix(output_envelope, path+"dataset_p1_big_250_matlab_standardized_envelope.txt");
