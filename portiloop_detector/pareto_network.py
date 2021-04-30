@@ -655,7 +655,7 @@ class Worker:
                 self.__exp_to_run_lock.release()
 
                 predicted_loss = exp['cost_software']
-                exp["cost_software"] = run(exp)
+                exp["cost_software"] = run(exp["config_dict"])
                 exp['surprise'] = exp["cost_software"] - predicted_loss
                 self.__finished_exp_lock.acquire()
                 self.__finished_exp = deepcopy(exp)
