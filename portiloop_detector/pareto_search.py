@@ -19,7 +19,6 @@ import numpy as np
 import torch.optim as optim
 import wandb
 
-
 # all constants (no hyperparameters here!)
 
 THRESHOLD = 0.5
@@ -75,6 +74,7 @@ def run(config_dict):
     device_train = config_dict["device_train"]
     nb_rnn_layers = config_dict["nb_rnn_layers"]
     adam_w = config_dict["adam_w"]
+    distribution_mode = config_dict["distribution_mode"]
 
     window_size = int(window_size_s * fe)
     seq_stride = int(seq_stride_s * fe)
@@ -112,13 +112,14 @@ def run(config_dict):
                                   start_ratio=0.9,
                                   end_ratio=1)
 
-    idx_true, idx_false = get_class_idxs(ds_train)
+    idx_true, idx_false = get_class_idxs(ds_train, distribution_mode)
 
     samp_train = RandomSampler(ds_train,
                                idx_true=idx_true,
                                idx_false=idx_false,
                                batch_size=batch_size,
-                               nb_batch=nb_batch_per_epoch)
+                               nb_batch=nb_batch_per_epoch,
+                               distribution_mode=distribution_mode)
 
     samp_validation = ValidationSampler(ds_validation,
                                         nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
@@ -365,16 +366,16 @@ class SurrogateModel(nn.Module):
         super(SurrogateModel, self).__init__()
 
         self.fc1 = nn.Linear(in_features=13,  # nb hyperparameters
-                             out_features=13*25)  # in SMBO paper : 25 * hyperparameters... Seems huge
+                             out_features=13 * 25)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
         self.d1 = nn.Dropout(0.5)
 
-        self.fc2 = nn.Linear(in_features=13*25,
-                             out_features=13*25)
+        self.fc2 = nn.Linear(in_features=13 * 25,
+                             out_features=13 * 25)
 
         self.d2 = nn.Dropout(0.5)
 
-        self.fc3 = nn.Linear(in_features=13*25,
+        self.fc3 = nn.Linear(in_features=13 * 25,
                              out_features=1)
 
     def to(self, device):
@@ -779,4 +780,3 @@ def iterative_training_local():
 
 if __name__ == "__main__":
     iterative_training_local()
-
