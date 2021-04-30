@@ -505,6 +505,7 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             batch_labels = batch_labels.to(device=device).float()
             if CLASSIFICATION:
                 batch_labels = (batch_labels >= THRESHOLD)
+                batch_labels = batch_labels.long()
             output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
             if not CLASSIFICATION:
                 output = output.view(-1)
@@ -678,6 +679,7 @@ def run(config_dict):
             optimizer.zero_grad()
             if CLASSIFICATION:
                 batch_labels = (batch_labels >= THRESHOLD)
+                batch_labels = batch_labels.long()
 
             output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
 
