@@ -277,6 +277,7 @@ def sample_config_dict(name, previous_exp, all_exp):
     config_dict["dropout"] = 0.5
     config_dict["lr_adam"] = 0.0003
     config_dict["adam_w"] = 0.01
+    config_dict["distribution_mode"] = 0
     flag_in_exps = True
     while flag_in_exps:
         nb_out = 0
