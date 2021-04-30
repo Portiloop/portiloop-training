@@ -31,26 +31,26 @@ div_val_samp = 32
 
 # hyperparameters
 
-batch_size_list = [256, 256, 256]
-seq_len_list = [20, 30, 40]
-kernel_conv_list = [5, 5, 5]
-kernel_pool_list = [3, 3, 3]
-stride_conv_list = [1, 1, 1]
-stride_pool_list = [1, 1, 1]
-dilation_conv_list = [1, 1, 1]
-dilation_pool_list = [1, 1, 1]
-nb_channel_list = [20, 20, 20]
-hidden_size_list = [15, 15, 15]
-dropout_list = [0.5, 0.5, 0.5]
-windows_size_s_list = [0.25, 0.25, 0.25]
-seq_stride_s_list = [0.1, 0.1, 0.1]
-lr_adam_list = [0.0003, 0.0003, 0.0003]
-nb_conv_layers_list = [7, 7, 7]
-nb_rnn_layers_list = [1, 1, 1]
-first_layer_dropout_list = [False, False, False]
-power_features_input_list = [False, False, False]
-adam_w_list = [0.01, 0.01, 0.01]
-
+batch_size_list = [256, 256]
+seq_len_list = [40, 40]
+kernel_conv_list = [5, 5]
+kernel_pool_list = [3, 3]
+stride_conv_list = [1, 1]
+stride_pool_list = [1, 1]
+dilation_conv_list = [1, 1]
+dilation_pool_list = [1, 1]
+nb_channel_list = [20, 20]
+hidden_size_list = [15, 15]
+dropout_list = [0.5, 0.5]
+windows_size_s_list = [0.25, 0.25]
+seq_stride_s_list = [0.1, 0.1]
+lr_adam_list = [0.0003, 0.0003]
+nb_conv_layers_list = [7, 7]
+nb_rnn_layers_list = [1, 1]
+first_layer_dropout_list = [False, False]
+power_features_input_list = [False, False]
+adam_w_list = [0.01, 0.01]
+distribution_mode_list = [0, 1]
 
 # all classes and functions:
 
@@ -106,7 +106,7 @@ class SignalDataset(Dataset):
         return True if (self.data[3][idx + self.window_size - 1] > THRESHOLD) else False
 
 
-def get_class_idxs(dataset):
+def get_class_idxs(dataset, distribution_mode):
     """
     Directly outputs idx_true and idx_false arrays
     """
@@ -120,7 +120,7 @@ def get_class_idxs(dataset):
 
     for i in range(length_dataset):
         is_spindle = dataset.is_spindle(i)
-        if is_spindle:
+        if is_spindle or distribution_mode == 1:
             nb_true += 1
             idx_true.append(i)
         else:
@@ -147,22 +147,25 @@ class RandomSampler(Sampler):
       nb_batch (int, optional): number of iteration before end of __iter__(), this defaults to len(data_source)
     """
 
-    def __init__(self, data_source, idx_true, idx_false, batch_size, nb_batch=None):
+    def __init__(self, data_source, idx_true, idx_false, batch_size, distribution_mode, nb_batch=None):
         self.data_source = data_source
         self.idx_true = idx_true
         self.idx_false = idx_false
         self.nb_true = self.idx_true.size
         self.nb_false = self.idx_false.size
         self.length = nb_batch * batch_size if nb_batch is not None else len(self.data_source)
+        self.distribution_mode = distribution_mode
 
     def __iter__(self):
         global precision_validation_factor
         global recall_validation_factor
         cur_iter = 0
         seed()
-        epsilon = 1e-7
+        #  epsilon = 1e-7
         #    proba = float(0.5 + 0.5 * (precision_validation_factor - recall_validation_factor) / (precision_validation_factor + recall_validation_factor + epsilon))
         proba = 0.5
+        if self.distribution_mode == 1:
+            proba = 1
         print(f"DEBUG: proba: {proba}")
 
         while cur_iter < self.length:
@@ -550,6 +553,7 @@ def run(config_dict):
     max_duration = config_dict["max_duration"]
     nb_rnn_layers = config_dict["nb_rnn_layers"]
     adam_w = config_dict["adam_w"]
+    distribution_mode = config_dict["distribution_mode"]
 
     window_size = int(window_size_s * fe)
     seq_stride = int(seq_stride_s * fe)
@@ -603,13 +607,14 @@ def run(config_dict):
 
     # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
 
-    idx_true, idx_false = get_class_idxs(ds_train)
+    idx_true, idx_false = get_class_idxs(ds_train, distribution_mode)
 
     samp_train = RandomSampler(ds_train,
                                idx_true=idx_true,
                                idx_false=idx_false,
                                batch_size=batch_size,
-                               nb_batch=nb_batch_per_epoch)
+                               nb_batch=nb_batch_per_epoch,
+                               distribution_mode=distribution_mode)
 
     samp_validation = ValidationSampler(ds_validation,
                                         nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
@@ -761,6 +766,7 @@ def get_config_dict(index, name):
     config_dict["power_features_input"] = power_features_input_list[index]
     config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
     config_dict["adam_w"] = adam_w_list[index]
+    config_dict["distribution_mode"] = distribution_mode_list[index]
 
     nb_out = 0
     while nb_out < 1:
