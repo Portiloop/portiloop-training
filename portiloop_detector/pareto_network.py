@@ -243,8 +243,8 @@ class Server:
         self.public_ip = get('http://api.ipify.org').text
         self.local_ip = socket.gethostbyname(socket.gethostname())
 
-        print_with_timestamp(f"INFO REDIS: local IP: {self.local_ip}")
-        print_with_timestamp(f"INFO REDIS: public IP: {self.public_ip}")
+        print_with_timestamp(f"INFO SERVER: local IP: {self.local_ip}")
+        print_with_timestamp(f"INFO SERVER: public IP: {self.public_ip}")
 
         Thread(target=self.__workers_thread, args=('', ), kwargs={}, daemon=True).start()
         Thread(target=self.__metas_thread, args=('', ), kwargs={}, daemon=True).start()
@@ -254,7 +254,7 @@ class Server:
         This waits for new potential Trainers to connect
         When a new Trainer connects, this instantiates a new thread to handle it
         """
-        while True:  # main redis loop
+        while True:  # main loop
             s = get_listening_socket(SOCKET_TIMEOUT_ACCEPT_META, ip, PORT_META)
             conn, addr = accept_or_close_socket(s)
             if conn is None:
@@ -674,6 +674,9 @@ def main(args):
         print("INFO: now running: meta")
     else:
         print("ERROR: wrong argument")
+    while True:
+        time.sleep(10.0)
+        pass
 
 
 if __name__ == "__main__":
