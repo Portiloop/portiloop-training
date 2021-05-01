@@ -145,7 +145,7 @@ def run(config_dict):
     h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     for epoch in range(nb_epoch_max):
 
-        # print(f"DEBUG: epoch: {epoch}")
+        print(f"DEBUG: epoch: {epoch}")
 
         for batch_data in train_loader:
             batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
