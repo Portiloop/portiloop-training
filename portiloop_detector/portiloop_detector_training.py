@@ -21,7 +21,7 @@ from argparse import ArgumentParser
 
 THRESHOLD = 0.2
 WANDB_PROJECT = "portiloop-multiple_input"
-CLASSIFICATION = True
+CLASSIFICATION = False
 
 filename_dataset = "dataset_p1_big_250_matlab_standardized_envelope_pf.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
@@ -51,7 +51,7 @@ nb_rnn_layers_list = [1, 1]
 first_layer_dropout_list = [False, False]
 power_features_input_list = [False, False]
 adam_w_list = [0.01, 0.01]
-distribution_mode_list = [0, 1]
+distribution_mode_list = [1, 1]
 
 # all classes and functions:
 
