@@ -34,7 +34,7 @@ path_pareto = Path(__file__).absolute().parent.parent / 'pareto'
 div_val_samp = 32
 
 MAX_META_ITERATIONS = 1000  # maximum number of experiments
-EPOCHS_PER_EXPERIMENT = 1  # experiments are evaluated after this number of epoch by the meta learner
+EPOCHS_PER_EXPERIMENT = 100  # experiments are evaluated after this number of epoch by the meta learner
 
 EPSILON_NOISE = 0.1  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
 EPSILON_EXP_NOISE = 0.05  # a random experiment is selected within all sampled experiments this portion of the time
@@ -46,7 +46,7 @@ META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
 NB_BATCH_PER_EPOCH = 1000
 
-RUN_NAME = "pareto_search_7"
+RUN_NAME = "pareto_search_8"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 500  # number of models sampled per iteration, only the best predicted one is selected
 
@@ -55,7 +55,6 @@ START_META_TRAIN_VAL_AFTER = 200  # minimum number of experiments in the dataset
 META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
 MAX_META_EPOCHS = 1000  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
 META_EARLY_STOPPING = 10  # meta early stopping after this number of unsuccessful meta epochs
-
 
 # run:
 
@@ -278,7 +277,7 @@ def sample_config_dict(name, previous_exp, all_exp):
     config_dict["dropout"] = 0.5
     config_dict["lr_adam"] = 0.0003
     config_dict["adam_w"] = 0.01
-    config_dict["distribution_mode"] = 0
+    config_dict["distribution_mode"] = 1
     flag_in_exps = True
     while flag_in_exps:
         nb_out = 0

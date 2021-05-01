@@ -14,11 +14,9 @@ import pickle
 
 from pareto_search import LoggerWandbPareto, load_files, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, same_config_dict, update_pareto, sample_config_dict, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, dump_files, run
 
-
-IP_SERVER = "45.74.221.204"
+IP_SERVER = "142.182.5.48"  # Yann = "45.74.221.204"; Nicolas = "142.182.5.48"
 PORT_META = 6666
 PORT_WORKER = 6667
-
 
 WAIT_BEFORE_RECONNECTION = 500.0
 
@@ -50,7 +48,6 @@ HEADER_SIZE = 12
 BUFFER_SIZE = 4096
 
 PRINT_BYTESIZES = True
-
 
 
 def print_with_timestamp(s):
@@ -235,6 +232,7 @@ class Server:
     If trainer_on_localhost is True, the server only listens on trainer_on_localhost. Then the trainer is expected to talk on trainer_on_localhost.
     Otherwise, the server also listens to the local ip and the trainer is expected to talk on the local ip (port forwarding).
     """
+
     def __init__(self):
         self.__finished_lock = Lock()
         self.__finished = []
@@ -246,8 +244,8 @@ class Server:
         print_with_timestamp(f"INFO SERVER: local IP: {self.local_ip}")
         print_with_timestamp(f"INFO SERVER: public IP: {self.public_ip}")
 
-        Thread(target=self.__workers_thread, args=('', ), kwargs={}, daemon=True).start()
-        Thread(target=self.__metas_thread, args=('', ), kwargs={}, daemon=True).start()
+        Thread(target=self.__workers_thread, args=('',), kwargs={}, daemon=True).start()
+        Thread(target=self.__metas_thread, args=('',), kwargs={}, daemon=True).start()
 
     def __metas_thread(self, ip):
         """
@@ -261,7 +259,7 @@ class Server:
                 # print_with_timestamp("DEBUG: accept_or_close_socket failed in trainers thread")
                 continue
             print_with_timestamp(f"INFO METAS THREAD: server connected by meta at address {addr}")
-            Thread(target=self.__meta_thread, args=(conn, ), kwargs={}, daemon=True).start()  # we don't keep track of this for now
+            Thread(target=self.__meta_thread, args=(conn,), kwargs={}, daemon=True).start()  # we don't keep track of this for now
             s.close()
 
     def __meta_thread(self, conn):
@@ -325,7 +323,7 @@ class Server:
             if conn is None:
                 continue
             print_with_timestamp(f"INFO WORKERS THREAD: server connected by worker at address {addr}")
-            Thread(target=self.__worker_thread, args=(conn, ), kwargs={}, daemon=True).start()  # we don't keep track of this for now
+            Thread(target=self.__worker_thread, args=(conn,), kwargs={}, daemon=True).start()  # we don't keep track of this for now
             s.close()
 
     def __worker_thread(self, conn):
@@ -385,6 +383,7 @@ class MetaLearner:
     This connects to the server
     This receives samples batches and sends new weights
     """
+
     def __init__(self, server_ip=None):
         self.public_ip = get('http://api.ipify.org').text
         self.local_ip = socket.gethostbyname(socket.gethostname())
@@ -686,6 +685,6 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('--server', action='store_true')
     parser.add_argument('--meta', action='store_true')
-    parser.add_argument('--worker', action='store_true')  # not used
+    parser.add_argument('--worker', action='store_true')
     args = parser.parse_args()
     main(args)
