@@ -65,7 +65,7 @@ class SignalDataset(Dataset):
         if "portiloop" in filename:
             split_data = np.array(np.split(self.data, int(len(self.data) / (900 * fe))))  # 900 = nb seconds per sequence in the dataset
         else:
-            split_data = np.array(np.split(self.data, int(len(self.data) / ((115+30) * fe))))  # 115+30 = nb seconds per sequence in the dataset
+            split_data = np.array(np.split(self.data, int(len(self.data) / ((115 + 30) * fe))))  # 115+30 = nb seconds per sequence in the dataset
         np.random.seed(0)  # fixed seed value
         np.random.shuffle(split_data)
         self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
@@ -82,8 +82,6 @@ class SignalDataset(Dataset):
         self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
                         if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
                                 or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
-
-        self.labels = torch.tensor([0, 1], dtype=torch.float)
 
     def __len__(self):
         return len(self.indices)
@@ -289,8 +287,8 @@ class PortiloopNetwork(nn.Module):
         self.envelope_input = config_dict["envelope_input"]
         self.power_features_input = config_dict["power_features_input"]
 
-        conv_padding = 0 #  int(kernel_conv // 2)
-        pool_padding = 0 #  int(kernel_pool // 2)
+        conv_padding = 0  # int(kernel_conv // 2)
+        pool_padding = 0  # int(kernel_pool // 2)
         window_size = int(window_size_s * fe)
         nb_out = window_size
 
@@ -613,6 +611,7 @@ def run(config_dict):
                                   window_size=window_size,
                                   fe=fe,
                                   seq_len=1,
+                                  seq_stride=1,  # just to be sure, fixed value
                                   start_ratio=0.9,
                                   end_ratio=1)
 
@@ -808,8 +807,8 @@ def get_config_dict(index, name):
         fe = config_dict["fe"]
         nb_conv_layers = config_dict["nb_conv_layers"]
 
-        conv_padding = 0 #  int(kernel_conv // 2)
-        pool_padding = 0 #  int(kernel_pool // 2)
+        conv_padding = 0  # int(kernel_conv // 2)
+        pool_padding = 0  # int(kernel_pool // 2)
         window_size = int(window_size_s * fe)
         nb_out = window_size
 
