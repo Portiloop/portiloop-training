@@ -12,7 +12,8 @@ import datetime
 from copy import deepcopy
 import pickle
 
-from pareto_search import LoggerWandbPareto, load_files, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, same_config_dict, update_pareto, sample_config_dict, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, dump_files, run
+from pareto_search import LoggerWandbPareto, load_files, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, same_config_dict, update_pareto, sample_config_dict, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, dump_files, run, \
+    load_network_files, dump_network_files
 
 IP_SERVER = "142.182.5.48"  # Yann = "45.74.221.204"; Nicolas = "142.182.5.48"
 PORT_META = 6666
@@ -20,24 +21,24 @@ PORT_WORKER = 6667
 
 WAIT_BEFORE_RECONNECTION = 500.0
 
-SOCKET_TIMEOUT_COMMUNICATE = 500.0
+SOCKET_TIMEOUT_COMMUNICATE = 1800.0
 
-SOCKET_TIMEOUT_ACCEPT_META = 500.0
-SOCKET_TIMEOUT_ACCEPT_WORKER = 500.0
+SOCKET_TIMEOUT_ACCEPT_META = 1800.0
+SOCKET_TIMEOUT_ACCEPT_WORKER = 1800.0
 
 ACK_TIMEOUT_SERVER_TO_WORKER = 60.0
 ACK_TIMEOUT_SERVER_TO_META = 60.0
 ACK_TIMEOUT_META_TO_SERVER = 60.0
 ACK_TIMEOUT_WORKER_TO_SERVER = 60.0
 
-RECV_TIMEOUT_WORKER_FROM_SERVER = 500.0
-RECV_TIMEOUT_META_FROM_SERVER = 500.0
+RECV_TIMEOUT_WORKER_FROM_SERVER = 1800.0
+RECV_TIMEOUT_META_FROM_SERVER = 1800.0
 
-SELECT_TIMEOUT_OUTBOUND = 500.0
-SELECT_TIMEOUT_INBOUND = 500.0
+SELECT_TIMEOUT_OUTBOUND = 1800.0
+SELECT_TIMEOUT_INBOUND = 1800.0
 
-SOCKET_TIMEOUT_CONNECT_META = 500.0
-SOCKET_TIMEOUT_CONNECT_WORKER = 500.0
+SOCKET_TIMEOUT_CONNECT_META = 1800.0
+SOCKET_TIMEOUT_CONNECT_WORKER = 1800.0
 
 LOOP_SLEEP_TIME = 1.0
 
@@ -464,13 +465,13 @@ class MetaLearner:
         Meta learner main loop
         """
         logger = LoggerWandbPareto(RUN_NAME)
-        finished_experiments, pareto_front = load_files()
-        launched_experiments = []
+        finished_experiments, launched_experiments, pareto_front = load_network_files()
 
         if finished_experiments is None:
             print(f"DEBUG: no meta dataset found, starting new run")
             finished_experiments = []  # list of dictionaries
             pareto_front = []  # list of dictionaries, subset of finished_experiments
+            launched_experiments = []
             meta_model = SurrogateModel()
             meta_model.to(META_MODEL_DEVICE)
         else:
@@ -560,7 +561,7 @@ class MetaLearner:
 
                     print(f"surrogate model loss: {meta_loss}")
 
-                    dump_files(finished_experiments, pareto_front)
+                    dump_network_files(finished_experiments, launched_experiments, pareto_front)
                     logger.log(surrogate_loss=meta_loss, surprise=prev_exp["surprise"], all_experiments=finished_experiments, pareto_front=pareto_front)
             else:
                 self.__must_launch_lock.release()

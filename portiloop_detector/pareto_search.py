@@ -56,6 +56,7 @@ META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
 MAX_META_EPOCHS = 1000  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
 META_EARLY_STOPPING = 10  # meta early stopping after this number of unsuccessful meta epochs
 
+
 # run:
 
 def run(config_dict):
@@ -655,6 +656,41 @@ def load_files():
     with open(path_current_pareto, "rb") as f:
         pareto_front = pkl.load(f)
     return all_experiments, pareto_front
+
+
+def dump_network_files(finished_experiments, launched_experiments, pareto_front):
+    """
+    exports pickled files to path_pareto
+    """
+    path_current_finished = path_pareto / (RUN_NAME + "_finished.pkl")
+    path_current_pareto = path_pareto / (RUN_NAME + "_pareto.pkl")
+    path_current_launched = path_pareto / (RUN_NAME + "_launched.pkl")
+    with open(path_current_finished, "wb") as f:
+        pkl.dump(finished_experiments, f)
+    with open(path_current_launched, "wb") as f:
+        pkl.dump(launched_experiments, f)
+    with open(path_current_pareto, "wb") as f:
+        pkl.dump(pareto_front, f)
+
+
+def load_network_files():
+    """
+    loads pickled files from path_pareto
+    returns None, None if not found
+    else returns all_experiments, pareto_front
+    """
+    path_current_finished = path_pareto / (RUN_NAME + "_finished.pkl")
+    path_current_pareto = path_pareto / (RUN_NAME + "_pareto.pkl")
+    path_current_launched = path_pareto / (RUN_NAME + "_launched.pkl")
+    if not path_current_finished.exists() or not path_current_pareto.exists() or not path_current_launched.exists():
+        return None, None, None
+    with open(path_current_finished, "rb") as f:
+        finished_experiments = pkl.load(f)
+    with open(path_current_pareto, "rb") as f:
+        pareto_front = pkl.load(f)
+    with open(path_current_launched, "rb") as f:
+        launched_experiments = pkl.load(f)
+    return finished_experiments, launched_experiments, pareto_front
 
 
 class LoggerWandbPareto:
