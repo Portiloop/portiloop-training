@@ -176,17 +176,17 @@ def run(config_dict):
 # lr_adam_range_t = ["f", 0.0003, 0.0003]
 
 seq_len_range_t = ["i", 10, 50]
-kernel_conv_range_t = ["i", 3, 9]
-kernel_pool_range_t = ["i", 3, 5]
+kernel_conv_range_t = ["i", 3, 11]
+kernel_pool_range_t = ["i", 3, 11]
 stride_conv_range_t = ["i", 1, 5]
 stride_pool_range_t = ["i", 1, 5]
 dilation_conv_range_t = ["i", 1, 5]
 dilation_pool_range_t = ["i", 1, 5]
-nb_channel_range_t = ["i", 1, 50]
+nb_channel_range_t = ["i", 1, 70]
 hidden_size_range_t = ["i", 2, 100]
 window_size_s_range_t = ["f", 0.05, 1]
 seq_stride_s_range_t = ["f", 0.05, 0.1]
-nb_conv_layers_range_t = ["i", 1, 7]
+nb_conv_layers_range_t = ["i", 1, 9]
 nb_rnn_layers_range_t = ["i", 1, 5]
 
 
@@ -228,7 +228,7 @@ def same_config_dict(config1, config2):
     #  config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t)
     if config1["hidden_size"] != config2["hidden_size"]:
         flag += 1
-    if config1["seq_stride_s"] != config2["seq_stride_s"]:
+    if int(config1["seq_stride_s"] * config1["fe"]) != int(config2["seq_stride_s"] * config2["fe"]):
         flag += 1
     # config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t)
     if config1["nb_rnn_layers"] != config2["nb_rnn_layers"]:
