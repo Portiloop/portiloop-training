@@ -687,7 +687,7 @@ def load_network_files():
     path_current_finished = path_pareto / (RUN_NAME + "_finished.pkl")
     path_current_pareto = path_pareto / (RUN_NAME + "_pareto.pkl")
     #  path_current_launched = path_pareto / (RUN_NAME + "_launched.pkl")
-    if not path_current_finished.exists() or not path_current_pareto.exists() or not path_current_launched.exists():
+    if not path_current_finished.exists() or not path_current_pareto.exists():
         return None, None, None
     with open(path_current_finished, "rb") as f:
         finished_experiments = pkl.load(f)
