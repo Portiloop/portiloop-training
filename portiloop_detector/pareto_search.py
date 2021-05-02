@@ -398,7 +398,7 @@ class SurrogateModel(nn.Module):
                   config_dict["kernel_conv"],
                   config_dict["kernel_pool"],
                   config_dict["dilation_conv"],
-                  config_dict["dilation_pool"]], dtype=float)
+                  config_dict["dilation_pool"]], dtype=np.float64)
 
         x_tensor = torch.tensor(x_list).to(self.device)
 
