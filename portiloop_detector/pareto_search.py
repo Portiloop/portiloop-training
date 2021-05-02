@@ -184,7 +184,7 @@ dilation_conv_range_t = ["i", 1, 5]
 dilation_pool_range_t = ["i", 1, 5]
 nb_channel_range_t = ["i", 1, 50]
 hidden_size_range_t = ["i", 2, 100]
-window_size_s_range_t = ["f", 0.05, 0.1]
+window_size_s_range_t = ["f", 0.05, 1]
 seq_stride_s_range_t = ["f", 0.05, 0.1]
 nb_conv_layers_range_t = ["i", 1, 7]
 nb_rnn_layers_range_t = ["i", 1, 5]
@@ -234,7 +234,7 @@ def same_config_dict(config1, config2):
     if config1["nb_rnn_layers"] != config2["nb_rnn_layers"]:
         flag += 1
     #    config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t)
-    if config1["window_size_s"] != config2["window_size_s"]:
+    if int(config1["window_size_s"] * config1["fe"]) != int(config2["window_size_s"] * config2["fe"]):
         flag += 1
     if config1["nb_conv_layers"] != config2["nb_conv_layers"]:
         flag += 1
