@@ -571,15 +571,19 @@ def pareto_efficiency(experiment, all_experiments):
 
     nb_dominating = 0
     nb_dominated = 0
+    best_cost_software = 1
     for exp in all_experiments:
         if exp["cost_software"] < experiment["cost_software"] and exp["cost_hardware"] < experiment["cost_hardware"]:
             nb_dominating += 1
         if exp["cost_software"] > experiment["cost_software"] and exp["cost_hardware"] > experiment["cost_hardware"]:
             nb_dominated += 1
+        if exp["cost_software"] < best_cost_software:
+            best_cost_software = exp["cost_software"]
 
     score_not_dominated = 1.0 - float(nb_dominating) / len(all_experiments)
     score_dominating = nb_dominated / len(all_experiments)
-    return score_dominating + score_not_dominated
+    score_distance_from_best_loss = best_cost_software/experiment["cost_software"]
+    return score_dominating + score_not_dominated + score_distance_from_best_loss
 
     # v_p = vector_exp(experiment)
     # dominates = True
@@ -658,17 +662,17 @@ def load_files():
     return all_experiments, pareto_front
 
 
-def dump_network_files(finished_experiments, launched_experiments, pareto_front):
+def dump_network_files(finished_experiments, pareto_front):
     """
     exports pickled files to path_pareto
     """
     path_current_finished = path_pareto / (RUN_NAME + "_finished.pkl")
     path_current_pareto = path_pareto / (RUN_NAME + "_pareto.pkl")
-    path_current_launched = path_pareto / (RUN_NAME + "_launched.pkl")
+    #   path_current_launched = path_pareto / (RUN_NAME + "_launched.pkl")
     with open(path_current_finished, "wb") as f:
         pkl.dump(finished_experiments, f)
-    with open(path_current_launched, "wb") as f:
-        pkl.dump(launched_experiments, f)
+    #  with open(path_current_launched, "wb") as f:
+    #     pkl.dump(launched_experiments, f)
     with open(path_current_pareto, "wb") as f:
         pkl.dump(pareto_front, f)
 
@@ -681,16 +685,16 @@ def load_network_files():
     """
     path_current_finished = path_pareto / (RUN_NAME + "_finished.pkl")
     path_current_pareto = path_pareto / (RUN_NAME + "_pareto.pkl")
-    path_current_launched = path_pareto / (RUN_NAME + "_launched.pkl")
+    #  path_current_launched = path_pareto / (RUN_NAME + "_launched.pkl")
     if not path_current_finished.exists() or not path_current_pareto.exists() or not path_current_launched.exists():
         return None, None, None
     with open(path_current_finished, "rb") as f:
         finished_experiments = pkl.load(f)
     with open(path_current_pareto, "rb") as f:
         pareto_front = pkl.load(f)
-    with open(path_current_launched, "rb") as f:
-        launched_experiments = pkl.load(f)
-    return finished_experiments, launched_experiments, pareto_front
+    #  with open(path_current_launched, "rb") as f:
+    #     launched_experiments = pkl.load(f)
+    return finished_experiments, pareto_front
 
 
 class LoggerWandbPareto:

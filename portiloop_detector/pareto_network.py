@@ -465,7 +465,7 @@ class MetaLearner:
         Meta learner main loop
         """
         logger = LoggerWandbPareto(RUN_NAME)
-        finished_experiments, launched_experiments, pareto_front = load_network_files()
+        finished_experiments, pareto_front = load_network_files()
 
         if finished_experiments is None:
             print(f"DEBUG: no meta dataset found, starting new run")
@@ -497,14 +497,24 @@ class MetaLearner:
                 self.__results_lock.release()
                 for res in temp_results:
                     to_remove = -1
+                    to_update = -1
                     for i, exp in enumerate(launched_experiments):
                         if same_config_dict(exp["config_dict"], res["config_dict"]):
                             to_remove = i
                             break
-                    assert to_remove >= 0
-                    launched_experiments.pop(to_remove)
-                    pareto_front = update_pareto(res, pareto_front)
-                    finished_experiments.append(res)
+                    for i, exp in enumerate(finished_experiments):
+                        if same_config_dict(exp["config_dict"], res["config_dict"]):
+                            to_update = i
+                            break
+
+                    if to_remove >= 0:
+                        launched_experiments.pop(to_remove)
+                    if to_update >= 0:
+                        finished_experiments[to_update]["software_cost"] = min(finished_experiments[to_update]["software_cost"], res["software_cost"])
+                        pareto_front = update_pareto(finished_experiments[to_update]["software_cost"], pareto_front)
+                    else:
+                        pareto_front = update_pareto(res, pareto_front)
+                        finished_experiments.append(res)
                     prev_exp = res
 
                 num_experiment = len(finished_experiments) + len(launched_experiments)
@@ -561,7 +571,7 @@ class MetaLearner:
 
                     print(f"surrogate model loss: {meta_loss}")
 
-                    dump_network_files(finished_experiments, launched_experiments, pareto_front)
+                    dump_network_files(finished_experiments, pareto_front)
                     logger.log(surrogate_loss=meta_loss, surprise=prev_exp["surprise"], all_experiments=finished_experiments, pareto_front=pareto_front)
             else:
                 self.__must_launch_lock.release()
