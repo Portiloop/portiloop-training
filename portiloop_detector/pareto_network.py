@@ -560,7 +560,7 @@ class MetaLearner:
                 self.__to_launch_lock.release()
                 launched_experiments.append(exp)
 
-                if len(finished_experiments) > 0:
+                if len(finished_experiments) > 0 and prev_exp != {}:
                     print("training new surrogate model...")
 
                     meta_model = SurrogateModel()
