@@ -543,7 +543,7 @@ class MetaLearner:
                     exp = {}
 
                     # sample model
-                    config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), previous_exp=prev_exp, all_exp=finished_experiments + launched_experiments)
+                    config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), previous_exp=prev_exp, all_exp=finished_experiments + launched_experiments + exps)
 
                     nb_params = nb_parameters(config_dict)
                     if nb_params > MAX_NB_PARAMETERS:
