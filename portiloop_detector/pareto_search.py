@@ -186,7 +186,7 @@ nb_channel_range_t = ["i", 1, 70]
 hidden_size_range_t = ["i", 2, 100]
 window_size_s_range_t = ["f", 0.05, 1]
 seq_stride_s_range_t = ["f", 0.05, 0.1]
-nb_conv_layers_range_t = ["i", 1, 9]
+nb_conv_layers_range_t = ["i", 1, 7]
 nb_rnn_layers_range_t = ["i", 1, 5]
 
 
