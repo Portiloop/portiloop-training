@@ -466,12 +466,12 @@ class MetaLearner:
         """
         logger = LoggerWandbPareto(RUN_NAME)
         finished_experiments, pareto_front = load_network_files()
+        launched_experiments = []
 
         if finished_experiments is None:
             print(f"DEBUG: no meta dataset found, starting new run")
             finished_experiments = []  # list of dictionaries
             pareto_front = []  # list of dictionaries, subset of finished_experiments
-            launched_experiments = []
             meta_model = SurrogateModel()
             meta_model.to(META_MODEL_DEVICE)
         else:
