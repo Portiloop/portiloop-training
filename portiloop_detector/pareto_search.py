@@ -284,21 +284,23 @@ def sample_config_dict(name, previous_exp, all_exp):
         nb_out = 0
         if previous_exp == {} or noise:
             config_dict["nb_conv_layers"], unrounded["nb_conv_layers"] = sample_from_range(nb_conv_layers_range_t)
+            config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t)
+            config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t)
+            config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t)
+            config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t)
+            config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t)
         else:
             previous_unrounded = previous_exp["unrounded"]
             config_dict["nb_conv_layers"], unrounded["nb_conv_layers"] = sample_from_range(nb_conv_layers_range_t, previous_unrounded["nb_conv_layers"])
+            config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t, previous_unrounded["seq_len"])
+            config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t, previous_unrounded["nb_channel"])
+            config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t, previous_unrounded["hidden_size"])
+            config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t, previous_unrounded["seq_stride_s"])
+            config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t, previous_unrounded["nb_rnn_layers"])
         while nb_out < 1:
 
             if previous_exp == {} or noise:
                 # sample completely randomly
-                config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t)
-                config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t)
-                #  config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t)
-                config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t)
-                config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t)
-                # config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t)
-                config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t)
-                #    config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t)
                 config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t)
                 config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t)
                 config_dict["stride_conv"], unrounded["stride_conv"] = sample_from_range(stride_conv_range_t)
@@ -308,16 +310,7 @@ def sample_config_dict(name, previous_exp, all_exp):
                 config_dict["dilation_pool"], unrounded["dilation_pool"] = sample_from_range(dilation_pool_range_t)
             else:
                 # sample gaussian from one of the previous experiments in the pareto front
-                # previous_experiment = random.choice(pareto_front)
                 previous_unrounded = previous_exp["unrounded"]
-                config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t, previous_unrounded["seq_len"])
-                config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t, previous_unrounded["nb_channel"])
-                # config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t, previous_unrounded["dropout"])
-                config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t, previous_unrounded["hidden_size"])
-                config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t, previous_unrounded["seq_stride_s"])
-                # config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t, previous_unrounded["lr_adam"])
-                config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t, previous_unrounded["nb_rnn_layers"])
-                # config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t, previous_unrounded["adam_w"])
                 config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t, previous_unrounded["window_size_s"])
                 config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t, previous_unrounded["stride_pool"])
                 config_dict["stride_conv"], unrounded["stride_conv"] = sample_from_range(stride_conv_range_t, previous_unrounded["stride_conv"])
