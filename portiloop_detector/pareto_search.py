@@ -383,7 +383,7 @@ class SurrogateModel(nn.Module):
         self.device = device
 
     def forward(self, config_dict):
-        x_list = [config_dict["seq_len"],
+        x_list = np.array([config_dict["seq_len"],
                   config_dict["nb_channel"],
                   # config_dict["dropout"],
                   config_dict["hidden_size"],
@@ -398,7 +398,7 @@ class SurrogateModel(nn.Module):
                   config_dict["kernel_conv"],
                   config_dict["kernel_pool"],
                   config_dict["dilation_conv"],
-                  config_dict["dilation_pool"]]
+                  config_dict["dilation_pool"]]).astype(np.long)
 
         x_tensor = torch.tensor(x_list, dtype=torch.long).to(self.device)
 
