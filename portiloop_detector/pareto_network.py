@@ -516,6 +516,19 @@ class MetaLearner:
                         pareto_front = update_pareto(res, pareto_front)
                         finished_experiments.append(res)
                     prev_exp = res
+                if len(finished_experiments) > 0 and prev_exp != {}:  # train before sampling a new model
+                    print("training new surrogate model...")
+
+                    meta_model = SurrogateModel()
+                    meta_model.to(META_MODEL_DEVICE)
+
+                    meta_model.train()
+                    meta_model, meta_loss = train_surrogate(meta_model, deepcopy(finished_experiments))
+
+                    print(f"surrogate model loss: {meta_loss}")
+
+                    dump_network_files(finished_experiments, pareto_front)
+                    logger.log(surrogate_loss=meta_loss, surprise=prev_exp["surprise"], all_experiments=finished_experiments, pareto_front=pareto_front)
 
                 num_experiment = len(finished_experiments) + len(launched_experiments)
                 print("---")
@@ -560,19 +573,6 @@ class MetaLearner:
                 self.__to_launch_lock.release()
                 launched_experiments.append(exp)
 
-                if len(finished_experiments) > 0 and prev_exp != {}:
-                    print("training new surrogate model...")
-
-                    meta_model = SurrogateModel()
-                    meta_model.to(META_MODEL_DEVICE)
-
-                    meta_model.train()
-                    meta_model, meta_loss = train_surrogate(meta_model, deepcopy(finished_experiments))
-
-                    print(f"surrogate model loss: {meta_loss}")
-
-                    dump_network_files(finished_experiments, pareto_front)
-                    logger.log(surrogate_loss=meta_loss, surprise=prev_exp["surprise"], all_experiments=finished_experiments, pareto_front=pareto_front)
             else:
                 self.__must_launch_lock.release()
             time.sleep(LOOP_SLEEP_TIME)
