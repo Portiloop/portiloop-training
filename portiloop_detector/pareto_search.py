@@ -36,8 +36,8 @@ div_val_samp = 32
 MAX_META_ITERATIONS = 1000  # maximum number of experiments
 EPOCHS_PER_EXPERIMENT = 100  # experiments are evaluated after this number of epoch by the meta learner
 
-EPSILON_NOISE = 0.1  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
-EPSILON_EXP_NOISE = 0.05  # a random experiment is selected within all sampled experiments this portion of the time
+EPSILON_NOISE = 0.25  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
+EPSILON_EXP_NOISE = 0.1  # a random experiment is selected within all sampled experiments this portion of the time
 
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 MAX_LOSS = 0.1  # to normalize distances
