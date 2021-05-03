@@ -140,6 +140,7 @@ def run(config_dict):
                                    shuffle=False)
 
     best_model_loss_validation = 1
+    best_model_epoch = 0
 
     h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
@@ -167,7 +168,8 @@ def run(config_dict):
             validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
         if loss_validation < best_model_loss_validation:
             best_model_loss_validation = loss_validation
-    return best_model_loss_validation
+            best_model_epoch = epoch
+    return best_model_loss_validation, best_model_epoch
 
 
 # hyperparameters

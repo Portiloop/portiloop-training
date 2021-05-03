@@ -496,6 +496,8 @@ class MetaLearner:
                 self.__results = []
                 self.__results_lock.release()
                 for res in temp_results:
+                    if 'best_epoch' in res.keys():
+                        print(f"DEBUG: best epoch for the model received : {res['best_epoch']}")
                     to_remove = -1
                     to_update = -1
                     for i, exp in enumerate(launched_experiments):
@@ -665,7 +667,7 @@ class Worker:
                 self.__exp_to_run_lock.release()
 
                 predicted_loss = exp['cost_software']
-                exp["cost_software"] = run(exp["config_dict"])
+                exp["cost_software"], exp["best_epoch"] = run(exp["config_dict"])
                 exp['surprise'] = exp["cost_software"] - predicted_loss
                 self.__finished_exp_lock.acquire()
                 self.__finished_exp = deepcopy(exp)
