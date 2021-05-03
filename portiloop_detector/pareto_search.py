@@ -472,7 +472,7 @@ def train_surrogate(net, all_experiments):
                 l = loss(pred, targ)
                 losses.append(l.item())
                 l.backward()
-                torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
+                # torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
                 optimizer.step()
         mean_loss = np.mean(losses)
     else:  # train/val regime
