@@ -200,7 +200,7 @@ def clip(x, min_x, max_x):
     return max(min(x, max_x), min_x)
 
 
-def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.3):
+def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.5):
     type_t = range_t[0]
     min_t = range_t[1]
     max_t = range_t[2]
