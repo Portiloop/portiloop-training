@@ -210,6 +210,7 @@ def clip(x, min_x, max_x):
 
 def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     step = range_t[2]
+    shift = range_t[0] % step
     min_t = round(range_t[0] / step)
     max_t = round(range_t[1] / step)
     diff_t = max_t - min_t
@@ -222,6 +223,7 @@ def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     res_unrounded = deepcopy(res) * step
     res = round(res)
     res *= step
+    res += shift
     res = clip(res, range_t[0], range_t[1])
     res_unrounded = clip(res_unrounded, range_t[0], range_t[1])
     return res, res_unrounded
@@ -580,7 +582,7 @@ def pareto_efficiency(experiment, all_experiments):
 
     score_not_dominated = 1.0 - float(nb_dominating) / len(all_experiments)
     score_dominating = nb_dominated / len(all_experiments)
-    score_distance_from_best_loss = 2 * best_cost_software / experiment[
+    score_distance_from_best_loss = best_cost_software / experiment[
         "cost_software"]  # The lower is the predicted experiment loss, the better. This score is close to 1 when you reach a loss as good as the lowest one of all exp. If yours is better, then the score will be above 1. Otherwise the farest you are, the lower is your score
     return score_dominating + score_not_dominated + score_distance_from_best_loss
 
