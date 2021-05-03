@@ -208,6 +208,9 @@ def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     max_t = range_t[2]
     diff_t = max_t - min_t
     gaussian_std = gaussian_std_factor * diff_t
+    step = 1
+    if diff_t > 15:
+        step = 3
     if type_t == "b":
         return False, False
     if gaussian_mean is None:
@@ -218,9 +221,12 @@ def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     else:
         res = random.gauss(mu=gaussian_mean, sigma=gaussian_std)
         res = clip(res, min_t, max_t)
+    res /= step
     res_unrounded = deepcopy(res)
     if type_t == "i":
         res = round(res)
+    res *= step
+    res = clip(res, min_t, max_t)
     return res, res_unrounded
 
 

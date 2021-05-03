@@ -765,7 +765,7 @@ def get_config_dict(index, name):
                        device_val="cpu",
                        nb_epoch_max=1000000,
                        max_duration=int(71.5 * 3600),
-                       nb_epoch_early_stopping_stop=20,
+                       nb_epoch_early_stopping_stop=100,
                        early_stopping_smoothing_factor=0.01,
                        fe=250,
                        nb_batch_per_epoch=1000)
