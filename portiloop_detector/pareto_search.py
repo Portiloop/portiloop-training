@@ -209,7 +209,10 @@ def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     if type_t == "b":
         return False, False
     if gaussian_mean is None:
-        res = random.uniform(min_t, max_t)
+        if type_t == 'i':
+            res = random.uniform(min_t - 0.5, max_t + 0.5)  # otherwise extremum are less probable
+        else:
+            res = random.uniform(min_t, max_t)
     else:
         res = random.gauss(mu=gaussian_mean, sigma=gaussian_std)
         res = clip(res, min_t, max_t)
@@ -225,15 +228,12 @@ def same_config_dict(config1, config2):
         flag += 1
     if config1["nb_channel"] != config2["nb_channel"]:
         flag += 1
-    #  config_dict["dropout"], unrounded["dropout"] = sample_from_range(dropout_range_t)
     if config1["hidden_size"] != config2["hidden_size"]:
         flag += 1
     if int(config1["seq_stride_s"] * config1["fe"]) != int(config2["seq_stride_s"] * config2["fe"]):
         flag += 1
-    # config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t)
     if config1["nb_rnn_layers"] != config2["nb_rnn_layers"]:
         flag += 1
-    #    config_dict["adam_w"], unrounded["adam_w"] = sample_from_range(adam_w_range_t)
     if int(config1["window_size_s"] * config1["fe"]) != int(config2["window_size_s"] * config2["fe"]):
         flag += 1
     if config1["nb_conv_layers"] != config2["nb_conv_layers"]:
@@ -382,12 +382,9 @@ class SurrogateModel(nn.Module):
     def forward(self, config_dict):
         x_list = [float(config_dict["seq_len"]),  # idk why, but needed
                   config_dict["nb_channel"],
-                  # config_dict["dropout"],
                   config_dict["hidden_size"],
                   int(config_dict["seq_stride_s"] * config_dict["fe"]),
-                  # config_dict["lr_adam"],
                   config_dict["nb_rnn_layers"],
-                  # config_dict["adam_w"],
                   int(config_dict["window_size_s"] * config_dict["fe"]),
                   config_dict["nb_conv_layers"],
                   config_dict["stride_pool"],
