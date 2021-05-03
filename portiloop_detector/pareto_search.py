@@ -183,15 +183,15 @@ def run(config_dict):
 # batch_size_range_t = ["i", 256, 256]
 # lr_adam_range_t = ["f", 0.0003, 0.0003]
 
-seq_len_range_t = [10, 50, 2]  # min, max, step
-kernel_conv_range_t = [3, 11, 1]  # min, max, step
-kernel_pool_range_t = [3, 11, 1]  # min, max, step
+seq_len_range_t = [10, 50, 5]  # min, max, step
+kernel_conv_range_t = [3, 11, 2]  # min, max, step
+kernel_pool_range_t = [3, 11, 2]  # min, max, step
 stride_conv_range_t = [1, 5, 1]  # min, max, step
 stride_pool_range_t = [1, 5, 1]  # min, max, step
 dilation_conv_range_t = [1, 5, 1]  # min, max, step
 dilation_pool_range_t = [1, 5, 1]  # min, max, step
-nb_channel_range_t = [1, 70, 3]  # min, max, step
-hidden_size_range_t = [2, 100, 4]  # min, max, step
+nb_channel_range_t = [1, 70, 5]  # min, max, step
+hidden_size_range_t = [2, 100, 5]  # min, max, step
 window_size_s_range_t = [0.05, 1, 0.008]  # min, max, step
 seq_stride_s_range_t = [0.05, 0.1, 0.004]  # min, max, step
 nb_conv_layers_range_t = [1, 7, 1]  # min, max, step
