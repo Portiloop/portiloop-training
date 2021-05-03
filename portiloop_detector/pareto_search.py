@@ -264,8 +264,6 @@ def sample_config_dict(name, previous_exp, all_exp):
                        fe=250,
                        nb_batch_per_epoch=NB_BATCH_PER_EPOCH)
 
-    noise = random.choices(population=[True, False], weights=[EPSILON_NOISE, 1.0 - EPSILON_NOISE])[0]
-
     unrounded = {}
 
     # constant things:
@@ -281,6 +279,7 @@ def sample_config_dict(name, previous_exp, all_exp):
     config_dict["distribution_mode"] = 1
     flag_in_exps = True
     while flag_in_exps:
+        noise = random.choices(population=[True, False], weights=[EPSILON_NOISE, 1.0 - EPSILON_NOISE])[0]  # if we have already tried a config and lots of its neighbors, we will have a higher chance of getting a random config
         nb_out = 0
         std = 0.1
         if previous_exp == {} or noise:
