@@ -726,7 +726,7 @@ def run(config_dict):
             best_model_loss_validation = loss_validation
             best_model_accuracy = accuracy_validation
 
-        loss_early_stopping = 1.0 if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
+        loss_early_stopping = loss_validation if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
                 1.0 - early_stopping_smoothing_factor)
 
         if loss_early_stopping < best_loss_early_stopping:
@@ -765,8 +765,8 @@ def get_config_dict(index, name):
                        device_val="cpu",
                        nb_epoch_max=1000000,
                        max_duration=int(71.5 * 3600),
-                       nb_epoch_early_stopping_stop=200,
-                       early_stopping_smoothing_factor=0.01,
+                       nb_epoch_early_stopping_stop=20,
+                       early_stopping_smoothing_factor=0.1,
                        fe=250,
                        nb_batch_per_epoch=1000)
 
