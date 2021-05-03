@@ -177,19 +177,19 @@ def run(config_dict):
 # batch_size_range_t = ["i", 256, 256]
 # lr_adam_range_t = ["f", 0.0003, 0.0003]
 
-seq_len_range_t = ["i", 10, 50]
-kernel_conv_range_t = ["i", 3, 11]
-kernel_pool_range_t = ["i", 3, 11]
-stride_conv_range_t = ["i", 1, 5]
-stride_pool_range_t = ["i", 1, 5]
-dilation_conv_range_t = ["i", 1, 5]
-dilation_pool_range_t = ["i", 1, 5]
-nb_channel_range_t = ["i", 1, 70]
-hidden_size_range_t = ["i", 2, 100]
-window_size_s_range_t = ["f", 0.05, 1]
-seq_stride_s_range_t = ["f", 0.05, 0.1]
-nb_conv_layers_range_t = ["i", 1, 7]
-nb_rnn_layers_range_t = ["i", 1, 5]
+seq_len_range_t = [10, 50, 2]  # min, max, step
+kernel_conv_range_t = [3, 11, 1]  # min, max, step
+kernel_pool_range_t = [3, 11, 1]  # min, max, step
+stride_conv_range_t = [1, 5, 1]  # min, max, step
+stride_pool_range_t = [1, 5, 1]  # min, max, step
+dilation_conv_range_t = [1, 5, 1]  # min, max, step
+dilation_pool_range_t = [1, 5, 1]  # min, max, step
+nb_channel_range_t = [1, 70, 3]  # min, max, step
+hidden_size_range_t = [2, 100, 4]  # min, max, step
+window_size_s_range_t = [0.05, 1, 0.008]  # min, max, step
+seq_stride_s_range_t = [0.05, 0.1, 0.004]  # min, max, step
+nb_conv_layers_range_t = [1, 7, 1]  # min, max, step
+nb_rnn_layers_range_t = [1, 5, 1]  # min, max, step
 
 
 # dropout_range_t = ["f", 0.5, 0.5]
@@ -203,30 +203,21 @@ def clip(x, min_x, max_x):
 
 
 def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
-    type_t = range_t[0]
-    min_t = range_t[1]
-    max_t = range_t[2]
+    step = range_t[2]
+    min_t = round(range_t[0] / step)
+    max_t = round(range_t[1] / step)
     diff_t = max_t - min_t
     gaussian_std = gaussian_std_factor * diff_t
-    step = 1
-    if diff_t > 15:
-        step = 3
-    if type_t == "b":
-        return False, False
     if gaussian_mean is None:
-        if type_t == 'i':
-            res = random.uniform(min_t - 0.5, max_t + 0.5)  # otherwise extremum are less probable
-        else:
-            res = random.uniform(min_t, max_t)
+        res = random.uniform(min_t - 0.5, max_t + 0.5)  # otherwise extremum are less probable
     else:
         res = random.gauss(mu=gaussian_mean, sigma=gaussian_std)
         res = clip(res, min_t, max_t)
-    res /= step
-    res_unrounded = deepcopy(res)
-    if type_t == "i":
-        res = round(res)
+    res_unrounded = deepcopy(res) * step
+    res = round(res)
     res *= step
-    res = clip(res, min_t, max_t)
+    res = clip(res, range_t[0], range_t[1])
+    res_unrounded = clip(res_unrounded, range_t[0], range_t[1])
     return res, res_unrounded
 
 
