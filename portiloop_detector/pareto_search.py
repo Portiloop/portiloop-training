@@ -580,7 +580,7 @@ def pareto_efficiency(experiment, all_experiments):
 
     score_not_dominated = 1.0 - float(nb_dominating) / len(all_experiments)
     score_dominating = nb_dominated / len(all_experiments)
-    score_distance_from_best_loss = best_cost_software / experiment[
+    score_distance_from_best_loss = 2 * best_cost_software / experiment[
         "cost_software"]  # The lower is the predicted experiment loss, the better. This score is close to 1 when you reach a loss as good as the lowest one of all exp. If yours is better, then the score will be above 1. Otherwise the farest you are, the lower is your score
     return score_dominating + score_not_dominated + score_distance_from_best_loss
 
