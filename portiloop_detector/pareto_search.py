@@ -37,7 +37,7 @@ MAX_META_ITERATIONS = 1000  # maximum number of experiments
 EPOCHS_PER_EXPERIMENT = 100  # experiments are evaluated after this number of epoch by the meta learner
 
 EPSILON_NOISE = 0.25  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
-EPSILON_EXP_NOISE = 0.25  # a random experiment is selected within all sampled experiments this portion of the time
+EPSILON_EXP_NOISE = 0.1  # a random experiment is selected within all sampled experiments this portion of the time
 
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 MAX_LOSS = 0.1  # to normalize distances
@@ -200,7 +200,7 @@ def clip(x, min_x, max_x):
     return max(min(x, max_x), min_x)
 
 
-def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.5):
+def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     type_t = range_t[0]
     min_t = range_t[1]
     max_t = range_t[2]
@@ -282,6 +282,7 @@ def sample_config_dict(name, previous_exp, all_exp):
     flag_in_exps = True
     while flag_in_exps:
         nb_out = 0
+        std = 0.1
         if previous_exp == {} or noise:
             config_dict["nb_conv_layers"], unrounded["nb_conv_layers"] = sample_from_range(nb_conv_layers_range_t)
             config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t)
@@ -301,24 +302,24 @@ def sample_config_dict(name, previous_exp, all_exp):
 
             if previous_exp == {} or noise:
                 # sample completely randomly
-                config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t)
-                config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t)
-                config_dict["stride_conv"], unrounded["stride_conv"] = sample_from_range(stride_conv_range_t)
-                config_dict["kernel_conv"], unrounded["kernel_conv"] = sample_from_range(kernel_conv_range_t)
-                config_dict["kernel_pool"], unrounded["kernel_pool"] = sample_from_range(kernel_pool_range_t)
-                config_dict["dilation_conv"], unrounded["dilation_conv"] = sample_from_range(dilation_conv_range_t)
-                config_dict["dilation_pool"], unrounded["dilation_pool"] = sample_from_range(dilation_pool_range_t)
+                config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t, gaussian_std_factor=std)
+                config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t, gaussian_std_factor=std)
+                config_dict["stride_conv"], unrounded["stride_conv"] = sample_from_range(stride_conv_range_t, gaussian_std_factor=std)
+                config_dict["kernel_conv"], unrounded["kernel_conv"] = sample_from_range(kernel_conv_range_t, gaussian_std_factor=std)
+                config_dict["kernel_pool"], unrounded["kernel_pool"] = sample_from_range(kernel_pool_range_t, gaussian_std_factor=std)
+                config_dict["dilation_conv"], unrounded["dilation_conv"] = sample_from_range(dilation_conv_range_t, gaussian_std_factor=std)
+                config_dict["dilation_pool"], unrounded["dilation_pool"] = sample_from_range(dilation_pool_range_t, gaussian_std_factor=std)
             else:
                 # sample gaussian from one of the previous experiments in the pareto front
                 previous_unrounded = previous_exp["unrounded"]
-                config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t, previous_unrounded["window_size_s"])
-                config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t, previous_unrounded["stride_pool"])
-                config_dict["stride_conv"], unrounded["stride_conv"] = sample_from_range(stride_conv_range_t, previous_unrounded["stride_conv"])
-                config_dict["kernel_conv"], unrounded["kernel_conv"] = sample_from_range(kernel_conv_range_t, previous_unrounded["kernel_conv"])
-                config_dict["kernel_pool"], unrounded["kernel_pool"] = sample_from_range(kernel_pool_range_t, previous_unrounded["kernel_pool"])
-                config_dict["dilation_conv"], unrounded["dilation_conv"] = sample_from_range(dilation_conv_range_t, previous_unrounded["dilation_conv"])
-                config_dict["dilation_pool"], unrounded["dilation_pool"] = sample_from_range(dilation_pool_range_t, previous_unrounded["dilation_pool"])
-
+                config_dict["window_size_s"], unrounded["window_size_s"] = sample_from_range(window_size_s_range_t, previous_unrounded["window_size_s"], gaussian_std_factor=std)
+                config_dict["stride_pool"], unrounded["stride_pool"] = sample_from_range(stride_pool_range_t, previous_unrounded["stride_pool"], gaussian_std_factor=std)
+                config_dict["stride_conv"], unrounded["stride_conv"] = sample_from_range(stride_conv_range_t, previous_unrounded["stride_conv"], gaussian_std_factor=std)
+                config_dict["kernel_conv"], unrounded["kernel_conv"] = sample_from_range(kernel_conv_range_t, previous_unrounded["kernel_conv"], gaussian_std_factor=std)
+                config_dict["kernel_pool"], unrounded["kernel_pool"] = sample_from_range(kernel_pool_range_t, previous_unrounded["kernel_pool"], gaussian_std_factor=std)
+                config_dict["dilation_conv"], unrounded["dilation_conv"] = sample_from_range(dilation_conv_range_t, previous_unrounded["dilation_conv"], gaussian_std_factor=std)
+                config_dict["dilation_pool"], unrounded["dilation_pool"] = sample_from_range(dilation_pool_range_t, previous_unrounded["dilation_pool"], gaussian_std_factor=std)
+            std += 0.05
             stride_pool = config_dict["stride_pool"]
             stride_conv = config_dict["stride_conv"]
             kernel_conv = config_dict["kernel_conv"]
