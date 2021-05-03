@@ -60,7 +60,6 @@ META_EARLY_STOPPING = 10  # meta early stopping after this number of unsuccessfu
 # run:
 
 def run(config_dict):
-    _t_start = time.time()
     nb_epoch_max = config_dict["nb_epoch_max"]
     nb_batch_per_epoch = config_dict["nb_batch_per_epoch"]
     batch_size = config_dict["batch_size"]
@@ -147,6 +146,7 @@ def run(config_dict):
     for epoch in range(nb_epoch_max):
 
         print(f"DEBUG: epoch: {epoch}")
+        _t_start_train = time.time()
 
         for batch_data in train_loader:
             batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
@@ -163,12 +163,18 @@ def run(config_dict):
             loss = criterion(output, batch_labels)
             loss.backward()
             optimizer.step()
+        _t_end_train = time.time()
+        print(f"Training : {_t_end_train - _t_start_train} s")
+        _t_start_validation = time.time()
 
         _, loss_validation, _, _, _ = get_accuracy_and_loss_pytorch(
             validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
         if loss_validation < best_model_loss_validation:
             best_model_loss_validation = loss_validation
             best_model_epoch = epoch
+        _t_end_validation = time.time()
+        print(f"Validation : {_t_end_validation - _t_start_validation} s")
+
     return best_model_loss_validation, best_model_epoch
 
 
