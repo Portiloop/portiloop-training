@@ -39,6 +39,7 @@ EPOCHS_PER_EXPERIMENT = 100  # experiments are evaluated after this number of ep
 EPSILON_NOISE = 0.25  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
 EPSILON_EXP_NOISE = 0.1  # a random experiment is selected within all sampled experiments this portion of the time
 
+MIN_NB_PARAMETERS = 2000  # everything below this number of parameters will be discarded
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 MAX_LOSS = 0.1  # to normalize distances
 
@@ -762,7 +763,7 @@ def iterative_training_local():
             config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), previous_exp=prev_exp, all_exp=all_experiments)
 
             nb_params = nb_parameters(config_dict)
-            if nb_params > MAX_NB_PARAMETERS:
+            if nb_params > MAX_NB_PARAMETERS or MIN_NB_PARAMETERS > nb_params:
                 continue
 
             with torch.no_grad():
