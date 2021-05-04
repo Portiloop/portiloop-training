@@ -9,7 +9,7 @@ from copy import deepcopy
 import matplotlib.pyplot as plt
 import pickle as pkl
 from pathlib import Path
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 import os
 import time
 import torch
@@ -54,8 +54,37 @@ NB_SAMPLED_MODELS_PER_ITERATION = 500  # number of models sampled per iteration,
 DEFAULT_META_EPOCHS = 100  # default number of meta-epochs before entering meta train/val training regime
 START_META_TRAIN_VAL_AFTER = 200  # minimum number of experiments in the dataset before using a validation set
 META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
-MAX_META_EPOCHS = 1000  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
-META_EARLY_STOPPING = 10  # meta early stopping after this number of unsuccessful meta epochs
+MAX_META_EPOCHS = 2000  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
+META_EARLY_STOPPING = 20  # meta early stopping after this number of unsuccessful meta epochs
+
+
+class MetaDataset(Dataset):
+    def __init__(self, finished_runs, start, end):
+        size = len(finished_runs)
+        self.data = finished_runs[int(start * size):int(end * size)]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
+        config_dict = self.data[idx]["config_dict"]
+        x = [float(config_dict["seq_len"]),  # idk why, but needed
+             config_dict["nb_channel"],
+             config_dict["hidden_size"],
+             int(config_dict["seq_stride_s"] * config_dict["fe"]),
+             config_dict["nb_rnn_layers"],
+             int(config_dict["window_size_s"] * config_dict["fe"]),
+             config_dict["nb_conv_layers"],
+             config_dict["stride_pool"],
+             config_dict["stride_conv"],
+             config_dict["kernel_conv"],
+             config_dict["kernel_pool"],
+             config_dict["dilation_conv"],
+             config_dict["dilation_pool"]]
+        x = torch.tensor(x)
+        label = torch.tensor(self.data[idx]["cost_software"])
+        return x, label
 
 
 # run:
@@ -386,23 +415,8 @@ class SurrogateModel(nn.Module):
         super(SurrogateModel, self).to(device)
         self.device = device
 
-    def forward(self, config_dict):
-        x_list = [float(config_dict["seq_len"]),  # idk why, but needed
-                  config_dict["nb_channel"],
-                  config_dict["hidden_size"],
-                  int(config_dict["seq_stride_s"] * config_dict["fe"]),
-                  config_dict["nb_rnn_layers"],
-                  int(config_dict["window_size_s"] * config_dict["fe"]),
-                  config_dict["nb_conv_layers"],
-                  config_dict["stride_pool"],
-                  config_dict["stride_conv"],
-                  config_dict["kernel_conv"],
-                  config_dict["kernel_pool"],
-                  config_dict["dilation_conv"],
-                  config_dict["dilation_pool"]]
-
-        x_tensor = torch.tensor(x_list).to(self.device)
-
+    def forward(self, x):
+        x_tensor = x.to(self.device)
         x_tensor = F.relu(self.d1(self.fc1(x_tensor)))
         x_tensor = F.relu(self.d2(self.fc2(x_tensor)))
 
@@ -454,79 +468,88 @@ def dominates_pareto(experiment, pareto):
     return dominates
 
 
+def transform_config_dict_to_input(config_dict):
+    x = [float(config_dict["seq_len"]),  # idk why, but needed
+         config_dict["nb_channel"],
+         config_dict["hidden_size"],
+         int(config_dict["seq_stride_s"] * config_dict["fe"]),
+         config_dict["nb_rnn_layers"],
+         int(config_dict["window_size_s"] * config_dict["fe"]),
+         config_dict["nb_conv_layers"],
+         config_dict["stride_pool"],
+         config_dict["stride_conv"],
+         config_dict["kernel_conv"],
+         config_dict["kernel_pool"],
+         config_dict["dilation_conv"],
+         config_dict["dilation_pool"]]
+    x = torch.tensor(x)
+    return x
+
+
 def train_surrogate(net, all_experiments):
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
-    loss = nn.MSELoss()
-    if len(all_experiments) < START_META_TRAIN_VAL_AFTER:  # no train/val
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
+    criterion = nn.MSELoss()
+    best_val_loss = np.inf
+    best_model = None
+    early_stopping_counter = 0
+
+    if len(all_experiments) > START_META_TRAIN_VAL_AFTER:
+        train_dataset = MetaDataset(all_experiments, start=0, end=META_TRAIN_VAL_RATIO)
+        validation_dataset = MetaDataset(all_experiments, start=META_TRAIN_VAL_RATIO, end=1)
+        train_loader = DataLoader(train_dataset, batch_size=20, shuffle=True, pin_memory=True, num_workers=0)
+        validation_loader = DataLoader(validation_dataset, batch_size=20, shuffle=True, pin_memory=True, num_workers=0)
+    else:
+        train_dataset = MetaDataset(all_experiments, start=0, end=1)
+        train_loader = DataLoader(train_dataset, batch_size=20, shuffle=True, pin_memory=True, num_workers=0)
+    losses = []
+    for epoch in range(min(len(all_experiments), MAX_META_EPOCHS)):
         net.train()
-        losses = []
-        nb_epochs = min(len(all_experiments), 100)
-        for epoch in range(nb_epochs):
-            random.shuffle(all_experiments)
-            samples = [exp["config_dict"] for exp in all_experiments]
-            labels = [exp["cost_software"] for exp in all_experiments]
-            for i, sample in enumerate(samples):
-                optimizer.zero_grad()
-                pred = net(sample)
-                targ = torch.tensor([labels[i], ])
-                assert pred.shape == targ.shape, f"pred.shape:{pred.shape} != targ.shape:{targ.shape}"
-                l = loss(pred, targ)
-                losses.append(l.item())
-                l.backward()
-                # torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
-                optimizer.step()
+        for batch_data in train_loader:
+            batch_samples, batch_labels = batch_data
+            batch_samples = batch_samples
+            batch_labels = batch_labels.to(device=META_MODEL_DEVICE).float()
+
+            optimizer.zero_grad()
+            output = net(batch_samples)
+            output = output.view(-1)
+            loss = criterion(output, batch_labels)
+            losses.append(loss.item())
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
+            optimizer.step()
+
         mean_loss = np.mean(losses)
-    else:  # train/val regime
-        random.shuffle(all_experiments)
-        sep = int(META_TRAIN_VAL_RATIO * len(all_experiments))
-        training_set = all_experiments[:sep]
-        validation_set = all_experiments[sep:]
-        best_val_loss = np.inf
-        best_model = None
-        early_stopping_counter = 0
-        for epoch in range(MAX_META_EPOCHS):
-            # training
-            net.train()
-            random.shuffle(training_set)
-            samples = [exp["config_dict"] for exp in training_set]
-            labels = [exp["cost_software"] for exp in training_set]
-            for i, sample in enumerate(samples):
-                optimizer.zero_grad()
-                pred = net(sample)
-                targ = torch.tensor([labels[i], ])
-                assert pred.shape == targ.shape, f"pred.shape:{pred.shape} != targ.shape:{targ.shape}"
-                l = loss(pred, targ)
-                l.backward()
-                torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
-                optimizer.step()
-            # validation
+        if len(all_experiments) > START_META_TRAIN_VAL_AFTER:
             net.eval()
-            samples = [exp["config_dict"] for exp in validation_set]
-            labels = [exp["cost_software"] for exp in validation_set]
             losses = []
             with torch.no_grad():
-                for i, sample in enumerate(samples):
-                    pred = net(sample)
-                    targ = torch.tensor([labels[i], ])
-                    assert pred.shape == targ.shape, f"pred.shape:{pred.shape} != targ.shape:{targ.shape}"
-                    l = loss(pred, targ)
-                    losses.append(l.item())
-            mean_loss = np.mean(losses)
-            if mean_loss < best_val_loss:
-                best_val_loss = mean_loss
-                early_stopping_counter = 0
-                best_model = deepcopy(net)
-            else:
-                early_stopping_counter += 1
-            # early stopping:
-            if early_stopping_counter >= META_EARLY_STOPPING:
-                print(f"DEBUG: meta training converged at epoch:{epoch} (-{META_EARLY_STOPPING})")
-                break
-            elif epoch == MAX_META_EPOCHS - 1:
-                print(f"DEBUG: meta training did not converge after epoch:{epoch}")
-                break
-        net = best_model
-        mean_loss = best_val_loss
+                for batch_data in validation_loader:
+                    batch_samples, batch_labels = batch_data
+                    batch_samples = batch_samples
+                    batch_labels = batch_labels.to(device=META_MODEL_DEVICE).float()
+
+                    output = net(batch_samples)
+                    output = output.view(-1)
+                    loss = criterion(output, batch_labels)
+                    losses.append(loss.item())
+
+                mean_loss_validation = np.mean(losses)
+                print(f"DEBUG: mean_loss_validation = {mean_loss_validation}")
+                if mean_loss_validation < best_val_loss:
+                    best_val_loss = mean_loss_validation
+                    early_stopping_counter = 0
+                    best_model = deepcopy(net)
+                else:
+                    early_stopping_counter += 1
+                # early stopping:
+                if early_stopping_counter >= META_EARLY_STOPPING:
+                    net = best_model
+                    mean_loss = best_val_loss
+                    print(f"DEBUG: meta training converged at epoch:{epoch} (-{META_EARLY_STOPPING})")
+                    break
+                elif epoch == MAX_META_EPOCHS - 1:
+                    print(f"DEBUG: meta training did not converge after epoch:{epoch}")
+                    break
     net.eval()
     return net, mean_loss
 
@@ -764,10 +787,11 @@ def iterative_training_local():
             nb_params = nb_parameters(config_dict)
             if nb_params > MAX_NB_PARAMETERS or nb_params < MIN_NB_PARAMETERS:
                 continue
-            if nb_params > MIN_NB_PARAMETERS:
+            if nb_params < MIN_NB_PARAMETERS:
                 print("ERROR")
             with torch.no_grad():
-                predicted_loss = meta_model(config_dict).item()
+                input = transform_config_dict_to_input(config_dict)
+                predicted_loss = meta_model(input).item()
 
             exp["cost_hardware"] = nb_params
             exp["cost_software"] = predicted_loss
