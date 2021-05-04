@@ -497,7 +497,7 @@ def train_surrogate(net, all_experiments):
         train_dataset = MetaDataset(all_experiments, start=0, end=META_TRAIN_VAL_RATIO)
         validation_dataset = MetaDataset(all_experiments, start=META_TRAIN_VAL_RATIO, end=1)
         train_loader = DataLoader(train_dataset, batch_size=20, shuffle=True, pin_memory=True, num_workers=0)
-        validation_loader = DataLoader(validation_dataset, batch_size=20, shuffle=True, pin_memory=True, num_workers=0)
+        validation_loader = DataLoader(validation_dataset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
     else:
         train_dataset = MetaDataset(all_experiments, start=0, end=1)
         train_loader = DataLoader(train_dataset, batch_size=20, shuffle=True, pin_memory=True, num_workers=0)
