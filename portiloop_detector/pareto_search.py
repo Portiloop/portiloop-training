@@ -37,7 +37,7 @@ MAX_META_ITERATIONS = 1000  # maximum number of experiments
 EPOCHS_PER_EXPERIMENT = 100  # experiments are evaluated after this number of epoch by the meta learner
 
 EPSILON_NOISE = 0.25  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
-EPSILON_EXP_NOISE = 1  # a random experiment is selected within all sampled experiments this portion of the time
+EPSILON_EXP_NOISE = 0.1  # a random experiment is selected within all sampled experiments this portion of the time
 
 MIN_NB_PARAMETERS = 1000  # everything below this number of parameters will be discarded
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
@@ -54,8 +54,8 @@ NB_SAMPLED_MODELS_PER_ITERATION = 500  # number of models sampled per iteration,
 DEFAULT_META_EPOCHS = 100  # default number of meta-epochs before entering meta train/val training regime
 START_META_TRAIN_VAL_AFTER = 200  # minimum number of experiments in the dataset before using a validation set
 META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
-MAX_META_EPOCHS = 2000  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
-META_EARLY_STOPPING = 20  # meta early stopping after this number of unsuccessful meta epochs
+MAX_META_EPOCHS = 500  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
+META_EARLY_STOPPING = 100  # meta early stopping after this number of unsuccessful meta epochs
 
 
 class MetaDataset(Dataset):
@@ -401,12 +401,12 @@ class SurrogateModel(nn.Module):
         self.fc1 = nn.Linear(in_features=13,  # nb hyperparameters
                              out_features=13*25)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
-        self.d1 = nn.Dropout(0.5)
+        self.d1 = nn.Dropout(0)
 
         self.fc2 = nn.Linear(in_features=13*25,
                              out_features=13*25)
 
-        self.d2 = nn.Dropout(0.5)
+        self.d2 = nn.Dropout(0)
 
         self.fc3 = nn.Linear(in_features=13*25,
                              out_features=1)
@@ -487,28 +487,28 @@ def transform_config_dict_to_input(config_dict):
 
 
 def train_surrogate(net, all_experiments):
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.1, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
     criterion = nn.MSELoss()
     best_val_loss = np.inf
     best_model = None
     early_stopping_counter = 0
     random.shuffle(all_experiments)
 
-    losses = []
-    for epoch in range(min(len(all_experiments), MAX_META_EPOCHS)):
+    for epoch in range(MAX_META_EPOCHS):
         if len(all_experiments) > START_META_TRAIN_VAL_AFTER:
             train_dataset = MetaDataset(all_experiments, start=0, end=META_TRAIN_VAL_RATIO)
             validation_dataset = MetaDataset(all_experiments, start=META_TRAIN_VAL_RATIO, end=1)
-            train_loader = DataLoader(train_dataset, batch_size=20, shuffle=True, pin_memory=True, num_workers=0)
+            train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
             validation_loader = DataLoader(validation_dataset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
         else:
             train_dataset = MetaDataset(all_experiments, start=0, end=1)
-            train_loader = DataLoader(train_dataset, batch_size=50, shuffle=True, pin_memory=True, num_workers=0)
+            train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
+        losses = []
 
         net.train()
         for batch_data in train_loader:
             batch_samples, batch_labels = batch_data
-            batch_samples = batch_samples
+            batch_samples = batch_samples.to(device=META_MODEL_DEVICE).float()
             batch_labels = batch_labels.to(device=META_MODEL_DEVICE).float()
 
             optimizer.zero_grad()
@@ -521,13 +521,15 @@ def train_surrogate(net, all_experiments):
             optimizer.step()
 
         mean_loss = np.mean(losses)
+        print(f"DEBUG: epoch {epoch} mean_loss_training = {mean_loss}")
+
         if len(all_experiments) > START_META_TRAIN_VAL_AFTER:
             net.eval()
             losses = []
             with torch.no_grad():
                 for batch_data in validation_loader:
                     batch_samples, batch_labels = batch_data
-                    batch_samples = batch_samples
+                    batch_samples = batch_samples.to(device=META_MODEL_DEVICE).float()
                     batch_labels = batch_labels.to(device=META_MODEL_DEVICE).float()
 
                     output = net(batch_samples)
