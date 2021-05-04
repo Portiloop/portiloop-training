@@ -13,7 +13,7 @@ from copy import deepcopy
 import pickle
 
 from pareto_search import LoggerWandbPareto, load_files, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, same_config_dict, update_pareto, sample_config_dict, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, dump_files, run, \
-    load_network_files, dump_network_files, MIN_NB_PARAMETERS
+    load_network_files, dump_network_files, MIN_NB_PARAMETERS, transform_config_dict_to_input
 
 IP_SERVER = "142.182.5.48"  # Yann = "45.74.221.204"; Nicolas = "142.182.5.48"
 PORT_META = 6666
@@ -552,7 +552,8 @@ class MetaLearner:
                         continue
 
                     with torch.no_grad():
-                        predicted_loss = meta_model(config_dict).item()
+                        input = transform_config_dict_to_input(config_dict)
+                        predicted_loss = meta_model(input).item()
 
                     exp["cost_hardware"] = nb_params
                     exp["cost_software"] = predicted_loss
