@@ -487,7 +487,7 @@ def transform_config_dict_to_input(config_dict):
 
 
 def train_surrogate(net, all_experiments):
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
     criterion = nn.MSELoss()
     best_val_loss = np.inf
     best_model = None
@@ -496,7 +496,7 @@ def train_surrogate(net, all_experiments):
     if len(all_experiments) > START_META_TRAIN_VAL_AFTER:
         train_dataset = MetaDataset(all_experiments, start=0, end=META_TRAIN_VAL_RATIO)
         validation_dataset = MetaDataset(all_experiments, start=META_TRAIN_VAL_RATIO, end=1)
-        train_loader = DataLoader(train_dataset, batch_size=20, shuffle=True, pin_memory=True, num_workers=0)
+        train_loader = DataLoader(train_dataset, batch_size=50, shuffle=True, pin_memory=True, num_workers=0)
         validation_loader = DataLoader(validation_dataset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
     else:
         train_dataset = MetaDataset(all_experiments, start=0, end=1)
