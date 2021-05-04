@@ -766,7 +766,8 @@ def iterative_training_local():
             nb_params = nb_parameters(config_dict)
             if nb_params > MAX_NB_PARAMETERS or nb_params < MIN_NB_PARAMETERS:
                 continue
-
+            if nb_params > MIN_NB_PARAMETERS:
+                print("ERROR")
             with torch.no_grad():
                 predicted_loss = meta_model(config_dict).item()
 
