@@ -764,7 +764,7 @@ def iterative_training_local():
             config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), previous_exp=prev_exp, all_exp=all_experiments)
 
             nb_params = nb_parameters(config_dict)
-            if nb_params > MAX_NB_PARAMETERS or MIN_NB_PARAMETERS > nb_params:
+            if nb_params > MAX_NB_PARAMETERS or MIN_NB_PARAMETERS < nb_params:
                 continue
 
             with torch.no_grad():
