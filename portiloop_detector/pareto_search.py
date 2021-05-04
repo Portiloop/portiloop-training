@@ -39,7 +39,7 @@ EPOCHS_PER_EXPERIMENT = 100  # experiments are evaluated after this number of ep
 EPSILON_NOISE = 0.25  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
 EPSILON_EXP_NOISE = 0.1  # a random experiment is selected within all sampled experiments this portion of the time
 
-MIN_NB_PARAMETERS = 20000  # everything below this number of parameters will be discarded
+MIN_NB_PARAMETERS = 1000  # everything below this number of parameters will be discarded
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 MAX_LOSS = 0.1  # to normalize distances
 
@@ -585,7 +585,6 @@ def pareto_efficiency(experiment, all_experiments):
     score_dominating = nb_dominated / len(all_experiments)
     score_distance_from_best_loss = best_cost_software / experiment[
         "cost_software"]  # The lower is the predicted experiment loss, the better. This score is close to 1 when you reach a loss as good as the lowest one of all exp. If yours is better, then the score will be above 1. Otherwise the farest you are, the lower is your score
-    score_distance_from_best_loss = 0
     return score_dominating + score_not_dominated + score_distance_from_best_loss
 
     # v_p = vector_exp(experiment)
@@ -625,7 +624,6 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
             assert histo[1][0] <= exp["cost_hardware"] <= histo[1][-1]
             idx = np.where(histo[1] <= exp["cost_hardware"])[0][-1]
             nerf = histo[0][idx] * MAX_NB_PARAMETERS
-            nerf = 0
             efficiency -= nerf
             if efficiency >= max_efficiency:
                 max_efficiency = efficiency
