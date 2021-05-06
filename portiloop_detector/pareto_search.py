@@ -752,7 +752,7 @@ class LoggerWandbPareto:
 def iterative_training_local():
     logger = LoggerWandbPareto(RUN_NAME)
 
-    all_experiments, pareto_front = load_files()
+    all_experiments, pareto_front = load_network_files()
 
     if all_experiments is None:
         print(f"DEBUG: no meta dataset found, starting new run")
@@ -840,7 +840,7 @@ def iterative_training_local():
 
         print(f"surrogate model loss: {meta_loss}")
 
-        dump_files(all_experiments, pareto_front)
+        dump_network_files(all_experiments, pareto_front)
         logger.log(surrogate_loss=meta_loss, surprise=surprise, all_experiments=all_experiments, pareto_front=pareto_front)
 
     print(f"End of meta-training.")
