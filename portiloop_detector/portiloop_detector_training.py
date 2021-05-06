@@ -196,17 +196,19 @@ class ValidationSampler(Sampler):
         self.length = nb_samples
         self.seq_stride = seq_stride
         self.last_possible = len(data_source) - self.length * self.seq_stride - 1
+        print(f"DEBUG: last possible for validation sampler : {self.last_possible}")
 
     #    self.first_idx = 0#randint(0, self.last_possible)
 
     def __iter__(self):
         seed(0)
         nb_iter = 5
-        first_idx = []
+        first_idx = [randint(0, self.last_possible)]
         while len(first_idx) < nb_iter:
             idx = randint(0, self.last_possible)
-            if idx not in first_idx:
-                first_idx.append(idx)
+            for i in first_idx:
+                if i % self.seq_stride != idx % self.seq_stride:
+                    first_idx.append(idx)
         for i in range(nb_iter):
             cur_iter = 0
             cur_idx = first_idx[i]
@@ -674,7 +676,7 @@ def run(config_dict):
         accuracy_train = 0
         loss_train = 0
         n = 0
-
+        _t_start = time.time()
         for batch_data in train_loader:
             batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
             batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
@@ -705,12 +707,16 @@ def run(config_dict):
                     output = output.argmax(dim=1)
             accuracy_train += (output == batch_labels).float().mean()
             n += 1
-
+        _t_stop = time.time()
+        print(f"DEBUG: Training time for 1 epoch : {_t_stop-_t_start} s")
         accuracy_train /= n
         loss_train /= n
-
+        
+        _t_start = time.time()
         accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
             validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
+        _t_stop = time.time()
+        print(f"DEBUG: Validation time for 1 epoch : {_t_stop-_t_start} s")
 
         recall_validation_factor = recall_validation
         precision_validation_factor = precision_validation
