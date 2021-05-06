@@ -202,7 +202,7 @@ class ValidationSampler(Sampler):
 
     def __iter__(self):
         seed(0)
-        nb_iter = 5
+        nb_iter = 10
         first_idx = [randint(0, self.last_possible)]
         while len(first_idx) < nb_iter:
             idx = randint(0, self.last_possible)
@@ -711,7 +711,7 @@ def run(config_dict):
         print(f"DEBUG: Training time for 1 epoch : {_t_stop-_t_start} s")
         accuracy_train /= n
         loss_train /= n
-        
+
         _t_start = time.time()
         accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
             validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
@@ -842,7 +842,7 @@ if __name__ == "__main__":
     exp_index = args.experiment_index % len(power_features_input_list)
 
     config_dict = get_config_dict(exp_index, exp_name)
-    config_dict = {'experiment_name': 'pareto_search_8_128_v3', 'device_train': 'cuda:0', 'device_val': 'cpu', 'nb_epoch_max': 5000, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 200, 'early_stopping_smoothing_factor': 0.01, 'fe': 250, 'nb_batch_per_epoch': 1000, 'RNN': True,
+    config_dict = {'experiment_name': 'pareto_search_8_128_v4', 'device_train': 'cuda:0', 'device_val': 'cpu', 'nb_epoch_max': 5000, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 200, 'early_stopping_smoothing_factor': 0.01, 'fe': 250, 'nb_batch_per_epoch': 1000, 'RNN': True,
                    'envelope_input': True, 'batch_size': 256, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'lr_adam': 0.0003, 'adam_w': 0.01, 'distribution_mode': 1, 'seq_len': 10, 'nb_channel': 43, 'hidden_size': 14, 'seq_stride_s': 0.05, 'nb_rnn_layers': 4,
                    'window_size_s': 0.08125098650113531, 'nb_conv_layers': 1, 'stride_pool': 3, 'stride_conv': 1, 'kernel_conv': 3, 'kernel_pool': 3, 'dilation_conv': 3, 'dilation_pool': 2, 'nb_out': 4, 'time_in_past': 0.5, 'estimator_size_memory': 155443200}
     run(config_dict=config_dict)
