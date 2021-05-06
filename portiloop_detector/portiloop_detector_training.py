@@ -201,7 +201,7 @@ class ValidationSampler(Sampler):
 
     def __iter__(self):
         cur_iter = 0
-        seed()
+        seed(0)
         self.first_idx = randint(0, self.last_possible)
         cur_idx = self.first_idx
         while cur_iter < self.length:
