@@ -98,6 +98,6 @@ else:
     np.savetxt(f"dataset_p1_{size_dataset}_at_{fe}_to_resample.txt", np.transpose(signal), fmt='%e')
     np.savetxt(f"spindles_annotations_p1_{size_dataset}_at_{new_fe}hz.txt", np.transpose(spindle), fmt='%f')
 
-with open("subject_sequence.txt", 'w') as file:
+with open(f"subject_sequence_p1_{size_dataset}.txt", 'w') as file:
     file.write(str(subject_seq_list))
 print("tot_time = ", str(time() - t_start))
