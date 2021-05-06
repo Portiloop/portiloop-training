@@ -59,12 +59,18 @@ spindle_list = [annotation[annotation['eventName'] == "spindle"] for annotation 
 
 signal_seq_list = np.empty((len(sequence_list)), dtype=object)
 spindle_seq_list = np.empty((len(sequence_list)), dtype=object)
+subject_seq_list = []
+
 pre_sequence_length = pre_sequence_length_s * new_fe
 post_sequence_length = pre_sequence_length_s * new_fe
+cnt = 0
 for i, seq in enumerate(sequence_list):
     signal_seq_list[i] = np.empty((len(seq)), dtype=object)
     spindle_seq_list[i] = np.empty((len(seq)), dtype=object)
+    subject_seq_list.append([annotation_files[i][:-12], cnt, cnt])  # name, first (include), last (excluded)
     for index, row in seq.iterrows():
+        cnt += 1
+        subject_seq_list[i][2] = cnt
         startSeq = row["startSec"]
         endSeq = startSeq + row["durationSec"]
         spindle_seq = spindle_list[i][(startSeq < spindle_list[i]["startSec"]) & (spindle_list[i]["startSec"] < endSeq)]
@@ -77,7 +83,7 @@ for i, seq in enumerate(sequence_list):
         signal_seq_list[i][index] = signal_list[i][int(startIdx * fe / new_fe):int(endIdx * fe / new_fe)]
         spindle_seq_list[i][index] = np.zeros((lenSignal,), dtype=float)
         spindle_seq_list[i][index][:pre_sequence_length] = -1
-        spindle_seq_list[i][index][post_sequence_length+1:] = -2
+        spindle_seq_list[i][index][post_sequence_length + 1:] = -2
         for temp, spindleRow in spindle_seq.iterrows():
             startSpin = int(spindleRow["startSec"] * new_fe) - startIdx
             endSpin = int((spindleRow["startSec"] + spindleRow["durationSec"]) * new_fe) - startIdx
@@ -91,4 +97,7 @@ if fe == new_fe:
 else:
     np.savetxt(f"dataset_p1_{size_dataset}_at_{fe}_to_resample.txt", np.transpose(signal), fmt='%e')
     np.savetxt(f"spindles_annotations_p1_{size_dataset}_at_{new_fe}hz.txt", np.transpose(spindle), fmt='%f')
+
+with open("subject_sequence.txt", 'w') as file:
+    file.write(str(subject_seq_list))
 print("tot_time = ", str(time() - t_start))
