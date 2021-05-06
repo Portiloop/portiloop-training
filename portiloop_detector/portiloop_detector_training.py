@@ -28,7 +28,7 @@ path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
 
-div_val_samp = 32
+div_val_samp = 25
 
 # hyperparameters
 
@@ -202,7 +202,7 @@ class ValidationSampler(Sampler):
 
     def __iter__(self):
         seed(0)
-        nb_iter = 10
+        nb_iter = 5
         first_idx = [randint(0, self.last_possible)]
         while len(first_idx) < nb_iter:
             idx = randint(0, self.last_possible)
@@ -613,7 +613,7 @@ def run(config_dict):
                              seq_len=seq_len,
                              seq_stride=seq_stride,
                              start_ratio=0.0,
-                             end_ratio=0.9)
+                             end_ratio=0.95)
 
     ds_validation = SignalDataset(filename=filename_dataset,
                                   path=path_dataset,
@@ -621,7 +621,7 @@ def run(config_dict):
                                   fe=fe,
                                   seq_len=1,
                                   seq_stride=1,  # just to be sure, fixed value
-                                  start_ratio=0.9,
+                                  start_ratio=0.95,
                                   end_ratio=1)
 
     # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
@@ -842,7 +842,7 @@ if __name__ == "__main__":
     exp_index = args.experiment_index % len(power_features_input_list)
 
     config_dict = get_config_dict(exp_index, exp_name)
-    config_dict = {'experiment_name': 'pareto_search_8_128_v4', 'device_train': 'cuda:0', 'device_val': 'cpu', 'nb_epoch_max': 5000, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 200, 'early_stopping_smoothing_factor': 0.01, 'fe': 250, 'nb_batch_per_epoch': 1000, 'RNN': True,
+    config_dict = {'experiment_name': 'pareto_search_8_128_v5', 'device_train': 'cuda:0', 'device_val': 'cpu', 'nb_epoch_max': 5000, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 200, 'early_stopping_smoothing_factor': 0.01, 'fe': 250, 'nb_batch_per_epoch': 1000, 'RNN': True,
                    'envelope_input': True, 'batch_size': 256, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'lr_adam': 0.0003, 'adam_w': 0.01, 'distribution_mode': 1, 'seq_len': 10, 'nb_channel': 43, 'hidden_size': 14, 'seq_stride_s': 0.05, 'nb_rnn_layers': 4,
                    'window_size_s': 0.08125098650113531, 'nb_conv_layers': 1, 'stride_pool': 3, 'stride_conv': 1, 'kernel_conv': 3, 'kernel_pool': 3, 'dilation_conv': 3, 'dilation_pool': 2, 'nb_out': 4, 'time_in_past': 0.5, 'estimator_size_memory': 155443200}
     run(config_dict=config_dict)
