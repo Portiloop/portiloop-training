@@ -30,7 +30,7 @@ path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
 
-div_val_samp = 25
+div_val_samp = 0
 
 # hyperparameters
 
@@ -203,6 +203,7 @@ class ValidationSampler(Sampler):
     def __init__(self, data_source, nb_samples, seq_stride):
         self.length = nb_samples
         self.seq_stride = seq_stride
+        self.data = data_source
         self.last_possible = len(data_source) - self.length * self.seq_stride - 1
         print(f"DEBUG: last possible for validation sampler : {self.last_possible}")
 
@@ -210,17 +211,18 @@ class ValidationSampler(Sampler):
 
     def __iter__(self):
         seed()
-        nb_iter = 5
-        first_idx = [randint(0, self.last_possible)]
-        while len(first_idx) < nb_iter:
-            idx = randint(0, self.last_possible)
-            for i in first_idx:
-                if i % self.seq_stride != idx % self.seq_stride:
-                    first_idx.append(idx)
+        nb_iter = self.seq_stride
+
+        # first_idx = [randint(0, self.last_possible)]
+        # while len(first_idx) < nb_iter:
+        #     idx = randint(0, self.last_possible)
+        #     for i in first_idx:
+        #         if i % self.seq_stride != idx % self.seq_stride:
+        #             first_idx.append(idx)
         for i in range(nb_iter):
             cur_iter = 0
-            cur_idx = first_idx[i]
-            while cur_iter < self.length:
+            cur_idx = i
+            while cur_iter < len(self.data):
                 cur_iter += 1
                 yield cur_idx
                 cur_idx += self.seq_stride
@@ -856,7 +858,7 @@ if __name__ == "__main__":
     exp_index = args.experiment_index % len(power_features_input_list)
 
     config_dict = get_config_dict(exp_index, exp_name)
-    config_dict = {'experiment_name': 'pareto_search_8_128_v9', 'device_train': 'cuda:0', 'device_val': 'cpu', 'nb_epoch_max': 5000, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 200, 'early_stopping_smoothing_factor': 0.01, 'fe': 250, 'nb_batch_per_epoch': 10000, 'RNN': True,
+    config_dict = {'experiment_name': 'pareto_search_8_128_v10', 'device_train': 'cuda:0', 'device_val': 'cpu', 'nb_epoch_max': 5000, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 200, 'early_stopping_smoothing_factor': 0.01, 'fe': 250, 'nb_batch_per_epoch': 10000, 'RNN': True,
                    'envelope_input': True, 'batch_size': 256, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'lr_adam': 0.0003, 'adam_w': 0.01, 'distribution_mode': 1, 'seq_len': 10, 'nb_channel': 43, 'hidden_size': 14, 'seq_stride_s': 0.05, 'nb_rnn_layers': 4,
                    'window_size_s': 0.08125098650113531, 'nb_conv_layers': 1, 'stride_pool': 3, 'stride_conv': 1, 'kernel_conv': 3, 'kernel_pool': 3, 'dilation_conv': 3, 'dilation_pool': 2, 'nb_out': 4, 'time_in_past': 0.5, 'estimator_size_memory': 155443200}
     run(config_dict=config_dict)
