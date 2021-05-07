@@ -2,6 +2,8 @@
 
 from pathlib import Path
 from math import floor
+
+from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader
 import os
 import time
@@ -57,21 +59,27 @@ distribution_mode_list = [1, 1]
 # all classes and functions:
 
 class SignalDataset(Dataset):
-    def __init__(self, filename, path, window_size=64, fe=250, seq_len=5, seq_stride=5, start_ratio=0.0, end_ratio=1.0):
+    def __init__(self, filename, path, window_size=64, fe=250, seq_len=5, seq_stride=5, list_subject=None):
         self.fe = fe
         self.window_size = window_size
         self.path_file = Path(path) / filename
 
         self.data = pd.read_csv(self.path_file, header=None).to_numpy()
-        if "portiloop" in filename:
-            split_data = np.array(np.split(self.data, int(len(self.data) / (900 * fe))))  # 900 = nb seconds per sequence in the dataset
-        else:
-            split_data = np.array(np.split(self.data, int(len(self.data) / ((115 + 30) * fe))))  # 115+30 = nb seconds per sequence in the dataset
-        np.random.seed(0)  # fixed seed value
-        np.random.shuffle(split_data)
+        assert list_subject is not None
+        used_sequence = np.hstack([range(int(s[1]), int(s[2])) for s in list_subject])
+        split_data = np.array(np.split(self.data, int(len(self.data) / ((115 + 30) * fe))))  # 115+30 = nb seconds per sequence in the dataset
+        split_data = split_data[used_sequence]
         self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
-        len_data = np.shape(self.data)[1]
-        self.data = self.data[:, int(start_ratio * len_data):int(end_ratio * len_data)]
+        print(f"DEBUG: data shape = {self.data.shape}")
+        # if "portiloop" in filename:
+        #     split_data = np.array(np.split(self.data, int(len(self.data) / (900 * fe))))  # 900 = nb seconds per sequence in the dataset
+        # else:
+        #     split_data = np.array(np.split(self.data, int(len(self.data) / ((115 + 30) * fe))))  # 115+30 = nb seconds per sequence in the dataset
+        # np.random.seed(0)  # fixed seed value
+        # np.random.shuffle(split_data)
+        # self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
+        # len_data = np.shape(self.data)[1]
+        # self.data = self.data[:, int(start_ratio * len_data):int(end_ratio * len_data)]
         assert self.window_size <= len(self.data[0]), "Dataset smaller than window size."
         self.full_signal = torch.tensor(self.data[0], dtype=torch.float)
         self.full_envelope = torch.tensor(self.data[1], dtype=torch.float)
@@ -606,14 +614,20 @@ def run(config_dict):
         has_envelope = 2
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
+    all_subject = pd.read_csv(Path(path_dataset) / "subject_sequence_p1_big.txt", header=None, delim_whitespace=True).to_numpy()
+    seed(0)
+    train_subject, validation_subject = train_test_split(all_subject, train_size=0.8)
+    validation_subject, test_subject = train_test_split(validation_subject, train_size=0.5)
+
     ds_train = SignalDataset(filename=filename_dataset,
                              path=path_dataset,
                              window_size=window_size,
                              fe=fe,
                              seq_len=seq_len,
                              seq_stride=seq_stride,
-                             start_ratio=0.0,
-                             end_ratio=0.95)
+                             list_subject=train_subject)
+    # start_ratio=0.0,
+    # end_ratio=0.9)
 
     ds_validation = SignalDataset(filename=filename_dataset,
                                   path=path_dataset,
@@ -621,8 +635,9 @@ def run(config_dict):
                                   fe=fe,
                                   seq_len=1,
                                   seq_stride=1,  # just to be sure, fixed value
-                                  start_ratio=0.95,
-                                  end_ratio=1)
+                                  list_subject=validation_subject)
+    # start_ratio=0.9,
+    # end_ratio=1)
 
     # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
 
@@ -708,7 +723,7 @@ def run(config_dict):
             accuracy_train += (output == batch_labels).float().mean()
             n += 1
         _t_stop = time.time()
-        print(f"DEBUG: Training time for 1 epoch : {_t_stop-_t_start} s")
+        print(f"DEBUG: Training time for 1 epoch : {_t_stop - _t_start} s")
         accuracy_train /= n
         loss_train /= n
 
@@ -716,7 +731,7 @@ def run(config_dict):
         accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
             validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
         _t_stop = time.time()
-        print(f"DEBUG: Validation time for 1 epoch : {_t_stop-_t_start} s")
+        print(f"DEBUG: Validation time for 1 epoch : {_t_stop - _t_start} s")
 
         recall_validation_factor = recall_validation
         precision_validation_factor = precision_validation
