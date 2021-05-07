@@ -615,9 +615,8 @@ def run(config_dict):
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
     all_subject = pd.read_csv(Path(path_dataset) / "subject_sequence_p1_big.txt", header=None, delim_whitespace=True).to_numpy()
-    seed(0)
-    train_subject, validation_subject = train_test_split(all_subject, train_size=0.8)
-    validation_subject, test_subject = train_test_split(validation_subject, train_size=0.5)
+    train_subject, test_subject = train_test_split(all_subject, train_size=0.9, random_state=0)
+    train_subject, validation_subject = train_test_split(train_subject, train_size=0.9, random_state=0)  # with K fold cross validation, this split will be done K times
 
     ds_train = SignalDataset(filename=filename_dataset,
                              path=path_dataset,
