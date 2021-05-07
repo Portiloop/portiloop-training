@@ -96,7 +96,7 @@ class SignalDataset(Dataset):
         return len(self.indices)
 
     def __getitem__(self, idx):
-        assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
+        assert 0 <= idx < len(self), f"Index out of range ({idx}/{len(self)})."
         idx = self.indices[idx]
         assert self.data[3][idx + self.window_size - 1] >= 0, f"Bad index: {idx}."
 
@@ -222,7 +222,7 @@ class ValidationSampler(Sampler):
         for i in range(nb_iter):
             cur_iter = 0
             cur_idx = i
-            while cur_iter < len(self.data):
+            while cur_idx < len(self.data):
                 cur_iter += 1
                 yield cur_idx
                 cur_idx += self.seq_stride
