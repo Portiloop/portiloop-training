@@ -205,7 +205,6 @@ class ValidationSampler(Sampler):
         self.seq_stride = seq_stride
         self.data = data_source
         #  self.last_possible = len(data_source) - self.length * self.seq_stride - 1
-        print(f"DEBUG: last possible for validation sampler : {self.last_possible}")
 
     #    self.first_idx = 0#randint(0, self.last_possible)
 
