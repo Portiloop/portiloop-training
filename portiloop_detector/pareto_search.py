@@ -57,7 +57,7 @@ META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
 MAX_META_EPOCHS = 500  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
 META_EARLY_STOPPING = 100  # meta early stopping after this number of unsuccessful meta epochs
 
-NETWORK_EARLY_STOPPING = 5
+NETWORK_EARLY_STOPPING = 3
 
 class MetaDataset(Dataset):
     def __init__(self, finished_runs, start, end):
@@ -457,8 +457,9 @@ def train_surrogate(net, all_experiments):
     best_model = None
     early_stopping_counter = 0
     random.shuffle(all_experiments)
+    max_epoch = MAX_META_EPOCHS if len(all_experiments) > START_META_TRAIN_VAL_AFTER else len(all_experiments)
 
-    for epoch in range(MAX_META_EPOCHS):
+    for epoch in range(max_epoch):
         if len(all_experiments) > START_META_TRAIN_VAL_AFTER:
             train_dataset = MetaDataset(all_experiments, start=0, end=META_TRAIN_VAL_RATIO)
             validation_dataset = MetaDataset(all_experiments, start=META_TRAIN_VAL_RATIO, end=1)
