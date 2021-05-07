@@ -1,7 +1,7 @@
 """
 Pareto-optimal hyperparameter search (meta-learning)
 """
-from portiloop_detector_training import PortiloopNetwork, SignalDataset, get_class_idxs, ValidationSampler, RandomSampler, out_dim, get_accuracy_and_loss_pytorch, filename_dataset
+from portiloop_detector_training import PortiloopNetwork, SignalDataset, get_class_idxs, ValidationSampler, RandomSampler, out_dim, get_accuracy_and_loss_pytorch, filename_dataset, generate_dataloader
 
 # all imports
 import random
@@ -31,7 +31,7 @@ path_pareto = Path(__file__).absolute().parent.parent / 'pareto'
 # path_dataset = Path(path)
 # path_pareto = Path("/content/drive/MyDrive/Data/pareto_results/")
 
-div_val_samp = 32
+div_val_samp = 0
 
 MAX_META_ITERATIONS = 1000  # maximum number of experiments
 EPOCHS_PER_EXPERIMENT = 100  # experiments are evaluated after this number of epoch by the meta learner
@@ -45,9 +45,9 @@ MAX_LOSS = 0.1  # to normalize distances
 
 META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
-NB_BATCH_PER_EPOCH = 1000
+NB_BATCH_PER_EPOCH = 10000
 
-RUN_NAME = "pareto_search_8"
+RUN_NAME = "pareto_search_9"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 500  # number of models sampled per iteration, only the best predicted one is selected
 
@@ -57,6 +57,7 @@ META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
 MAX_META_EPOCHS = 500  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
 META_EARLY_STOPPING = 100  # meta early stopping after this number of unsuccessful meta epochs
 
+NETWORK_EARLY_STOPPING = 5
 
 class MetaDataset(Dataset):
     def __init__(self, finished_runs, start, end):
@@ -116,60 +117,19 @@ def run(config_dict):
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
 
     net = net.train()
-    nb_weights = 0
-    for i in net.parameters():
-        nb_weights += len(i)
-    has_envelope = 1
-    if config_dict["envelope_input"]:
-        has_envelope = 2
-    config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
+    # nb_weights = 0
+    # for i in net.parameters():
+    #     nb_weights += len(i)
+    # has_envelope = 1
+    # if config_dict["envelope_input"]:
+    #     has_envelope = 2
+    # config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
-    ds_train = SignalDataset(filename=filename_dataset,
-                             path=path_dataset,
-                             window_size=window_size,
-                             fe=fe,
-                             seq_len=seq_len,
-                             seq_stride=seq_stride,
-                             start_ratio=0.0,
-                             end_ratio=0.9)
-
-    ds_validation = SignalDataset(filename=filename_dataset,
-                                  path=path_dataset,
-                                  window_size=window_size,
-                                  fe=fe,
-                                  seq_len=1,
-                                  start_ratio=0.9,
-                                  end_ratio=1)
-
-    idx_true, idx_false = get_class_idxs(ds_train, distribution_mode)
-
-    samp_train = RandomSampler(ds_train,
-                               idx_true=idx_true,
-                               idx_false=idx_false,
-                               batch_size=batch_size,
-                               nb_batch=nb_batch_per_epoch,
-                               distribution_mode=distribution_mode)
-
-    samp_validation = ValidationSampler(ds_validation,
-                                        nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
-                                        seq_stride=seq_stride)
-
-    train_loader = DataLoader(ds_train,
-                              batch_size=batch_size,
-                              sampler=samp_train,
-                              shuffle=False,
-                              num_workers=0,
-                              pin_memory=True)
-
-    validation_loader = DataLoader(ds_validation,
-                                   batch_size=1,
-                                   sampler=samp_validation,
-                                   num_workers=0,
-                                   pin_memory=True,
-                                   shuffle=False)
+    train_loader, validation_loader = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch)
 
     best_model_loss_validation = 1
     best_model_epoch = 0
+    early_stopping_cnt = 0
 
     h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
@@ -202,9 +162,13 @@ def run(config_dict):
         if loss_validation < best_model_loss_validation:
             best_model_loss_validation = loss_validation
             best_model_epoch = epoch
+            early_stopping_cnt = 0
+        else:
+            early_stopping_cnt += 1
         _t_end_validation = time.time()
         print(f"Validation : {_t_end_validation - _t_start_validation} s")
-
+        if early_stopping_cnt > NETWORK_EARLY_STOPPING:
+            break
     return best_model_loss_validation, best_model_epoch
 
 
@@ -651,6 +615,7 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
             assert histo[1][0] <= exp["cost_hardware"] <= histo[1][-1]
             idx = np.where(histo[1] <= exp["cost_hardware"])[0][-1]
             nerf = histo[0][idx] * MAX_NB_PARAMETERS
+            nerf = 0
             efficiency -= nerf
             if efficiency >= max_efficiency:
                 max_efficiency = efficiency

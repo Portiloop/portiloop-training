@@ -201,10 +201,10 @@ class ValidationSampler(Sampler):
     """
 
     def __init__(self, data_source, nb_samples, seq_stride):
-        self.length = nb_samples
+        #  self.length = nb_samples
         self.seq_stride = seq_stride
         self.data = data_source
-        self.last_possible = len(data_source) - self.length * self.seq_stride - 1
+        #  self.last_possible = len(data_source) - self.length * self.seq_stride - 1
         print(f"DEBUG: last possible for validation sampler : {self.last_possible}")
 
     #    self.first_idx = 0#randint(0, self.last_possible)
@@ -228,7 +228,7 @@ class ValidationSampler(Sampler):
                 cur_idx += self.seq_stride
 
     def __len__(self):
-        return self.length
+        return len(self.data)
         # return len(self.data_source)
 
 
@@ -559,6 +559,66 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
 
 # run:
 
+def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch):
+    all_subject = pd.read_csv(Path(path_dataset) / "subject_sequence_p1_big.txt", header=None, delim_whitespace=True).to_numpy()
+    train_subject, test_subject = train_test_split(all_subject, train_size=0.9, random_state=0)
+    train_subject, validation_subject = train_test_split(train_subject, train_size=0.95, random_state=0)  # with K fold cross validation, this split will be done K times
+
+    print(f"DEBUG: Subjects in training : {train_subject[:, 0]}")
+    print(f"DEBUG: Subjects in validation : {validation_subject[:, 0]}")
+    print(f"DEBUG: Subjects in test : {test_subject[:, 0]}")
+    ds_train = SignalDataset(filename=filename_dataset,
+                             path=path_dataset,
+                             window_size=window_size,
+                             fe=fe,
+                             seq_len=seq_len,
+                             seq_stride=seq_stride,
+                             list_subject=train_subject)
+    # start_ratio=0.0,
+    # end_ratio=0.9)
+
+    ds_validation = SignalDataset(filename=filename_dataset,
+                                  path=path_dataset,
+                                  window_size=window_size,
+                                  fe=fe,
+                                  seq_len=1,
+                                  seq_stride=1,  # just to be sure, fixed value
+                                  list_subject=validation_subject)
+    # start_ratio=0.9,
+    # end_ratio=1)
+
+    # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
+
+    idx_true, idx_false = get_class_idxs(ds_train, distribution_mode)
+
+    samp_train = RandomSampler(ds_train,
+                               idx_true=idx_true,
+                               idx_false=idx_false,
+                               batch_size=batch_size,
+                               nb_batch=nb_batch_per_epoch,
+                               distribution_mode=distribution_mode)
+
+    samp_validation = ValidationSampler(ds_validation,
+                                        nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
+                                        seq_stride=seq_stride)
+
+    train_loader = DataLoader(ds_train,
+                              batch_size=batch_size,
+                              sampler=samp_train,
+                              shuffle=False,
+                              num_workers=0,
+                              pin_memory=True)
+
+    validation_loader = DataLoader(ds_validation,
+                                   batch_size=1,
+                                   sampler=samp_validation,
+                                   num_workers=0,
+                                   pin_memory=True,
+                                   shuffle=False)
+
+    # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
+    return train_loader, validation_loader
+
 def run(config_dict):
     global precision_validation_factor
     global recall_validation_factor
@@ -616,60 +676,7 @@ def run(config_dict):
         has_envelope = 2
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
-    all_subject = pd.read_csv(Path(path_dataset) / "subject_sequence_p1_big.txt", header=None, delim_whitespace=True).to_numpy()
-    train_subject, test_subject = train_test_split(all_subject, train_size=0.9, random_state=0)
-    train_subject, validation_subject = train_test_split(train_subject, train_size=0.95, random_state=0)  # with K fold cross validation, this split will be done K times
-
-    ds_train = SignalDataset(filename=filename_dataset,
-                             path=path_dataset,
-                             window_size=window_size,
-                             fe=fe,
-                             seq_len=seq_len,
-                             seq_stride=seq_stride,
-                             list_subject=train_subject)
-    # start_ratio=0.0,
-    # end_ratio=0.9)
-
-    ds_validation = SignalDataset(filename=filename_dataset,
-                                  path=path_dataset,
-                                  window_size=window_size,
-                                  fe=fe,
-                                  seq_len=1,
-                                  seq_stride=1,  # just to be sure, fixed value
-                                  list_subject=validation_subject)
-    # start_ratio=0.9,
-    # end_ratio=1)
-
-    # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
-
-    idx_true, idx_false = get_class_idxs(ds_train, distribution_mode)
-
-    samp_train = RandomSampler(ds_train,
-                               idx_true=idx_true,
-                               idx_false=idx_false,
-                               batch_size=batch_size,
-                               nb_batch=nb_batch_per_epoch,
-                               distribution_mode=distribution_mode)
-
-    samp_validation = ValidationSampler(ds_validation,
-                                        nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
-                                        seq_stride=seq_stride)
-
-    train_loader = DataLoader(ds_train,
-                              batch_size=batch_size,
-                              sampler=samp_train,
-                              shuffle=False,
-                              num_workers=0,
-                              pin_memory=True)
-
-    validation_loader = DataLoader(ds_validation,
-                                   batch_size=1,
-                                   sampler=samp_validation,
-                                   num_workers=0,
-                                   pin_memory=True,
-                                   shuffle=False)
-
-    # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
+    train_loader, validation_loader = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch)
 
     best_model_accuracy = 0
     best_epoch = 0
@@ -858,7 +865,7 @@ if __name__ == "__main__":
     exp_index = args.experiment_index % len(power_features_input_list)
 
     config_dict = get_config_dict(exp_index, exp_name)
-    config_dict = {'experiment_name': 'pareto_search_8_128_v12', 'device_train': 'cuda:0', 'device_val': 'cpu', 'nb_epoch_max': 5000, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 200, 'early_stopping_smoothing_factor': 0.01, 'fe': 250, 'nb_batch_per_epoch': 10000, 'RNN': True,
+    config_dict = {'experiment_name': 'pareto_search_8_128_v13', 'device_train': 'cuda:0', 'device_val': 'cpu', 'nb_epoch_max': 5000, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 200, 'early_stopping_smoothing_factor': 0.01, 'fe': 250, 'nb_batch_per_epoch': 10000, 'RNN': True,
                    'envelope_input': True, 'batch_size': 256, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'lr_adam': 0.0003, 'adam_w': 0.01, 'distribution_mode': 1, 'seq_len': 10, 'nb_channel': 43, 'hidden_size': 14, 'seq_stride_s': 0.05, 'nb_rnn_layers': 4,
                    'window_size_s': 0.08125098650113531, 'nb_conv_layers': 1, 'stride_pool': 3, 'stride_conv': 1, 'kernel_conv': 3, 'kernel_pool': 3, 'dilation_conv': 3, 'dilation_pool': 2, 'nb_out': 4, 'time_in_past': 0.5, 'estimator_size_memory': 155443200}
     run(config_dict=config_dict)
