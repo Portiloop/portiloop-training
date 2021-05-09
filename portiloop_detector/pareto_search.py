@@ -538,7 +538,7 @@ def wandb_plot_pareto(all_experiments, ordered_pareto_front):
 
     plt.xlabel(f"nb parameters")
     plt.ylabel(f"validation loss")
-    plt.ylim(top=0.1)
+ #   plt.ylim(top=0.1)
     plt.draw()
     return wandb.Image(plt)
 
