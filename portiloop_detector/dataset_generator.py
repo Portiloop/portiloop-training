@@ -5,12 +5,13 @@ Created on Wed Jan 27 09:00:21 2021
 @author: Nicolas
 """
 import glob
+import os
+from pathlib import Path
+from time import time
+
+import numpy as np
 import pandas as pd
 import pyedflib
-import numpy as np
-from time import time
-from pathlib import Path
-import os
 
 t_start = time()
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'

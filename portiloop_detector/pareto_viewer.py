@@ -1,4 +1,3 @@
-import numpy as np
 from matplotlib import pyplot as plt
 
 from pareto_search import load_network_files, MAX_NB_PARAMETERS

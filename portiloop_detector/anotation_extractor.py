@@ -5,13 +5,11 @@ Created on Wed Jan 27 09:00:21 2021
 @author: Nicolas
 """
 import glob
-import pandas as pd
-import pyedflib
-import numpy as np
-from sklearn.preprocessing import scale
-from time import time
-from pathlib import Path
 import os
+from pathlib import Path
+from time import time
+
+import pyedflib
 
 t_start = time()
 path_dataset = Path(".").absolute().parent / 'dataset'

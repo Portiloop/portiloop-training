@@ -1,25 +1,24 @@
 # all imports
 
-from pathlib import Path
-from math import floor
-
-from sklearn.model_selection import train_test_split
-from torch.utils.data import Dataset, DataLoader
+import copy
 import os
 import time
-from torch.utils.data.sampler import Sampler
+from argparse import ArgumentParser
+from pathlib import Path
 from random import randint, seed
+
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
-import numpy as np
 import torch.optim as optim
-import pandas as pd
-import copy
-import wandb
-from argparse import ArgumentParser
+from sklearn.model_selection import train_test_split
+from torch.nn import functional as F
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.sampler import Sampler
 
-# all constants (no hyperparameters here!)
+import wandb
+from utils import sample_config_dict, out_dim
 
 THRESHOLD = 0.2
 WANDB_PROJECT = "portiloop-multiple_input"
@@ -231,8 +230,6 @@ class ValidationSampler(Sampler):
         # return len(self.data_source)
 
 
-def out_dim(window_size, padding, dilation, kernel, stride):
-    return floor((window_size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)
 
 
 class ConvPoolModule(nn.Module):
@@ -864,7 +861,6 @@ if __name__ == "__main__":
     exp_index = args.experiment_index % len(power_features_input_list)
 
     config_dict = get_config_dict(exp_index, exp_name)
-    config_dict = {'experiment_name': 'pareto_search_8_128_v13', 'device_train': 'cuda:0', 'device_val': 'cpu', 'nb_epoch_max': 5000, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 200, 'early_stopping_smoothing_factor': 0.01, 'fe': 250, 'nb_batch_per_epoch': 10000, 'RNN': True,
-                   'envelope_input': True, 'batch_size': 256, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'lr_adam': 0.0003, 'adam_w': 0.01, 'distribution_mode': 1, 'seq_len': 10, 'nb_channel': 43, 'hidden_size': 14, 'seq_stride_s': 0.05, 'nb_rnn_layers': 4,
-                   'window_size_s': 0.08125098650113531, 'nb_conv_layers': 1, 'stride_pool': 3, 'stride_conv': 1, 'kernel_conv': 3, 'kernel_pool': 3, 'dilation_conv': 3, 'dilation_pool': 2, 'nb_out': 4, 'time_in_past': 0.5, 'estimator_size_memory': 155443200}
+    seed(0)
+    config_dict,_ = sample_config_dict(f"variance_test_{exp_index}", {}, [])
     run(config_dict=config_dict)

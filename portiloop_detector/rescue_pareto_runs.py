@@ -1,7 +1,5 @@
 import copy
 
-import numpy as np
-
 from pareto_search import *
 
 all_experiments, _ = load_network_files()

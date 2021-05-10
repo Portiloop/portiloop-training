@@ -1,5 +1,6 @@
-import portiloop_detector_training as portiloop
 import numpy as np
+
+import portiloop_detector_training as portiloop
 
 exp_index = 0
 experiment_name = "run_v1_3080_20210413085714_0"

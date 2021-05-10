@@ -1,7 +1,7 @@
-import pandas as pd
-import numpy as np
-from pathlib import Path
 import os
+from pathlib import Path
+
+import pandas as pd
 
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 os.chdir(path_dataset)
