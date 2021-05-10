@@ -518,6 +518,8 @@ class MetaLearner:
                     else:
                         pareto_front = update_pareto(res, pareto_front)
                         finished_experiments.append(res)
+                        dump_network_files(finished_experiments, pareto_front)
+
                     prev_exp = res
                 if len(finished_experiments) > 0 and prev_exp != {}:  # train before sampling a new model
                     print("training new surrogate model...")
@@ -530,7 +532,6 @@ class MetaLearner:
 
                     print(f"surrogate model loss: {meta_loss}")
 
-                    dump_network_files(finished_experiments, pareto_front)
                     logger.log(surrogate_loss=meta_loss, surprise=prev_exp["surprise"], all_experiments=finished_experiments, pareto_front=pareto_front)
 
                 num_experiment = len(finished_experiments) + len(launched_experiments)
