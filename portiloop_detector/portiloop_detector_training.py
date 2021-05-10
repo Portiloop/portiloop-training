@@ -862,4 +862,5 @@ if __name__ == "__main__":
     # config_dict = get_config_dict(exp_index, exp_name)
     seed(0)
     config_dict, _ = sample_config_dict(f"variance_test_{exp_index}", {}, [])
+    seed()  # reset the seed
     run(config_dict=config_dict)
