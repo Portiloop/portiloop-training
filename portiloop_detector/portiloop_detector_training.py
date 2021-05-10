@@ -230,8 +230,6 @@ class ValidationSampler(Sampler):
         # return len(self.data_source)
 
 
-
-
 class ConvPoolModule(nn.Module):
     def __init__(self,
                  in_channels,
@@ -615,6 +613,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
     return train_loader, validation_loader
 
+
 def run(config_dict):
     global precision_validation_factor
     global recall_validation_factor
@@ -858,9 +857,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     exp_name = args.experiment_name
-    exp_index = args.experiment_index % len(power_features_input_list)
+    exp_index = args.experiment_index  # % len(power_features_input_list)
 
-    config_dict = get_config_dict(exp_index, exp_name)
+    # config_dict = get_config_dict(exp_index, exp_name)
     seed(0)
-    config_dict,_ = sample_config_dict(f"variance_test_{exp_index}", {}, [])
+    config_dict, _ = sample_config_dict(f"variance_test_{exp_index}", {}, [])
     run(config_dict=config_dict)
