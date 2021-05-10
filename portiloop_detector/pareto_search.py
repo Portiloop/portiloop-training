@@ -365,12 +365,12 @@ class SurrogateModel(nn.Module):
         self.fc1 = nn.Linear(in_features=13,  # nb hyperparameters
                              out_features=13*25)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
-        self.d1 = nn.Dropout(0)
+        self.d1 = nn.Dropout(0.5)
 
         self.fc2 = nn.Linear(in_features=13*25,
                              out_features=13*25)
 
-        self.d2 = nn.Dropout(0)
+        self.d2 = nn.Dropout(0.5)
 
         self.fc3 = nn.Linear(in_features=13*25,
                              out_features=1)
@@ -451,7 +451,7 @@ def transform_config_dict_to_input(config_dict):
 
 
 def train_surrogate(net, all_experiments):
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.1, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
     criterion = nn.MSELoss()
     best_val_loss = np.inf
     best_model = None
@@ -575,8 +575,8 @@ def pareto_efficiency(experiment, all_experiments):
 
     score_not_dominated = 1.0 - float(nb_dominating) / len(all_experiments)
     score_dominating = nb_dominated / len(all_experiments)
-    score_distance_from_best_loss = best_cost_software / experiment[
-        "cost_software"]  # The lower is the predicted experiment loss, the better. This score is close to 1 when you reach a loss as good as the lowest one of all exp. If yours is better, then the score will be above 1. Otherwise the farest you are, the lower is your score
+    score_distance_from_best_loss = abs(best_cost_software / experiment[
+        "cost_software"])  # The lower is the predicted experiment loss, the better. This score is close to 1 when you reach a loss as good as the lowest one of all exp. If yours is better, then the score will be above 1. Otherwise the farest you are, the lower is your score
     return score_dominating + score_not_dominated + 2*score_distance_from_best_loss
 
     # v_p = vector_exp(experiment)
