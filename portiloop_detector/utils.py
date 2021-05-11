@@ -137,6 +137,8 @@ def sample_config_dict(name, previous_exp, all_exp):
             config_dict["envelope_input"] = config_dict["envelope_input"] == 1
         else:
             previous_unrounded = previous_exp["unrounded"]
+            if 'RNN' not in previous_unrounded.keys():
+                previous_unrounded['RNN'] = 1
             config_dict["nb_conv_layers"], unrounded["nb_conv_layers"] = sample_from_range(nb_conv_layers_range_t, previous_unrounded["nb_conv_layers"])
             config_dict["seq_len"], unrounded["seq_len"] = sample_from_range(seq_len_range_t, previous_unrounded["seq_len"])
             config_dict["nb_channel"], unrounded["nb_channel"] = sample_from_range(nb_channel_range_t, previous_unrounded["nb_channel"])
