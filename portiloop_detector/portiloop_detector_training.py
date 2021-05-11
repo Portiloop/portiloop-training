@@ -521,6 +521,9 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
                 batch_labels = (batch_labels >= THRESHOLD)
                 batch_labels = batch_labels.long()
             output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
+            print(f"DEBUG: label = {batch_labels}")
+            print(f"DEBUG: output = {output}")
+            assert False
             if not CLASSIFICATION:
                 output = output.view(-1)
             loss_py = criterion(output, batch_labels)
