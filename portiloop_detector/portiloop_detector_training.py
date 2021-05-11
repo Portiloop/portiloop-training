@@ -709,42 +709,41 @@ def run(config_dict):
         accuracy_train = 0
         loss_train = 0
         n = 0
-        if epoch != 0:
-            _t_start = time.time()
-            for batch_data in train_loader:
-                batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
-                batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
-                batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
-                batch_samples_input3 = batch_samples_input3.to(device=device_train).float()
-                batch_labels = batch_labels.to(device=device_train).float()
+        _t_start = time.time()
+        for batch_data in train_loader:
+            batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
+            batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
+            batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
+            batch_samples_input3 = batch_samples_input3.to(device=device_train).float()
+            batch_labels = batch_labels.to(device=device_train).float()
 
-                optimizer.zero_grad()
-                if CLASSIFICATION:
-                    batch_labels = (batch_labels >= THRESHOLD)
-                    batch_labels = batch_labels.long()
+            optimizer.zero_grad()
+            if CLASSIFICATION:
+                batch_labels = (batch_labels >= THRESHOLD)
+                batch_labels = batch_labels.long()
 
-                output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
+            output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
 
-                if not CLASSIFICATION:
-                    output = output.view(-1)
+            if not CLASSIFICATION:
+                output = output.view(-1)
 
-                loss = criterion(output, batch_labels)
-                loss_train += loss.item()
-                loss.backward()
-                optimizer.step()
+            loss = criterion(output, batch_labels)
+            loss_train += loss.item()
+            loss.backward()
+            optimizer.step()
 
-                if not CLASSIFICATION:
-                    output = (output >= THRESHOLD)
-                    batch_labels = (batch_labels >= THRESHOLD)
-                else:
-                    if output.ndim == 2:
-                        output = output.argmax(dim=1)
-                accuracy_train += (output == batch_labels).float().mean()
-                n += 1
-            _t_stop = time.time()
-            print(f"DEBUG: Training time for 1 epoch : {_t_stop - _t_start} s")
-            accuracy_train /= n
-            loss_train /= n
+            if not CLASSIFICATION:
+                output = (output >= THRESHOLD)
+                batch_labels = (batch_labels >= THRESHOLD)
+            else:
+                if output.ndim == 2:
+                    output = output.argmax(dim=1)
+            accuracy_train += (output == batch_labels).float().mean()
+            n += 1
+        _t_stop = time.time()
+        print(f"DEBUG: Training time for 1 epoch : {_t_stop - _t_start} s")
+        accuracy_train /= n
+        loss_train /= n
 
         _t_start = time.time()
         accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
