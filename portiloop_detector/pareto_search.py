@@ -77,7 +77,9 @@ class MetaDataset(Dataset):
              config_dict["kernel_conv"],
              config_dict["kernel_pool"],
              config_dict["dilation_conv"],
-             config_dict["dilation_pool"]]
+             config_dict["dilation_pool"],
+             int(config_dict["RNN"]),
+             int(config_dict["envelope_input"])]
         x = torch.tensor(x)
         label = torch.tensor(self.data[idx]["cost_software"])
         return x, label
@@ -183,18 +185,18 @@ def nb_parameters(config_dict):
 class SurrogateModel(nn.Module):
     def __init__(self):
         super(SurrogateModel, self).__init__()
-
-        self.fc1 = nn.Linear(in_features=13,  # nb hyperparameters
-                             out_features=13*25)  # in SMBO paper : 25 * hyperparameters... Seems huge
+        nb_features = 15
+        self.fc1 = nn.Linear(in_features=nb_features,  # nb hyperparameters
+                             out_features=nb_features*25)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
         self.d1 = nn.Dropout(0)
 
-        self.fc2 = nn.Linear(in_features=13*25,
-                             out_features=13*25)
+        self.fc2 = nn.Linear(in_features=nb_features*25,
+                             out_features=nb_features*25)
 
         self.d2 = nn.Dropout(0)
 
-        self.fc3 = nn.Linear(in_features=13*25,
+        self.fc3 = nn.Linear(in_features=nb_features*25,
                              out_features=1)
 
     def to(self, device):

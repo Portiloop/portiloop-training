@@ -25,6 +25,8 @@ window_size_s_range_t = [0.05, 1, 0.008]  # min, max, step
 seq_stride_s_range_t = [0.05, 0.1, 0.004]  # min, max, step
 nb_conv_layers_range_t = [1, 7, 1]  # min, max, step
 nb_rnn_layers_range_t = [1, 5, 1]  # min, max, step
+rnn_range_t = [0, 1, 1]
+envelope_input_range_t = [0, 1, 1]
 
 
 # dropout_range_t = ["f", 0.5, 0.5]
@@ -86,6 +88,10 @@ def same_config_dict(config1, config2):
         flag += 1
     if config1["dilation_pool"] != config2["dilation_pool"]:
         flag += 1
+    if config1["RNN"] != config2["RNN"]:
+        flag += 1
+    if config1["envelope_input"] != config2["envelope_input"]:
+        flag += 1
     return flag == 0
 
 
@@ -104,8 +110,8 @@ def sample_config_dict(name, previous_exp, all_exp):
 
     # constant things:
 
-    config_dict["RNN"] = True
-    config_dict["envelope_input"] = True
+    # config_dict["RNN"] = True
+    # config_dict["envelope_input"] = True
     config_dict["batch_size"] = 256
     config_dict["first_layer_dropout"] = False
     config_dict["power_features_input"] = False
@@ -125,6 +131,10 @@ def sample_config_dict(name, previous_exp, all_exp):
             config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t)
             config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t)
             config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t)
+            config_dict["RNN"], unrounded["RNN"] = sample_from_range(rnn_range_t)
+            config_dict["RNN"] = config_dict["RNN"] == 1
+            config_dict["envelope_input"], unrounded["envelope_input"] = sample_from_range(envelope_input_range_t)
+            config_dict["envelope_input"] = config_dict["envelope_input"] == 1
         else:
             previous_unrounded = previous_exp["unrounded"]
             config_dict["nb_conv_layers"], unrounded["nb_conv_layers"] = sample_from_range(nb_conv_layers_range_t, previous_unrounded["nb_conv_layers"])
@@ -133,6 +143,11 @@ def sample_config_dict(name, previous_exp, all_exp):
             config_dict["hidden_size"], unrounded["hidden_size"] = sample_from_range(hidden_size_range_t, previous_unrounded["hidden_size"])
             config_dict["seq_stride_s"], unrounded["seq_stride_s"] = sample_from_range(seq_stride_s_range_t, previous_unrounded["seq_stride_s"])
             config_dict["nb_rnn_layers"], unrounded["nb_rnn_layers"] = sample_from_range(nb_rnn_layers_range_t, previous_unrounded["nb_rnn_layers"])
+            config_dict["RNN"], unrounded["RNN"] = sample_from_range(rnn_range_t, previous_unrounded['RNN'])
+            config_dict["RNN"] = config_dict["RNN"] == 1
+            config_dict["envelope_input"], unrounded["envelope_input"] = sample_from_range(envelope_input_range_t, previous_unrounded['envelope_input'])
+            config_dict["envelope_input"] = config_dict["envelope_input"] == 1
+        config_dict["seq_len"] = 1 if not config_dict["RNN"] else config_dict["seq_len"]
         while nb_out < 1:
 
             if previous_exp == {} or noise:
