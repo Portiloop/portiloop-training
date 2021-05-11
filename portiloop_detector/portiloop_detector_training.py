@@ -863,7 +863,7 @@ if __name__ == "__main__":
     seed(1)
     not_selected = True
     while not_selected:
-        config_dict, _ = sample_config_dict(f"variance_v2_test_{exp_index}", {}, [])
+        config_dict, _ = sample_config_dict(f"variance_v3_test_{exp_index}", {}, [])
         net = PortiloopNetwork(config_dict)
         nb_parameters = sum(p.numel() for p in net.parameters())
         if nb_parameters < MAX_NB_PARAMETERS:
