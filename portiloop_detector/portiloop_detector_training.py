@@ -657,13 +657,13 @@ def run(config_dict):
     first_epoch = 0
     try:
         logger.restore()
+        print("DEBUG: Use checkpoint model")
         checkpoint = torch.load(path_dataset / experiment_name)
         net.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         first_epoch = checkpoint['epoch'] + 1
         recall_validation_factor = checkpoint['recall_validation_factor']
         precision_validation_factor = checkpoint['precision_validation_factor']
-        print("DEBUG: Use checkpoint model")
     except (ValueError, FileNotFoundError):
         #    net = PortiloopNetwork(config_dict).to(device=device_train)
         print("DEBUG: Create new model")
