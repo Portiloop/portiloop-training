@@ -18,7 +18,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 
 import wandb
-from utils import MAX_NB_PARAMETERS, EPSILON_EXP_NOISE
+from utils import MAX_NB_PARAMETERS, EPSILON_EXP_NOISE, sample_config_dict, MIN_NB_PARAMETERS, NETWORK_EARLY_STOPPING
 from portiloop_detector_training import PortiloopNetwork, get_accuracy_and_loss_pytorch, generate_dataloader
 
 # all constants (no hyperparameters here!)
