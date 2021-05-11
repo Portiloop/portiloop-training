@@ -5,12 +5,12 @@ from random import choices, uniform, gauss
 MIN_NB_PARAMETERS = 1000  # everything below this number of parameters will be discarded
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 
-NB_BATCH_PER_EPOCH = 10000
+NB_BATCH_PER_EPOCH = 2000
 EPOCHS_PER_EXPERIMENT = 100  # experiments are evaluated after this number of epoch by the meta learner
 
 EPSILON_NOISE = 0.25  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
 EPSILON_EXP_NOISE = 0.1  # a random experiment is selected within all sampled experiments this portion of the time
-NETWORK_EARLY_STOPPING = 3
+NETWORK_EARLY_STOPPING = 20
 
 seq_len_range_t = [10, 50, 5]  # min, max, step
 kernel_conv_range_t = [3, 11, 2]  # min, max, step
