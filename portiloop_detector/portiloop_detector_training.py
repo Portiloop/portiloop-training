@@ -523,7 +523,6 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
             print(f"DEBUG: label = {batch_labels}")
             print(f"DEBUG: output = {output}")
-            assert False
             if not CLASSIFICATION:
                 output = output.view(-1)
             loss_py = criterion(output, batch_labels)
@@ -877,5 +876,6 @@ if __name__ == "__main__":
             not_selected = False
         print(nb_parameters)
         print(config_dict['seq_len'])
+    config_dict = {'experiment_name': 'pareto_search_9_201', 'device_train': 'cuda:0', 'device_val': 'cpu', 'nb_epoch_max': 100, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 200, 'early_stopping_smoothing_factor': 0.01, 'fe': 250, 'nb_batch_per_epoch': 10000, 'RNN': True, 'envelope_input': True, 'batch_size': 256, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'lr_adam': 0.0003, 'adam_w': 0.01, 'distribution_mode': 1, 'nb_conv_layers': 1, 'seq_len': 50, 'nb_channel': 70, 'hidden_size': 2, 'seq_stride_s': 0.05, 'nb_rnn_layers': 2, 'window_size_s': 0.09, 'stride_pool': 4, 'stride_conv': 1, 'kernel_conv': 11, 'kernel_pool': 11, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 1, 'time_in_past': 2.5}
     seed()  # reset the seed
     run(config_dict=config_dict)
