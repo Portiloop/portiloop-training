@@ -18,7 +18,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 import wandb
-from utils import sample_config_dict, out_dim
+from utils import sample_config_dict, out_dim, MAX_NB_PARAMETERS
 
 THRESHOLD = 0.2
 WANDB_PROJECT = "portiloop-multiple_input"
@@ -861,6 +861,14 @@ if __name__ == "__main__":
 
     # config_dict = get_config_dict(exp_index, exp_name)
     seed(0)
-    config_dict, _ = sample_config_dict(f"variance_test_{exp_index}", {}, [])
+    not_selected = True
+    while not_selected:
+        config_dict, _ = sample_config_dict(f"variance_v2_test_{exp_index}", {}, [])
+        net = PortiloopNetwork(config_dict)
+        nb_parameters = sum(p.numel() for p in net.parameters())
+        if nb_parameters < MAX_NB_PARAMETERS:
+            not_selected = False
+        print(nb_parameters)
+        print(config_dict['seq_len'])
     seed()  # reset the seed
     run(config_dict=config_dict)
