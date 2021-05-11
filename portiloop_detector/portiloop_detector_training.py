@@ -79,6 +79,7 @@ class SignalDataset(Dataset):
         # self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
         # len_data = np.shape(self.data)[1]
         # self.data = self.data[:, int(start_ratio * len_data):int(end_ratio * len_data)]
+
         assert self.window_size <= len(self.data[0]), "Dataset smaller than window size."
         self.full_signal = torch.tensor(self.data[0], dtype=torch.float)
         self.full_envelope = torch.tensor(self.data[1], dtype=torch.float)
@@ -90,6 +91,8 @@ class SignalDataset(Dataset):
         self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
                         if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
                                 or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
+        total_spindles = np.sum(self.data[3] > THRESHOLD)
+        print(f"DEBUG: nb total of spindles in this dataset : {total_spindles}")
 
     def __len__(self):
         return len(self.indices)
@@ -695,36 +698,37 @@ def run(config_dict):
         loss_train = 0
         n = 0
         _t_start = time.time()
-        for batch_data in train_loader:
-            batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
-            batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
-            batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
-            batch_samples_input3 = batch_samples_input3.to(device=device_train).float()
-            batch_labels = batch_labels.to(device=device_train).float()
+        if epoch != 0:
+            for batch_data in train_loader:
+                batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
+                batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
+                batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
+                batch_samples_input3 = batch_samples_input3.to(device=device_train).float()
+                batch_labels = batch_labels.to(device=device_train).float()
 
-            optimizer.zero_grad()
-            if CLASSIFICATION:
-                batch_labels = (batch_labels >= THRESHOLD)
-                batch_labels = batch_labels.long()
+                optimizer.zero_grad()
+                if CLASSIFICATION:
+                    batch_labels = (batch_labels >= THRESHOLD)
+                    batch_labels = batch_labels.long()
 
-            output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
+                output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
 
-            if not CLASSIFICATION:
-                output = output.view(-1)
+                if not CLASSIFICATION:
+                    output = output.view(-1)
 
-            loss = criterion(output, batch_labels)
-            loss_train += loss.item()
-            loss.backward()
-            optimizer.step()
+                loss = criterion(output, batch_labels)
+                loss_train += loss.item()
+                loss.backward()
+                optimizer.step()
 
-            if not CLASSIFICATION:
-                output = (output >= THRESHOLD)
-                batch_labels = (batch_labels >= THRESHOLD)
-            else:
-                if output.ndim == 2:
-                    output = output.argmax(dim=1)
-            accuracy_train += (output == batch_labels).float().mean()
-            n += 1
+                if not CLASSIFICATION:
+                    output = (output >= THRESHOLD)
+                    batch_labels = (batch_labels >= THRESHOLD)
+                else:
+                    if output.ndim == 2:
+                        output = output.argmax(dim=1)
+                accuracy_train += (output == batch_labels).float().mean()
+                n += 1
         _t_stop = time.time()
         print(f"DEBUG: Training time for 1 epoch : {_t_stop - _t_start} s")
         accuracy_train /= n
@@ -863,7 +867,7 @@ if __name__ == "__main__":
     seed(1)
     not_selected = True
     while not_selected:
-        config_dict, _ = sample_config_dict(f"variance_v3.1_test_{exp_index}", {}, [])
+        config_dict, _ = sample_config_dict(f"variance_v3.2_test_{exp_index}", {}, [])
         net = PortiloopNetwork(config_dict)
         nb_parameters = sum(p.numel() for p in net.parameters())
         if nb_parameters < MAX_NB_PARAMETERS:
