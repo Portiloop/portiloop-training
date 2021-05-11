@@ -18,7 +18,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 import wandb
-from utils import sample_config_dict, out_dim, MAX_NB_PARAMETERS
+from utils import sample_config_dict, out_dim, MAX_NB_PARAMETERS, MIN_NB_PARAMETERS
 
 THRESHOLD = 0.2
 WANDB_PROJECT = "portiloop-multiple_input"
@@ -527,14 +527,19 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
                 output = output.view(-1)
             loss_py = criterion(output, batch_labels)
             loss += loss_py.item()
+            # print(f"DEBUG: loss = {loss}")
             if not CLASSIFICATION:
                 output = (output >= THRESHOLD)
                 batch_labels = (batch_labels >= THRESHOLD)
             else:
-                if output.ndim == 2:
-                    output = output.argmax(dim=1)
+                assert output.ndim == 2
+                output = output.argmax(dim=1)
+            # print(f"DEBUG: label = {batch_labels}")
+            # print(f"DEBUG: output = {output}")
 
             acc += (output == batch_labels).float().mean()
+            # print(f"DEBUG: acc = {acc}")
+
             output = output.float()
             batch_labels = batch_labels.float()
 
@@ -542,7 +547,11 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             tn += ((1 - batch_labels) * (1 - output)).sum().to(torch.float32)
             fp += ((1 - batch_labels) * output).sum().to(torch.float32)
             fn += (batch_labels * (1 - output)).sum().to(torch.float32)
-
+            # print(f"DEBUG: tp = {tp}")
+            # print(f"DEBUG: tn = {tn}")
+            # print(f"DEBUG: fp = {fp}")
+            # print(f"DEBUG: fn = {fn}")
+            # assert n < 20
             n += 1
     acc /= n
     loss /= n
@@ -650,6 +659,7 @@ def run(config_dict):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
     logger = LoggerWandb(experiment_name, config_dict, WANDB_PROJECT)
+    torch.seed()
     net = PortiloopNetwork(config_dict).to(device=device_train)
     criterion = nn.MSELoss() if not CLASSIFICATION else nn.CrossEntropyLoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
@@ -866,16 +876,15 @@ if __name__ == "__main__":
     exp_index = args.experiment_index  # % len(power_features_input_list)
 
     # config_dict = get_config_dict(exp_index, exp_name)
-    seed(1)
+    seed(45445)
     not_selected = True
     while not_selected:
-        config_dict, _ = sample_config_dict(f"variance_v3.2_test_{exp_index}", {}, [])
+        config_dict, _ = sample_config_dict(f"variance_v0.4_test_{exp_index}", {}, [])
         net = PortiloopNetwork(config_dict)
         nb_parameters = sum(p.numel() for p in net.parameters())
-        if nb_parameters < MAX_NB_PARAMETERS:
+        if MIN_NB_PARAMETERS < nb_parameters < MAX_NB_PARAMETERS:
             not_selected = False
         print(nb_parameters)
         print(config_dict['seq_len'])
-    config_dict = {'experiment_name': 'pareto_search_9_201' + str(time.time()), 'device_train': 'cuda:0', 'device_val': 'cpu', 'nb_epoch_max': 100, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 200, 'early_stopping_smoothing_factor': 0.01, 'fe': 250, 'nb_batch_per_epoch': 10000, 'RNN': True, 'envelope_input': True, 'batch_size': 256, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'lr_adam': 0.0003, 'adam_w': 0.01, 'distribution_mode': 1, 'nb_conv_layers': 1, 'seq_len': 50, 'nb_channel': 70, 'hidden_size': 2, 'seq_stride_s': 0.05, 'nb_rnn_layers': 2, 'window_size_s': 0.09, 'stride_pool': 4, 'stride_conv': 1, 'kernel_conv': 11, 'kernel_pool': 11, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 1, 'time_in_past': 2.5}
     seed()  # reset the seed
     run(config_dict=config_dict)
