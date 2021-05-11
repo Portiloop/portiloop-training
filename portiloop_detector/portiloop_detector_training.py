@@ -860,7 +860,7 @@ if __name__ == "__main__":
     exp_index = args.experiment_index  # % len(power_features_input_list)
 
     # config_dict = get_config_dict(exp_index, exp_name)
-    seed(0)
+    seed(1)
     not_selected = True
     while not_selected:
         config_dict, _ = sample_config_dict(f"variance_v2_test_{exp_index}", {}, [])
