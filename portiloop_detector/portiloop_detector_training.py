@@ -697,8 +697,8 @@ def run(config_dict):
         accuracy_train = 0
         loss_train = 0
         n = 0
-        _t_start = time.time()
         if epoch != 0:
+            _t_start = time.time()
             for batch_data in train_loader:
                 batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
                 batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
@@ -729,10 +729,10 @@ def run(config_dict):
                         output = output.argmax(dim=1)
                 accuracy_train += (output == batch_labels).float().mean()
                 n += 1
-        _t_stop = time.time()
-        print(f"DEBUG: Training time for 1 epoch : {_t_stop - _t_start} s")
-        accuracy_train /= n
-        loss_train /= n
+            _t_stop = time.time()
+            print(f"DEBUG: Training time for 1 epoch : {_t_stop - _t_start} s")
+            accuracy_train /= n
+            loss_train /= n
 
         _t_start = time.time()
         accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
