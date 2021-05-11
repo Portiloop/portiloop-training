@@ -84,7 +84,7 @@ for i, seq in enumerate(sequence_list):
         signal_seq_list[i][index] = signal_list[i][int(startIdx * fe / new_fe):int(endIdx * fe / new_fe)]
         spindle_seq_list[i][index] = np.zeros((lenSignal,), dtype=float)
         spindle_seq_list[i][index][:pre_sequence_length] = -1
-        spindle_seq_list[i][index][post_sequence_length + 1:] = -2
+        spindle_seq_list[i][index][-post_sequence_length:] = -2
         for temp, spindleRow in spindle_seq.iterrows():
             startSpin = int(spindleRow["startSec"] * new_fe) - startIdx
             endSpin = int((spindleRow["startSec"] + spindleRow["durationSec"]) * new_fe) - startIdx
