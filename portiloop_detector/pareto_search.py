@@ -65,22 +65,7 @@ class MetaDataset(Dataset):
     def __getitem__(self, idx):
         assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
         config_dict = self.data[idx]["config_dict"]
-        x = [float(config_dict["seq_len"]),  # idk why, but needed
-             config_dict["nb_channel"],
-             config_dict["hidden_size"],
-             int(config_dict["seq_stride_s"] * config_dict["fe"]),
-             config_dict["nb_rnn_layers"],
-             int(config_dict["window_size_s"] * config_dict["fe"]),
-             config_dict["nb_conv_layers"],
-             config_dict["stride_pool"],
-             config_dict["stride_conv"],
-             config_dict["kernel_conv"],
-             config_dict["kernel_pool"],
-             config_dict["dilation_conv"],
-             config_dict["dilation_pool"],
-             int(config_dict["RNN"]),
-             int(config_dict["envelope_input"])]
-        x = torch.tensor(x)
+        x = transform_config_dict_to_input(config_dict)
         label = torch.tensor(self.data[idx]["cost_software"])
         return x, label
 
@@ -269,7 +254,9 @@ def transform_config_dict_to_input(config_dict):
          config_dict["kernel_conv"],
          config_dict["kernel_pool"],
          config_dict["dilation_conv"],
-         config_dict["dilation_pool"]]
+         config_dict["dilation_pool"],
+         int(config_dict['RNN']),
+         int(config_dict['envelope_input'])]
     x = torch.tensor(x)
     return x
 
