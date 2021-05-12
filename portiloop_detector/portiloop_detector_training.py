@@ -18,7 +18,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 import wandb
-from utils import out_dim
+from utils import out_dim, MAXIMIZE_F1_SCORE
 
 THRESHOLD = 0.2
 WANDB_PROJECT_RUN = "p1-dataset"
@@ -778,7 +778,7 @@ def run(config_dict, wandb_project, save_model):
         recall_validation_factor = recall_validation
         precision_validation_factor = precision_validation
         updated_model = False
-        if loss_validation < best_model_loss_validation:
+        if (not MAXIMIZE_F1_SCORE and loss_validation < best_model_loss_validation) or (MAXIMIZE_F1_SCORE and f1_validation > best_model_f1_score_validation):
             best_model = copy.deepcopy(net)
             best_epoch = epoch
             # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
