@@ -503,7 +503,7 @@ def iterative_training_local():
         print(f"predicted loss: {predicted_loss}")
         print("training...")
 
-        exp["cost_software"] = run(config_dict, WANDB_PROJECT_PARETO + "_runs")
+        exp["cost_software"] = run(config_dict, WANDB_PROJECT_PARETO + "_runs", save_model=False)
 
         pareto_front = update_pareto(exp, pareto_front)
         all_experiments.append(exp)

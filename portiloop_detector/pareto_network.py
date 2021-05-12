@@ -663,7 +663,7 @@ class Worker:
                 self.__exp_to_run_lock.release()
 
                 predicted_loss = exp['cost_software']
-                exp["cost_software"], exp["best_epoch"] = run(exp["config_dict"], WANDB_PROJECT_PARETO + "_runs")
+                exp["cost_software"], exp["best_epoch"] = run(exp["config_dict"], WANDB_PROJECT_PARETO + "_runs", save_model=False)
                 exp['surprise'] = exp["cost_software"] - predicted_loss
                 self.__finished_exp_lock.acquire()
                 self.__finished_exp = deepcopy(exp)

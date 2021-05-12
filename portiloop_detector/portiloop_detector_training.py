@@ -649,7 +649,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     return train_loader, validation_loader, batch_size_validation
 
 
-def run(config_dict, wandb_project):
+def run(config_dict, wandb_project, save_model):
     global precision_validation_factor
     global recall_validation_factor
     _t_start = time.time()
@@ -781,14 +781,15 @@ def run(config_dict, wandb_project):
             best_model = copy.deepcopy(net)
             best_epoch = epoch
             # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': best_model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'recall_validation_factor': recall_validation_factor,
-                'precision_validation_factor': precision_validation_factor,
-            }, path_dataset / experiment_name, _use_new_zipfile_serialization=False)
-            updated_model = True
+            if save_model:
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': best_model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'recall_validation_factor': recall_validation_factor,
+                    'precision_validation_factor': precision_validation_factor,
+                }, path_dataset / experiment_name, _use_new_zipfile_serialization=False)
+                updated_model = True
             best_model_f1_score_validation = f1_validation
             best_model_precision_validation = precision_validation
             best_model_recall_validation = recall_validation
@@ -911,4 +912,4 @@ if __name__ == "__main__":
     #     print(nb_parameters)
     #     print(config_dict['seq_len'])
     seed()  # reset the seed
-    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN)
+    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True)
