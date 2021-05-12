@@ -548,10 +548,10 @@ class MetaLearner:
 
                     with torch.no_grad():
                         input = transform_config_dict_to_input(config_dict)
-                        predicted_loss = meta_model(input).item()
+                        predicted_cost = meta_model(input).item()
 
                     exp["cost_hardware"] = nb_params
-                    exp["cost_software"] = predicted_loss
+                    exp["cost_software"] = predicted_cost
                     exp["config_dict"] = config_dict
                     exp["unrounded"] = unrounded
 
@@ -564,7 +564,7 @@ class MetaLearner:
 
                 print(f"config: {exp['config_dict']}")
                 print(f"nb parameters: {exp['cost_hardware']}")
-                print(f"predicted loss: {exp['cost_software']}")
+                print(f"predicted cost: {exp['cost_software']}")
 
                 self.__to_launch_lock.acquire()
                 self.__to_launch.append(exp)
