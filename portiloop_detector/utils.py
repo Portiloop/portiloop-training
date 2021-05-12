@@ -5,8 +5,8 @@ from random import choices, uniform, gauss
 MIN_NB_PARAMETERS = 1000  # everything below this number of parameters will be discarded
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 
-NB_BATCH_PER_EPOCH = 100000
-EPOCHS_PER_EXPERIMENT = 1  # experiments are evaluated after this number of epoch by the meta learner
+NB_BATCH_PER_EPOCH = 5000
+EPOCHS_PER_EXPERIMENT = 5  # experiments are evaluated after this number of epoch by the meta learner
 
 EPSILON_NOISE = 0.25  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
 EPSILON_EXP_NOISE = 0.1  # a random experiment is selected within all sampled experiments this portion of the time
@@ -27,6 +27,7 @@ nb_conv_layers_range_t = [1, 7, 1]  # min, max, step
 nb_rnn_layers_range_t = [1, 5, 1]  # min, max, step
 rnn_range_t = [0, 1, 1]
 envelope_input_range_t = [0, 1, 1]
+lr_adam_range_t = [0.0001, 0.001, 0.0003]
 
 
 # dropout_range_t = ["f", 0.5, 0.5]
@@ -92,6 +93,8 @@ def same_config_dict(config1, config2):
         flag += 1
     if config1["envelope_input"] != config2["envelope_input"]:
         flag += 1
+    if config1["lr_adam"] != config2["lr_adam"]:
+        flag += 1
     return flag == 0
 
 
@@ -102,7 +105,7 @@ def sample_config_dict(name, previous_exp, all_exp):
                        nb_epoch_max=EPOCHS_PER_EXPERIMENT,
                        max_duration=int(71.5 * 3600),
                        nb_epoch_early_stopping_stop=NETWORK_EARLY_STOPPING,
-                       early_stopping_smoothing_factor=1,
+                       early_stopping_smoothing_factor=0.1,
                        fe=250,
                        nb_batch_per_epoch=NB_BATCH_PER_EPOCH)
 
@@ -116,7 +119,7 @@ def sample_config_dict(name, previous_exp, all_exp):
     config_dict["first_layer_dropout"] = False
     config_dict["power_features_input"] = False
     config_dict["dropout"] = 0.5
-    config_dict["lr_adam"] = 0.0003
+    # config_dict["lr_adam"] = 0.0003
     config_dict["adam_w"] = 0.01
     config_dict["distribution_mode"] = 1
     config_dict["classification"] = False
@@ -136,6 +139,7 @@ def sample_config_dict(name, previous_exp, all_exp):
             config_dict["RNN"] = config_dict["RNN"] == 1
             config_dict["envelope_input"], unrounded["envelope_input"] = sample_from_range(envelope_input_range_t)
             config_dict["envelope_input"] = config_dict["envelope_input"] == 1
+            config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t)
         else:
             previous_unrounded = previous_exp["unrounded"]
             if 'RNN' not in previous_unrounded.keys():
@@ -152,6 +156,7 @@ def sample_config_dict(name, previous_exp, all_exp):
             config_dict["RNN"] = config_dict["RNN"] == 1
             config_dict["envelope_input"], unrounded["envelope_input"] = sample_from_range(envelope_input_range_t, previous_unrounded['envelope_input'])
             config_dict["envelope_input"] = config_dict["envelope_input"] == 1
+            config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t, previous_unrounded['lr_adam'])
         config_dict["seq_len"] = 1 if not config_dict["RNN"] else config_dict["seq_len"]
         while nb_out < 1:
 

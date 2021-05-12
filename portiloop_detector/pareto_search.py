@@ -170,7 +170,7 @@ def nb_parameters(config_dict):
 class SurrogateModel(nn.Module):
     def __init__(self):
         super(SurrogateModel, self).__init__()
-        nb_features = 15
+        nb_features = 16
         self.fc1 = nn.Linear(in_features=nb_features,  # nb hyperparameters
                              out_features=nb_features*25)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
@@ -256,7 +256,8 @@ def transform_config_dict_to_input(config_dict):
          config_dict["dilation_conv"],
          config_dict["dilation_pool"],
          int(config_dict['RNN']),
-         int(config_dict['envelope_input'])]
+         int(config_dict['envelope_input']),
+         config_dict["lr_adam"]]
     x = torch.tensor(x)
     return x
 
