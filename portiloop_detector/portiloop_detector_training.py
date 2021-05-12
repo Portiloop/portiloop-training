@@ -21,38 +21,38 @@ import wandb
 from utils import sample_config_dict, out_dim, MAX_NB_PARAMETERS, MIN_NB_PARAMETERS
 
 THRESHOLD = 0.2
-WANDB_PROJECT = "portiloop-multiple_input"
-CLASSIFICATION = False
+WANDB_PROJECT = "p1-dataset"
 
 filename_dataset = "dataset_p1_big_250_matlab_standardized_envelope_pf.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
 
-div_val_samp = 0
+# div_val_samp = 0
 
 # hyperparameters
 
-batch_size_list = [256, 256]
-seq_len_list = [40, 40]
-kernel_conv_list = [5, 5]
-kernel_pool_list = [3, 3]
-stride_conv_list = [1, 1]
-stride_pool_list = [1, 1]
-dilation_conv_list = [1, 1]
-dilation_pool_list = [1, 1]
-nb_channel_list = [20, 20]
-hidden_size_list = [15, 15]
-dropout_list = [0.5, 0.5]
-windows_size_s_list = [0.25, 0.25]
-seq_stride_s_list = [0.1, 0.1]
-lr_adam_list = [0.0003, 0.0003]
-nb_conv_layers_list = [7, 7]
-nb_rnn_layers_list = [1, 1]
-first_layer_dropout_list = [False, False]
-power_features_input_list = [False, False]
-adam_w_list = [0.01, 0.01]
-distribution_mode_list = [1, 1]
+batch_size_list = [256, 256, 256, 256]
+seq_len_list = [40, 40, 40, 40]
+kernel_conv_list = [5, 5, 5, 5]
+kernel_pool_list = [3, 3, 3, 3]
+stride_conv_list = [1, 1, 1, 1]
+stride_pool_list = [1, 1, 1, 1]
+dilation_conv_list = [1, 1, 1, 1]
+dilation_pool_list = [1, 1, 1, 1]
+nb_channel_list = [20, 20, 20, 20]
+hidden_size_list = [15, 15, 15, 15]
+dropout_list = [0.5, 0.5, 0.5, 0.5]
+windows_size_s_list = [0.25, 0.25, 0.25, 0.25]
+seq_stride_s_list = [0.1, 0.1, 0.1, 0.1]
+lr_adam_list = [0.0003, 0.0003, 0.0003, 0.0003]
+nb_conv_layers_list = [7, 7, 7, 7]
+nb_rnn_layers_list = [1, 1, 1, 1]
+first_layer_dropout_list = [False, False, False, False]
+power_features_input_list = [False, False, False, False]
+adam_w_list = [0.01, 0.01, 0.01, 0.01]
+distribution_mode_list = [0, 1, 0, 1]
+classification_list = [False, False, True, True]
 
 
 # all classes and functions:
@@ -202,7 +202,7 @@ class ValidationSampler(Sampler):
     __iter__ stops after an arbitrary number of iterations = batch_size_list * nb_batch
     """
 
-    def __init__(self, data_source, nb_samples, seq_stride):
+    def __init__(self, data_source, nb_samples=None, seq_stride=13):
         #  self.length = nb_samples
         self.seq_stride = seq_stride
         self.data = data_source
@@ -302,6 +302,7 @@ class PortiloopNetwork(nn.Module):
         first_layer_dropout = config_dict["first_layer_dropout"]
         self.envelope_input = config_dict["envelope_input"]
         self.power_features_input = config_dict["power_features_input"]
+        self.classification = config_dict["classification"]
 
         conv_padding = 0  # int(kernel_conv // 2)
         pool_padding = 0  # int(kernel_pool // 2)
@@ -393,7 +394,7 @@ class PortiloopNetwork(nn.Module):
         if self.power_features_input:
             fc_features += 1
         out_features = 1
-        if CLASSIFICATION:
+        if self.classification:
             out_features = 2
         self.fc = nn.Linear(in_features=fc_features,  # enveloppe and signal + power features ratio
                             out_features=out_features)  # probability of being a spindle
@@ -435,7 +436,7 @@ class PortiloopNetwork(nn.Module):
             x = torch.cat((x, x3), -1)
 
         x = self.fc(x)  # output size: 1
-        if CLASSIFICATION:
+        if self.classification:
             x = torch.softmax(x, dim=-1)
         else:
             x = torch.sigmoid(x)
@@ -497,7 +498,7 @@ class LoggerWandb:
         self.wandb_run.restore(self.experiment_name, root=path_dataset)
 
 
-def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers):
+def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification):
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
     net_copy = net_copy.eval()
@@ -517,18 +518,18 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             batch_samples_input2 = batch_samples_input2.to(device=device).float()
             batch_samples_input3 = batch_samples_input3.to(device=device).float()
             batch_labels = batch_labels.to(device=device).float()
-            if CLASSIFICATION:
+            if classification:
                 batch_labels = (batch_labels >= THRESHOLD)
                 batch_labels = batch_labels.long()
             output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
             # print(f"DEBUG: label = {batch_labels}")
             # print(f"DEBUG: output = {output}")
-            if not CLASSIFICATION:
+            if not classification:
                 output = output.view(-1)
             loss_py = criterion(output, batch_labels)
             loss += loss_py.item()
             # print(f"DEBUG: loss = {loss}")
-            if not CLASSIFICATION:
+            if not classification:
                 output = (output >= THRESHOLD)
                 batch_labels = (batch_labels >= THRESHOLD)
             else:
@@ -607,7 +608,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                distribution_mode=distribution_mode)
 
     samp_validation = ValidationSampler(ds_validation,
-                                        nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
+                                        #  nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
                                         seq_stride=seq_stride)
 
     train_loader = DataLoader(ds_train,
@@ -651,6 +652,7 @@ def run(config_dict):
     nb_rnn_layers = config_dict["nb_rnn_layers"]
     adam_w = config_dict["adam_w"]
     distribution_mode = config_dict["distribution_mode"]
+    classification = config_dict["classification"]
 
     window_size = int(window_size_s * fe)
     seq_stride = int(seq_stride_s * fe)
@@ -661,7 +663,7 @@ def run(config_dict):
     logger = LoggerWandb(experiment_name, config_dict, WANDB_PROJECT)
     torch.seed()
     net = PortiloopNetwork(config_dict).to(device=device_train)
-    criterion = nn.MSELoss() if not CLASSIFICATION else nn.CrossEntropyLoss()
+    criterion = nn.MSELoss() if not classification else nn.CrossEntropyLoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
 
     first_epoch = 0
@@ -718,13 +720,13 @@ def run(config_dict):
             batch_labels = batch_labels.to(device=device_train).float()
 
             optimizer.zero_grad()
-            if CLASSIFICATION:
+            if classification:
                 batch_labels = (batch_labels >= THRESHOLD)
                 batch_labels = batch_labels.long()
 
             output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
 
-            if not CLASSIFICATION:
+            if not classification:
                 output = output.view(-1)
 
             loss = criterion(output, batch_labels)
@@ -732,7 +734,7 @@ def run(config_dict):
             loss.backward()
             optimizer.step()
 
-            if not CLASSIFICATION:
+            if not classification:
                 output = (output >= THRESHOLD)
                 batch_labels = (batch_labels >= THRESHOLD)
             else:
@@ -747,7 +749,7 @@ def run(config_dict):
 
         _t_start = time.time()
         accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
-            validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
+            validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers, classification)
         _t_stop = time.time()
         print(f"DEBUG: Validation time for 1 epoch : {_t_stop - _t_start} s")
 
@@ -814,7 +816,7 @@ def get_config_dict(index, name):
                        nb_epoch_early_stopping_stop=100,
                        early_stopping_smoothing_factor=0.01,
                        fe=250,
-                       nb_batch_per_epoch=1000)
+                       nb_batch_per_epoch=100000)
 
     config_dict["batch_size"] = batch_size_list[index]
     config_dict["RNN"] = True
@@ -831,36 +833,37 @@ def get_config_dict(index, name):
     config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
     config_dict["adam_w"] = adam_w_list[index]
     config_dict["distribution_mode"] = distribution_mode_list[index]
+    config_dict["classification"] = classification_list[index]
 
     nb_out = 0
-    while nb_out < 1:
-        config_dict["window_size_s"] = windows_size_s_list[index]
-        config_dict["nb_conv_layers"] = nb_conv_layers_list[index]
-        config_dict["stride_pool"] = stride_pool_list[index]
-        config_dict["stride_conv"] = stride_conv_list[index]
-        config_dict["kernel_conv"] = kernel_conv_list[index]
-        config_dict["kernel_pool"] = kernel_pool_list[index]
-        config_dict["dilation_conv"] = dilation_conv_list[index]
-        config_dict["dilation_pool"] = dilation_pool_list[index]
+    config_dict["window_size_s"] = windows_size_s_list[index]
+    config_dict["nb_conv_layers"] = nb_conv_layers_list[index]
+    config_dict["stride_pool"] = stride_pool_list[index]
+    config_dict["stride_conv"] = stride_conv_list[index]
+    config_dict["kernel_conv"] = kernel_conv_list[index]
+    config_dict["kernel_pool"] = kernel_pool_list[index]
+    config_dict["dilation_conv"] = dilation_conv_list[index]
+    config_dict["dilation_pool"] = dilation_pool_list[index]
 
-        stride_pool = config_dict["stride_pool"]
-        stride_conv = config_dict["stride_conv"]
-        kernel_conv = config_dict["kernel_conv"]
-        kernel_pool = config_dict["kernel_pool"]
-        window_size_s = config_dict["window_size_s"]
-        dilation_conv = config_dict["dilation_conv"]
-        dilation_pool = config_dict["dilation_pool"]
-        fe = config_dict["fe"]
-        nb_conv_layers = config_dict["nb_conv_layers"]
+    stride_pool = config_dict["stride_pool"]
+    stride_conv = config_dict["stride_conv"]
+    kernel_conv = config_dict["kernel_conv"]
+    kernel_pool = config_dict["kernel_pool"]
+    window_size_s = config_dict["window_size_s"]
+    dilation_conv = config_dict["dilation_conv"]
+    dilation_pool = config_dict["dilation_pool"]
+    fe = config_dict["fe"]
+    nb_conv_layers = config_dict["nb_conv_layers"]
 
-        conv_padding = 0  # int(kernel_conv // 2)
-        pool_padding = 0  # int(kernel_pool // 2)
-        window_size = int(window_size_s * fe)
-        nb_out = window_size
+    conv_padding = 0  # int(kernel_conv // 2)
+    pool_padding = 0  # int(kernel_pool // 2)
+    window_size = int(window_size_s * fe)
+    nb_out = window_size
 
-        for _ in range(nb_conv_layers):
-            nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
-            nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
+    for _ in range(nb_conv_layers):
+        nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
+        nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
+    assert nb_out > 0
     config_dict["nb_out"] = nb_out
     return config_dict
 
@@ -872,18 +875,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     exp_name = args.experiment_name
-    exp_index = args.experiment_index  # % len(power_features_input_list)
+    exp_index = args.experiment_index % len(power_features_input_list)
 
-    # config_dict = get_config_dict(exp_index, exp_name)
-    seed(45445)
-    not_selected = True
-    while not_selected:
-        config_dict, _ = sample_config_dict(f"variance_v0.4_test_{exp_index}", {}, [])
-        net = PortiloopNetwork(config_dict)
-        nb_parameters = sum(p.numel() for p in net.parameters())
-        if MIN_NB_PARAMETERS < nb_parameters < MAX_NB_PARAMETERS:
-            not_selected = False
-        print(nb_parameters)
-        print(config_dict['seq_len'])
+    config_dict = get_config_dict(exp_index, exp_name)
+    # seed(45445)
+    # not_selected = True
+    # while not_selected:
+    #     config_dict, _ = sample_config_dict(f"variance_v0.4_test_{exp_index}", {}, [])
+    #     net = PortiloopNetwork(config_dict)
+    #     nb_parameters = sum(p.numel() for p in net.parameters())
+    #     if MIN_NB_PARAMETERS < nb_parameters < MAX_NB_PARAMETERS:
+    #         not_selected = False
+    #     print(nb_parameters)
+    #     print(config_dict['seq_len'])
     seed()  # reset the seed
     run(config_dict=config_dict)

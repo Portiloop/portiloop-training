@@ -5,8 +5,8 @@ from random import choices, uniform, gauss
 MIN_NB_PARAMETERS = 1000  # everything below this number of parameters will be discarded
 MAX_NB_PARAMETERS = 100000  # everything over this number of parameters will be discarded
 
-NB_BATCH_PER_EPOCH = 50000
-EPOCHS_PER_EXPERIMENT = 100  # experiments are evaluated after this number of epoch by the meta learner
+NB_BATCH_PER_EPOCH = 100000
+EPOCHS_PER_EXPERIMENT = 1  # experiments are evaluated after this number of epoch by the meta learner
 
 EPSILON_NOISE = 0.25  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
 EPSILON_EXP_NOISE = 0.1  # a random experiment is selected within all sampled experiments this portion of the time
@@ -119,6 +119,7 @@ def sample_config_dict(name, previous_exp, all_exp):
     config_dict["lr_adam"] = 0.0003
     config_dict["adam_w"] = 0.01
     config_dict["distribution_mode"] = 1
+    config_dict["classification"] = False
     flag_in_exps = True
     while flag_in_exps:
         noise = choices(population=[True, False], weights=[EPSILON_NOISE, 1.0 - EPSILON_NOISE])[0]  # if we have already tried a config and lots of its neighbors, we will have a higher chance of getting a random config
