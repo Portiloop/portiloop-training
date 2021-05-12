@@ -826,6 +826,7 @@ def run(config_dict, wandb_project):
         if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
             print("Early stopping.")
             break
+    del logger
     return best_model_loss_validation, best_epoch_early_stopping
 
 
