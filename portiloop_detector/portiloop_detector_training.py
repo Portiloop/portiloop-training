@@ -829,7 +829,7 @@ def run(config_dict, wandb_project, save_model):
             print("Early stopping.")
             break
     del logger
-    return best_model_loss_validation, best_epoch_early_stopping
+    return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
 
 
 def get_config_dict(index, name):

@@ -30,6 +30,8 @@ rnn_range_t = [0, 1, 1]
 envelope_input_range_t = [0, 1, 1]
 lr_adam_range_t = [0.0001, 0.001, 0.0003]
 
+MAXIMIZE_F1_SCORE = True
+
 
 # dropout_range_t = ["f", 0.5, 0.5]
 # first_layer_dropout_range_t = ["b", False, False]

@@ -13,7 +13,7 @@ from requests import get
 
 from pareto_search import LoggerWandbPareto, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, update_pareto, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, run, \
     load_network_files, dump_network_files, transform_config_dict_to_input, WANDB_PROJECT_PARETO
-from utils import same_config_dict, sample_config_dict, MIN_NB_PARAMETERS, print_with_timestamp
+from utils import same_config_dict, sample_config_dict, MIN_NB_PARAMETERS, print_with_timestamp, MAXIMIZE_F1_SCORE
 
 IP_SERVER = "142.182.5.48"  # Yann = "45.74.221.204"; Nicolas = "142.182.5.48"
 PORT_META = 6666
@@ -663,7 +663,8 @@ class Worker:
                 self.__exp_to_run_lock.release()
 
                 predicted_loss = exp['cost_software']
-                exp["cost_software"], exp["best_epoch"] = run(exp["config_dict"], WANDB_PROJECT_PARETO + "_runs", save_model=False)
+                best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], WANDB_PROJECT_PARETO + "_runs", save_model=False)
+                exp["cost_software"] = 1 - best_f1_score if MAXIMIZE_F1_SCORE else best_loss
                 exp['surprise'] = exp["cost_software"] - predicted_loss
                 self.__finished_exp_lock.acquire()
                 self.__finished_exp = deepcopy(exp)

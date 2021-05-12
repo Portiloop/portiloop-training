@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader, Dataset
 
 import wandb
 from portiloop_detector_training import PortiloopNetwork, run
-from utils import MAX_NB_PARAMETERS, EPSILON_EXP_NOISE, sample_config_dict, MIN_NB_PARAMETERS
+from utils import MAX_NB_PARAMETERS, EPSILON_EXP_NOISE, sample_config_dict, MIN_NB_PARAMETERS, MAXIMIZE_F1_SCORE
 
 # all constants (no hyperparameters here!)
 
@@ -31,15 +31,11 @@ path_pareto = Path(__file__).absolute().parent.parent / 'pareto'
 # path_dataset = Path(path)
 # path_pareto = Path("/content/drive/MyDrive/Data/pareto_results/")
 
-div_val_samp = 0
-
 MAX_META_ITERATIONS = 1000  # maximum number of experiments
 
-
-MAX_LOSS = 0.1  # to normalize distances
+# MAX_LOSS = 0.1  # to normalize distances
 
 META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
-
 
 RUN_NAME = "pareto_search_10"
 
@@ -67,6 +63,7 @@ class MetaDataset(Dataset):
         label = torch.tensor(self.data[idx]["cost_software"])
         return x, label
 
+
 def nb_parameters(config_dict):
     net = PortiloopNetwork(config_dict)
     res = sum(p.numel() for p in net.parameters())
@@ -79,16 +76,16 @@ class SurrogateModel(nn.Module):
         super(SurrogateModel, self).__init__()
         nb_features = 16
         self.fc1 = nn.Linear(in_features=nb_features,  # nb hyperparameters
-                             out_features=nb_features*25)  # in SMBO paper : 25 * hyperparameters... Seems huge
+                             out_features=nb_features * 25)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
         self.d1 = nn.Dropout(0)
 
-        self.fc2 = nn.Linear(in_features=nb_features*25,
-                             out_features=nb_features*25)
+        self.fc2 = nn.Linear(in_features=nb_features * 25,
+                             out_features=nb_features * 25)
 
         self.d2 = nn.Dropout(0)
 
-        self.fc3 = nn.Linear(in_features=nb_features*25,
+        self.fc3 = nn.Linear(in_features=nb_features * 25,
                              out_features=1)
 
     def to(self, device):
@@ -205,7 +202,7 @@ def train_surrogate(net, all_experiments):
             optimizer.step()
 
         mean_loss = np.mean(losses)
-        print(f"DEBUG: epoch {epoch} mean_loss_training = {mean_loss}")
+        # print(f"DEBUG: epoch {epoch} mean_loss_training = {mean_loss}")
 
         if len(all_experiments) > START_META_TRAIN_VAL_AFTER:
             net.eval()
@@ -222,7 +219,7 @@ def train_surrogate(net, all_experiments):
                     losses.append(loss.item())
 
                 mean_loss_validation = np.mean(losses)
-                print(f"DEBUG: mean_loss_validation = {mean_loss_validation}")
+                # print(f"DEBUG: mean_loss_validation = {mean_loss_validation}")
                 if mean_loss_validation < best_val_loss:
                     best_val_loss = mean_loss_validation
                     early_stopping_counter = 0
@@ -256,8 +253,8 @@ def wandb_plot_pareto(all_experiments, ordered_pareto_front):
     plt.plot(all_experiments[-1]["cost_hardware"], all_experiments[-1]["cost_software"], 'go')
 
     plt.xlabel(f"nb parameters")
-    plt.ylabel(f"validation loss")
-    plt.ylim(top=0.1)
+    plt.ylabel(f"validation cost")
+    # plt.ylim(top=0.1)
     plt.draw()
     return wandb.Image(plt)
 
@@ -273,9 +270,9 @@ def dist_p_to_ab(v_a, v_b, v_p):
     return np.linalg.norm(v_p - projection)
 
 
-def vector_exp(experiment):
-    return np.array([experiment["cost_software"] / MAX_LOSS, experiment["cost_hardware"] / MAX_NB_PARAMETERS])
-
+# def vector_exp(experiment):
+#     return np.array([experiment["cost_software"] / MAX_LOSS, experiment["cost_hardware"] / MAX_NB_PARAMETERS])
+#
 
 def pareto_efficiency(experiment, all_experiments):
     if len(all_experiments) < 1:
@@ -296,7 +293,7 @@ def pareto_efficiency(experiment, all_experiments):
     score_dominating = nb_dominated / len(all_experiments)
     score_distance_from_best_loss = abs(best_cost_software / experiment[
         "cost_software"])  # The lower is the predicted experiment loss, the better. This score is close to 1 when you reach a loss as good as the lowest one of all exp. If yours is better, then the score will be above 1. Otherwise the farest you are, the lower is your score
-    return score_dominating + score_not_dominated + 2*score_distance_from_best_loss
+    return score_dominating + score_not_dominated + score_distance_from_best_loss
 
     # v_p = vector_exp(experiment)
     # dominates = True
@@ -479,10 +476,10 @@ def iterative_training_local():
                 print("ERROR")
             with torch.no_grad():
                 input = transform_config_dict_to_input(config_dict)
-                predicted_loss = meta_model(input).item()
+                predicted_cost = meta_model(input).item()
 
             exp["cost_hardware"] = nb_params
-            exp["cost_software"] = predicted_loss
+            exp["cost_software"] = predicted_cost
             exp["config_dict"] = config_dict
             exp["unrounded"] = unrounded
 
@@ -494,24 +491,24 @@ def iterative_training_local():
                 exp = exp_max_pareto_efficiency(exps, pareto_front, all_experiments)
 
         config_dict = exp["config_dict"]
-        predicted_loss = exp["cost_software"]
+        predicted_cost = exp["cost_software"]
         nb_params = exp["cost_hardware"]
 
         print(f"config: {config_dict}")
 
         print(f"nb parameters: {nb_params}")
-        print(f"predicted loss: {predicted_loss}")
+        print(f"predicted cost: {predicted_cost}")
         print("training...")
-
-        exp["cost_software"] = run(config_dict, WANDB_PROJECT_PARETO + "_runs", save_model=False)
+        best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], WANDB_PROJECT_PARETO + "_runs", save_model=False)
+        exp["cost_software"] = 1 - best_f1_score if MAXIMIZE_F1_SCORE else best_loss
 
         pareto_front = update_pareto(exp, pareto_front)
         all_experiments.append(exp)
 
         prev_exp = exp
 
-        print(f"actual loss: {exp['cost_software']}")
-        surprise = exp['cost_software'] - predicted_loss
+        print(f"actual cost: {exp['cost_software']}")
+        surprise = exp['cost_software'] - predicted_cost
         print(f"surprise: {surprise}")
 
         print("training new surrogate model...")
