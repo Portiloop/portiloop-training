@@ -501,7 +501,7 @@ class LoggerWandb:
         self.wandb_run.restore(self.experiment_name, root=path_dataset)
 
 
-def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification):
+def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation):
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
     net_copy = net_copy.eval()
@@ -512,8 +512,8 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
     fn = 0
     loss = 0
     n = 0
-    h1 = torch.zeros((nb_rnn_layers, 1, hidden_size), device=device)
-    h2 = torch.zeros((nb_rnn_layers, 1, hidden_size), device=device)
+    h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
+    h2 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
     with torch.no_grad():
         for batch_data in dataloader:
             batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
@@ -630,15 +630,16 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                               num_workers=0,
                               pin_memory=True)
 
+    batch_size_validation = seq_stride*nb_segment_validation
     validation_loader = DataLoader(ds_validation,
-                                   batch_size=seq_stride*nb_segment_validation,
+                                   batch_size=batch_size_validation,
                                    sampler=samp_validation,
                                    num_workers=0,
                                    pin_memory=True,
                                    shuffle=False)
 
     # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
-    return train_loader, validation_loader
+    return train_loader, validation_loader, batch_size_validation
 
 
 def run(config_dict):
@@ -700,7 +701,7 @@ def run(config_dict):
         has_envelope = 2
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
-    train_loader, validation_loader = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch)
+    train_loader, validation_loader, batch_size_validation = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch)
 
     best_model_accuracy = 0
     best_epoch = 0
@@ -762,7 +763,7 @@ def run(config_dict):
 
             _t_start = time.time()
         accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
-            validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers, classification)
+            validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers, classification, batch_size_validation)
         _t_stop = time.time()
         print(f"DEBUG: Validation time for 1 epoch : {_t_stop - _t_start} s")
 
