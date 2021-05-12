@@ -500,6 +500,7 @@ class LoggerWandb:
 
     def __del__(self):
         self.wandb_run.finish()
+        del self
 
     def restore(self):
         self.wandb_run.restore(self.experiment_name, root=path_dataset)
