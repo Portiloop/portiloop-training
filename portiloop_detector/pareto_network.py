@@ -1,6 +1,5 @@
 # Networking ===========================================================================
 
-import datetime
 import pickle
 import socket
 import time
@@ -14,7 +13,7 @@ from requests import get
 
 from pareto_search import LoggerWandbPareto, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, update_pareto, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, run, \
     load_network_files, dump_network_files, transform_config_dict_to_input
-from utils import same_config_dict, sample_config_dict, MIN_NB_PARAMETERS
+from utils import same_config_dict, sample_config_dict, MIN_NB_PARAMETERS, print_with_timestamp
 
 IP_SERVER = "142.182.5.48"  # Yann = "45.74.221.204"; Nicolas = "142.182.5.48"
 PORT_META = 6666
@@ -50,12 +49,6 @@ HEADER_SIZE = 12
 BUFFER_SIZE = 4096
 
 PRINT_BYTESIZES = True
-
-
-def print_with_timestamp(s):
-    x = datetime.datetime.now()
-    sx = x.strftime("%x %X ")
-    print(sx + str(s))
 
 
 def send_ack(sock):

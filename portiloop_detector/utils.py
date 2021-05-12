@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import datetime
 from math import floor
 from random import choices, uniform, gauss
 
@@ -213,3 +214,9 @@ def sample_config_dict(name, previous_exp, all_exp):
 
 def out_dim(window_size, padding, dilation, kernel, stride):
     return floor((window_size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)
+
+
+def print_with_timestamp(s):
+    x = datetime.now()
+    sx = x.strftime("%x %X ")
+    print(sx + str(s))

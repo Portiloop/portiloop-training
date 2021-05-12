@@ -18,7 +18,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 import wandb
-from utils import sample_config_dict, out_dim, MAX_NB_PARAMETERS, MIN_NB_PARAMETERS
+from utils import out_dim
 
 THRESHOLD = 0.2
 WANDB_PROJECT = "p1-dataset"
@@ -649,7 +649,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     return train_loader, validation_loader, batch_size_validation
 
 
-def run(config_dict):
+def run(config_dict, wandb_project):
     global precision_validation_factor
     global recall_validation_factor
     _t_start = time.time()
@@ -680,7 +680,7 @@ def run(config_dict):
     if device_val.startswith("cuda") or device_train.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
-    logger = LoggerWandb(experiment_name, config_dict, WANDB_PROJECT)
+    logger = LoggerWandb(f"{experiment_name}_{time.time_ns()}", config_dict, wandb_project)
     torch.seed()
     net = PortiloopNetwork(config_dict).to(device=device_train)
     criterion = nn.MSELoss() if not classification else nn.CrossEntropyLoss()
@@ -826,6 +826,7 @@ def run(config_dict):
         if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
             print("Early stopping.")
             break
+    return best_model_loss_validation, best_epoch_early_stopping
 
 
 def get_config_dict(index, name):
@@ -909,4 +910,4 @@ if __name__ == "__main__":
     #     print(nb_parameters)
     #     print(config_dict['seq_len'])
     seed()  # reset the seed
-    run(config_dict=config_dict)
+    run(config_dict=config_dict, wandb_project=WANDB_PROJECT)

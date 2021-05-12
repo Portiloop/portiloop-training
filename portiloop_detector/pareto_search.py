@@ -18,8 +18,8 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 
 import wandb
-from utils import MAX_NB_PARAMETERS, EPSILON_EXP_NOISE, sample_config_dict, MIN_NB_PARAMETERS, NETWORK_EARLY_STOPPING
 from portiloop_detector_training import PortiloopNetwork, get_accuracy_and_loss_pytorch, generate_dataloader
+from utils import MAX_NB_PARAMETERS, EPSILON_EXP_NOISE, sample_config_dict, MIN_NB_PARAMETERS, NETWORK_EARLY_STOPPING
 
 # all constants (no hyperparameters here!)
 
@@ -596,7 +596,7 @@ def iterative_training_local():
         print(f"predicted loss: {predicted_loss}")
         print("training...")
 
-        exp["cost_software"] = run(config_dict)
+        exp["cost_software"] = run(config_dict, WANDB_PROJECT + "_runs")
 
         pareto_front = update_pareto(exp, pareto_front)
         all_experiments.append(exp)
