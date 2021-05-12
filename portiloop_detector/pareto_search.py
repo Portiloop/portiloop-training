@@ -22,7 +22,7 @@ from utils import MAX_NB_PARAMETERS, EPSILON_EXP_NOISE, sample_config_dict, MIN_
 # all constants (no hyperparameters here!)
 
 THRESHOLD = 0.2
-WANDB_PROJECT = "pareto"
+WANDB_PROJECT_PARETO = "pareto"
 
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 path_pareto = Path(__file__).absolute().parent.parent / 'pareto'
@@ -414,7 +414,7 @@ class LoggerWandbPareto:
     def __init__(self, run_name):
         self.run_name = run_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project=WANDB_PROJECT, entity="portiloop", id=run_name, resume="allow", reinit=True)
+        self.wandb_run = wandb.init(project=WANDB_PROJECT_PARETO, entity="portiloop", id=run_name, resume="allow", reinit=True)
 
     def log(self,
             surrogate_loss,
@@ -503,7 +503,7 @@ def iterative_training_local():
         print(f"predicted loss: {predicted_loss}")
         print("training...")
 
-        exp["cost_software"] = run(config_dict, WANDB_PROJECT + "_runs")
+        exp["cost_software"] = run(config_dict, WANDB_PROJECT_PARETO + "_runs")
 
         pareto_front = update_pareto(exp, pareto_front)
         all_experiments.append(exp)

@@ -21,7 +21,7 @@ import wandb
 from utils import out_dim
 
 THRESHOLD = 0.2
-WANDB_PROJECT = "p1-dataset"
+WANDB_PROJECT_RUN = "p1-dataset"
 
 filename_dataset = "dataset_p1_big_250_matlab_standardized_envelope_pf.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
@@ -910,4 +910,4 @@ if __name__ == "__main__":
     #     print(nb_parameters)
     #     print(config_dict['seq_len'])
     seed()  # reset the seed
-    run(config_dict=config_dict, wandb_project=WANDB_PROJECT)
+    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN)
