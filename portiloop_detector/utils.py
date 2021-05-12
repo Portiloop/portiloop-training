@@ -122,8 +122,8 @@ def sample_config_dict(name, previous_exp, all_exp):
     config_dict["dropout"] = 0.5
     # config_dict["lr_adam"] = 0.0003
     config_dict["adam_w"] = 0.01
-    config_dict["distribution_mode"] = 1
-    config_dict["classification"] = False
+    config_dict["distribution_mode"] = 0
+    config_dict["classification"] = True
     flag_in_exps = True
     while flag_in_exps:
         noise = choices(population=[True, False], weights=[EPSILON_NOISE, 1.0 - EPSILON_NOISE])[0]  # if we have already tried a config and lots of its neighbors, we will have a higher chance of getting a random config
