@@ -5,7 +5,6 @@ import os
 import pickle as pkl
 # all imports
 import random
-import time
 from copy import deepcopy
 from pathlib import Path
 
@@ -13,13 +12,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 
 import wandb
-from portiloop_detector_training import PortiloopNetwork, get_accuracy_and_loss_pytorch, generate_dataloader
-from utils import MAX_NB_PARAMETERS, EPSILON_EXP_NOISE, sample_config_dict, MIN_NB_PARAMETERS, NETWORK_EARLY_STOPPING
+from portiloop_detector_training import PortiloopNetwork, run
+from utils import MAX_NB_PARAMETERS, EPSILON_EXP_NOISE, sample_config_dict, MIN_NB_PARAMETERS
 
 # all constants (no hyperparameters here!)
 
@@ -68,97 +66,6 @@ class MetaDataset(Dataset):
         x = transform_config_dict_to_input(config_dict)
         label = torch.tensor(self.data[idx]["cost_software"])
         return x, label
-
-
-# run:
-
-def run(config_dict):
-    nb_epoch_max = config_dict["nb_epoch_max"]
-    nb_batch_per_epoch = config_dict["nb_batch_per_epoch"]
-    batch_size = config_dict["batch_size"]
-    seq_len = config_dict["seq_len"]
-    window_size_s = config_dict["window_size_s"]
-    fe = config_dict["fe"]
-    seq_stride_s = config_dict["seq_stride_s"]
-    lr_adam = config_dict["lr_adam"]
-    hidden_size = config_dict["hidden_size"]
-    device_val = config_dict["device_val"]
-    device_train = config_dict["device_train"]
-    nb_rnn_layers = config_dict["nb_rnn_layers"]
-    adam_w = config_dict["adam_w"]
-    distribution_mode = config_dict["distribution_mode"]
-
-    window_size = int(window_size_s * fe)
-    seq_stride = int(seq_stride_s * fe)
-
-    if device_val.startswith("cuda") or device_train.startswith("cuda"):
-        assert torch.cuda.is_available(), "CUDA unavailable"
-
-    net = PortiloopNetwork(config_dict).to(device=device_train)
-    criterion = nn.MSELoss()
-    optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
-
-    net = net.train()
-    # nb_weights = 0
-    # for i in net.parameters():
-    #     nb_weights += len(i)
-    # has_envelope = 1
-    # if config_dict["envelope_input"]:
-    #     has_envelope = 2
-    # config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
-
-    train_loader, validation_loader = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch)
-
-    best_model_loss_validation = 1
-    best_model_epoch = 0
-    early_stopping_cnt = 0
-
-    h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
-    h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
-    for epoch in range(nb_epoch_max):
-
-        print(f"DEBUG: epoch: {epoch}")
-        _t_start_train = time.time()
-
-        for batch_data in train_loader:
-            batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
-            batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
-            batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
-            batch_samples_input3 = batch_samples_input3.to(device=device_train).float()
-            batch_labels = batch_labels.to(device=device_train).float()
-
-            optimizer.zero_grad()
-
-            output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
-            output = output.view(-1)
-
-            loss = criterion(output, batch_labels)
-            loss.backward()
-            optimizer.step()
-        _t_end_train = time.time()
-        print(f"Training : {_t_end_train - _t_start_train} s")
-        _t_start_validation = time.time()
-
-        _, loss_validation, _, _, _ = get_accuracy_and_loss_pytorch(
-            validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
-        if loss_validation < best_model_loss_validation:
-            best_model_loss_validation = loss_validation
-            best_model_epoch = epoch
-            early_stopping_cnt = 0
-        else:
-            early_stopping_cnt += 1
-        _t_end_validation = time.time()
-        print(f"Validation : {_t_end_validation - _t_start_validation} s")
-        if early_stopping_cnt > NETWORK_EARLY_STOPPING:
-            break
-    return best_model_loss_validation, best_model_epoch
-
-
-# hyperparameters
-
-# batch_size_range_t = ["i", 256, 256]
-# lr_adam_range_t = ["f", 0.0003, 0.0003]
-
 
 def nb_parameters(config_dict):
     net = PortiloopNetwork(config_dict)
