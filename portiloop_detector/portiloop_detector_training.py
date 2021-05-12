@@ -655,7 +655,7 @@ def run(config_dict, wandb_project, save_model):
     global recall_validation_factor
     _t_start = time.time()
     print(f"DEBUG: config_dict: {config_dict}")
-    experiment_name = config_dict["experiment_name"]
+    experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}"
     nb_epoch_max = config_dict["nb_epoch_max"]
     nb_batch_per_epoch = config_dict["nb_batch_per_epoch"]
     nb_epoch_early_stopping_stop = config_dict["nb_epoch_early_stopping_stop"]
@@ -681,7 +681,7 @@ def run(config_dict, wandb_project, save_model):
     if device_val.startswith("cuda") or device_train.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
-    logger = LoggerWandb(f"{experiment_name}_{time.time_ns()}", config_dict, wandb_project)
+    logger = LoggerWandb(experiment_name, config_dict, wandb_project)
     torch.seed()
     net = PortiloopNetwork(config_dict).to(device=device_train)
     criterion = nn.MSELoss() if not classification else nn.CrossEntropyLoss()
