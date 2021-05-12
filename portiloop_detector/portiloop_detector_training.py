@@ -215,13 +215,17 @@ class ValidationSampler(Sampler):
     def __iter__(self):
         seed()
         nb_batch = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
+        print(f"DEBUG: nb_batch_validation = {nb_batch}")
         cur_batch = 0
+        cnt = 0
         while cur_batch < nb_batch:
             for i in range(self.nb_segment):
                 for j in range(self.seq_stride):
                     cur_idx = i * self.len_segment + j + cur_batch*self.seq_stride
+                    cnt += 1
                     yield cur_idx
             cur_batch += 1
+        print(f"DEBUG: nb iteration in validation sampler = {cnt}")
         #
         # for i in range(nb_iter):
         #     cur_iter = 0
@@ -616,6 +620,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                distribution_mode=distribution_mode)
 
     nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
+    print(f"DEBUG: nb_segment_validation = {nb_segment_validation}")
 
     samp_validation = ValidationSampler(ds_validation,
                                         #  nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
@@ -631,6 +636,8 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                               pin_memory=True)
 
     batch_size_validation = seq_stride*nb_segment_validation
+    print(f"DEBUG: batch_size_validation = {batch_size_validation}")
+
     validation_loader = DataLoader(ds_validation,
                                    batch_size=batch_size_validation,
                                    sampler=samp_validation,
