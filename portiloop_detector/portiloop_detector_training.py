@@ -69,7 +69,7 @@ class SignalDataset(Dataset):
         split_data = np.array(np.split(self.data, int(len(self.data) / (len_segment + 30 * fe))))  # 115+30 = nb seconds per sequence in the dataset
         split_data = split_data[used_sequence]
         self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
-        print(f"DEBUG: data shape = {self.data.shape}")
+        # print(f"DEBUG: data shape = {self.data.shape}")
         # if "portiloop" in filename:
         #     split_data = np.array(np.split(self.data, int(len(self.data) / (900 * fe))))  # 900 = nb seconds per sequence in the dataset
         # else:
@@ -215,7 +215,7 @@ class ValidationSampler(Sampler):
     def __iter__(self):
         seed()
         nb_batch = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
-        print(f"DEBUG: nb_batch_validation = {nb_batch}")
+        # print(f"DEBUG: nb_batch_validation = {nb_batch}")
         cur_batch = 0
         cnt = 0
         while cur_batch < nb_batch:
@@ -225,7 +225,7 @@ class ValidationSampler(Sampler):
                     cnt += 1
                     yield cur_idx
             cur_batch += 1
-        print(f"DEBUG: nb iteration in validation sampler = {cnt}")
+        # print(f"DEBUG: nb iteration in validation sampler = {cnt}")
         #
         # for i in range(nb_iter):
         #     cur_iter = 0
@@ -620,7 +620,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                distribution_mode=distribution_mode)
 
     nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
-    print(f"DEBUG: nb_segment_validation = {nb_segment_validation}")
+    # print(f"DEBUG: nb_segment_validation = {nb_segment_validation}")
 
     samp_validation = ValidationSampler(ds_validation,
                                         #  nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
@@ -636,7 +636,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                               pin_memory=True)
 
     batch_size_validation = seq_stride*nb_segment_validation
-    print(f"DEBUG: batch_size_validation = {batch_size_validation}")
+    # print(f"DEBUG: batch_size_validation = {batch_size_validation}")
 
     validation_loader = DataLoader(ds_validation,
                                    batch_size=batch_size_validation,
@@ -837,7 +837,7 @@ def get_config_dict(index, name):
                        nb_epoch_early_stopping_stop=100,
                        early_stopping_smoothing_factor=0.01,
                        fe=250,
-                       nb_batch_per_epoch=100000)
+                       nb_batch_per_epoch=5000)
 
     config_dict["batch_size"] = batch_size_list[index]
     config_dict["RNN"] = True
@@ -856,7 +856,6 @@ def get_config_dict(index, name):
     config_dict["distribution_mode"] = distribution_mode_list[index]
     config_dict["classification"] = classification_list[index]
 
-    nb_out = 0
     config_dict["window_size_s"] = windows_size_s_list[index]
     config_dict["nb_conv_layers"] = nb_conv_layers_list[index]
     config_dict["stride_pool"] = stride_pool_list[index]
