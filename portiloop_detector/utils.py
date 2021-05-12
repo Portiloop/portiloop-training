@@ -98,7 +98,7 @@ def same_config_dict(config1, config2):
 def sample_config_dict(name, previous_exp, all_exp):
     config_dict = dict(experiment_name=name,
                        device_train="cuda:0",
-                       device_val="cpu",
+                       device_val="cuda:0",
                        nb_epoch_max=EPOCHS_PER_EXPERIMENT,
                        max_duration=int(71.5 * 3600),
                        nb_epoch_early_stopping_stop=NETWORK_EARLY_STOPPING,

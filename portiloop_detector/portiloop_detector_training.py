@@ -58,7 +58,7 @@ classification_list = [False, False, True, True]
 # all classes and functions:
 
 class SignalDataset(Dataset):
-    def __init__(self, filename, path, window_size=64, fe=250, seq_len=5, seq_stride=5, list_subject=None):
+    def __init__(self, filename, path, window_size, fe, seq_len, seq_stride, list_subject, len_segment):
         self.fe = fe
         self.window_size = window_size
         self.path_file = Path(path) / filename
@@ -66,7 +66,7 @@ class SignalDataset(Dataset):
         self.data = pd.read_csv(self.path_file, header=None).to_numpy()
         assert list_subject is not None
         used_sequence = np.hstack([range(int(s[1]), int(s[2])) for s in list_subject])
-        split_data = np.array(np.split(self.data, int(len(self.data) / ((115 + 30) * fe))))  # 115+30 = nb seconds per sequence in the dataset
+        split_data = np.array(np.split(self.data, int(len(self.data) / (len_segment + 30 * fe))))  # 115+30 = nb seconds per sequence in the dataset
         split_data = split_data[used_sequence]
         self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
         print(f"DEBUG: data shape = {self.data.shape}")
@@ -157,13 +157,13 @@ class RandomSampler(Sampler):
       nb_batch (int, optional): number of iteration before end of __iter__(), this defaults to len(data_source)
     """
 
-    def __init__(self, data_source, idx_true, idx_false, batch_size, distribution_mode, nb_batch=None):
+    def __init__(self, data_source, idx_true, idx_false, batch_size, distribution_mode, nb_batch):
         self.data_source = data_source
         self.idx_true = idx_true
         self.idx_false = idx_false
         self.nb_true = self.idx_true.size
         self.nb_false = self.idx_false.size
-        self.length = nb_batch * batch_size if nb_batch is not None else len(self.data_source)
+        self.length = nb_batch * batch_size
         self.distribution_mode = distribution_mode
 
     def __iter__(self):
@@ -202,31 +202,34 @@ class ValidationSampler(Sampler):
     __iter__ stops after an arbitrary number of iterations = batch_size_list * nb_batch
     """
 
-    def __init__(self, data_source, nb_samples=None, seq_stride=13):
+    def __init__(self, data_source, seq_stride, nb_segment, len_segment):
         #  self.length = nb_samples
         self.seq_stride = seq_stride
         self.data = data_source
+        self.nb_segment = nb_segment
+        self.len_segment = len_segment
         #  self.last_possible = len(data_source) - self.length * self.seq_stride - 1
 
     #    self.first_idx = 0#randint(0, self.last_possible)
 
     def __iter__(self):
         seed()
-        nb_iter = self.seq_stride
-
-        # first_idx = [randint(0, self.last_possible)]
-        # while len(first_idx) < nb_iter:
-        #     idx = randint(0, self.last_possible)
-        #     for i in first_idx:
-        #         if i % self.seq_stride != idx % self.seq_stride:
-        #             first_idx.append(idx)
-        for i in range(nb_iter):
-            cur_iter = 0
-            cur_idx = i
-            while cur_idx < len(self.data):
-                cur_iter += 1
-                yield cur_idx
-                cur_idx += self.seq_stride
+        nb_batch = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
+        cur_batch = 0
+        while cur_batch < nb_batch:
+            for i in range(self.nb_segment):
+                for j in range(self.seq_stride):
+                    cur_idx = i * self.len_segment + j + cur_batch*self.seq_stride
+                    yield cur_idx
+            cur_batch += 1
+        #
+        # for i in range(nb_iter):
+        #     cur_iter = 0
+        #     cur_idx = i
+        #     while cur_idx < len(self.data):
+        #         cur_iter += 1
+        #         yield cur_idx
+        #         cur_idx += self.seq_stride
 
     def __len__(self):
         return len(self.data)
@@ -576,13 +579,17 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     print(f"DEBUG: Subjects in training : {train_subject[:, 0]}")
     print(f"DEBUG: Subjects in validation : {validation_subject[:, 0]}")
     print(f"DEBUG: Subjects in test : {test_subject[:, 0]}")
+
+    len_segment = 115*fe
+
     ds_train = SignalDataset(filename=filename_dataset,
                              path=path_dataset,
                              window_size=window_size,
                              fe=fe,
                              seq_len=seq_len,
                              seq_stride=seq_stride,
-                             list_subject=train_subject)
+                             list_subject=train_subject,
+                             len_segment=len_segment)
     # start_ratio=0.0,
     # end_ratio=0.9)
 
@@ -592,7 +599,8 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                   fe=fe,
                                   seq_len=1,
                                   seq_stride=1,  # just to be sure, fixed value
-                                  list_subject=validation_subject)
+                                  list_subject=validation_subject,
+                                  len_segment=len_segment)
     # start_ratio=0.9,
     # end_ratio=1)
 
@@ -607,9 +615,13 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                nb_batch=nb_batch_per_epoch,
                                distribution_mode=distribution_mode)
 
+    nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
+
     samp_validation = ValidationSampler(ds_validation,
                                         #  nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
-                                        seq_stride=seq_stride)
+                                        seq_stride=seq_stride,
+                                        len_segment=len_segment,
+                                        nb_segment=nb_segment_validation)
 
     train_loader = DataLoader(ds_train,
                               batch_size=batch_size,
@@ -619,7 +631,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                               pin_memory=True)
 
     validation_loader = DataLoader(ds_validation,
-                                   batch_size=1,
+                                   batch_size=seq_stride*nb_segment_validation,
                                    sampler=samp_validation,
                                    num_workers=0,
                                    pin_memory=True,
@@ -810,7 +822,7 @@ def run(config_dict):
 def get_config_dict(index, name):
     config_dict = dict(experiment_name=name,
                        device_train="cuda:0",
-                       device_val="cpu",
+                       device_val="cuda:0",
                        nb_epoch_max=1000000,
                        max_duration=int(71.5 * 3600),
                        nb_epoch_early_stopping_stop=100,
