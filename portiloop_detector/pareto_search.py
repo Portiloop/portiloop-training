@@ -43,7 +43,7 @@ MAX_LOSS = 0.1  # to normalize distances
 META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
 
-RUN_NAME = "pareto_search_9"
+RUN_NAME = "pareto_search_10"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 500  # number of models sampled per iteration, only the best predicted one is selected
 
