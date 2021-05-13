@@ -511,8 +511,7 @@ class MetaLearner:
                     else:
                         pareto_front = update_pareto(res, pareto_front)
                         finished_experiments.append(res)
-                        dump_network_files(finished_experiments, pareto_front)
-
+                    dump_network_files(finished_experiments, pareto_front)
                     prev_exp = res
                 if len(finished_experiments) > 0 and prev_exp != {}:  # train before sampling a new model
                     print("training new surrogate model...")
