@@ -650,12 +650,12 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     return train_loader, validation_loader, batch_size_validation
 
 
-def run(config_dict, wandb_project, save_model):
+def run(config_dict, wandb_project, save_model, unique_name):
     global precision_validation_factor
     global recall_validation_factor
     _t_start = time.time()
     print(f"DEBUG: config_dict: {config_dict}")
-    experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}"
+    experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}" if unique_name else config_dict['experiment_name']
     nb_epoch_max = config_dict["nb_epoch_max"]
     nb_batch_per_epoch = config_dict["nb_batch_per_epoch"]
     nb_epoch_early_stopping_stop = config_dict["nb_epoch_early_stopping_stop"]
@@ -913,39 +913,10 @@ if __name__ == "__main__":
     #     print(nb_parameters)
     #     print(config_dict['seq_len'])
     seed()  # reset the seed
-    config_dict = {'experiment_name': 'pareto_search_10_507',
-                   'device_train': 'cuda:0',
-                   'device_val': 'cuda:0',
-                   'nb_epoch_max': 11,
-                   'max_duration': 257400,
-                   'nb_epoch_early_stopping_stop': 10,
-                   'early_stopping_smoothing_factor': 0.1,
-                   'fe': 250,
-                   'nb_batch_per_epoch': 5000,
-                   'batch_size': 256,
-                   'first_layer_dropout': False,
-                   'power_features_input': False,
-                   'dropout': 0.5,
-                   'adam_w': 0.01,
-                   'distribution_mode': 0,
-                   'classification': True,
-                   'nb_conv_layers': 3,
-                   'seq_len': 45,
-                   'nb_channel': 26,
-                   'hidden_size': 42,
-                   'seq_stride_s': 0.05,
-                   'nb_rnn_layers': 3,
-                   'RNN': True,
-                   'envelope_input': True,
-                   'lr_adam': 0.0007,
-                   'window_size_s': 0.218,
-                   'stride_pool': 1,
-                   'stride_conv': 1,
-                   'kernel_conv': 5,
-                   'kernel_pool': 9,
-                   'dilation_conv': 2,
-                   'dilation_pool': 1,
-                   'nb_out': 6,
-                   'time_in_past': 2.25,
-                   'estimator_size_memory': 4155494400}
-    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True)
+    config_dict = {'experiment_name': 'pareto_search_10_507', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11, 'max_duration': 257400,
+                   'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,
+                   'batch_size': 256, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5,
+                   'adam_w': 0.01, 'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 3, 'seq_len': 45, 'nb_channel': 26, 'hidden_size': 42, 'seq_stride_s': 0.05,
+                   'nb_rnn_layers': 3, 'RNN': True, 'envelope_input': True, 'lr_adam': 0.0007, 'window_size_s': 0.218, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 5,
+                   'kernel_pool': 9, 'dilation_conv': 2, 'dilation_pool': 1, 'nb_out': 6, 'time_in_past': 2.25, 'estimator_size_memory': 4155494400}
+    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False)

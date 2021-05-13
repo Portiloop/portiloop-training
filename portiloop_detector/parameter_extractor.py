@@ -1,12 +1,42 @@
 import portiloop_detector_training as portiloop
 
-exp_index = 3
-experiment_name = "run_v1_3080_20210331151824_3"
-
-config_dict = portiloop.get_config_dict(exp_index, experiment_name)
-
+config_dict = {'experiment_name': 'pareto_search_10_507',
+                   'device_train': 'cuda:0',
+                   'device_val': 'cuda:0',
+                   'nb_epoch_max': 11,
+                   'max_duration': 257400,
+                   'nb_epoch_early_stopping_stop': 10,
+                   'early_stopping_smoothing_factor': 0.1,
+                   'fe': 250,
+                   'nb_batch_per_epoch': 5000,
+                   'batch_size': 256,
+                   'first_layer_dropout': False,
+                   'power_features_input': False,
+                   'dropout': 0.5,
+                   'adam_w': 0.01,
+                   'distribution_mode': 0,
+                   'classification': True,
+                   'nb_conv_layers': 3,
+                   'seq_len': 45,
+                   'nb_channel': 26,
+                   'hidden_size': 42,
+                   'seq_stride_s': 0.05,
+                   'nb_rnn_layers': 3,
+                   'RNN': True,
+                   'envelope_input': True,
+                   'lr_adam': 0.0007,
+                   'window_size_s': 0.218,
+                   'stride_pool': 1,
+                   'stride_conv': 1,
+                   'kernel_conv': 5,
+                   'kernel_pool': 9,
+                   'dilation_conv': 2,
+                   'dilation_pool': 1,
+                   'nb_out': 6,
+                   'time_in_past': 2.25,
+                   'estimator_size_memory': 4155494400}
 net = portiloop.PortiloopNetwork(config_dict)
-
+experiment_name = "pareto_search_10_507_1620920784055498284"
 checkpoint = portiloop.torch.load(portiloop.path_dataset / experiment_name)
 net.load_state_dict(checkpoint['model_state_dict'])
 
