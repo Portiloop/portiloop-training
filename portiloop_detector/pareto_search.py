@@ -78,12 +78,12 @@ class SurrogateModel(nn.Module):
         self.fc1 = nn.Linear(in_features=nb_features,  # nb hyperparameters
                              out_features=nb_features * 25)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
-        self.d1 = nn.Dropout(0)
+        self.d1 = nn.Dropout(0.5)
 
         self.fc2 = nn.Linear(in_features=nb_features * 25,
                              out_features=nb_features * 25)
 
-        self.d2 = nn.Dropout(0)
+        self.d2 = nn.Dropout(0.5)
 
         self.fc3 = nn.Linear(in_features=nb_features * 25,
                              out_features=1)
