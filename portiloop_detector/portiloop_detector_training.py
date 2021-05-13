@@ -221,7 +221,7 @@ class ValidationSampler(Sampler):
         while cur_batch < nb_batch:
             for i in range(self.nb_segment):
                 for j in range(self.seq_stride):
-                    cur_idx = i * self.len_segment + j + cur_batch*self.seq_stride
+                    cur_idx = i * self.len_segment + j + cur_batch * self.seq_stride
                     cnt += 1
                     yield cur_idx
             cur_batch += 1
@@ -585,7 +585,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     print(f"DEBUG: Subjects in validation : {validation_subject[:, 0]}")
     print(f"DEBUG: Subjects in test : {test_subject[:, 0]}")
 
-    len_segment = 115*fe
+    len_segment = 115 * fe
 
     ds_train = SignalDataset(filename=filename_dataset,
                              path=path_dataset,
@@ -636,7 +636,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                               num_workers=0,
                               pin_memory=True)
 
-    batch_size_validation = seq_stride*nb_segment_validation
+    batch_size_validation = seq_stride * nb_segment_validation
     # print(f"DEBUG: batch_size_validation = {batch_size_validation}")
 
     validation_loader = DataLoader(ds_validation,
@@ -913,4 +913,39 @@ if __name__ == "__main__":
     #     print(nb_parameters)
     #     print(config_dict['seq_len'])
     seed()  # reset the seed
+    config_dict = {'experiment_name': 'pareto_search_10_507',
+                   'device_train': 'cuda:0',
+                   'device_val': 'cuda:0',
+                   'nb_epoch_max': 11,
+                   'max_duration': 257400,
+                   'nb_epoch_early_stopping_stop': 10,
+                   'early_stopping_smoothing_factor': 0.1,
+                   'fe': 250,
+                   'nb_batch_per_epoch': 5000,
+                   'batch_size': 256,
+                   'first_layer_dropout': False,
+                   'power_features_input': False,
+                   'dropout': 0.5,
+                   'adam_w': 0.01,
+                   'distribution_mode': 0,
+                   'classification': True,
+                   'nb_conv_layers': 3,
+                   'seq_len': 45,
+                   'nb_channel': 26,
+                   'hidden_size': 42,
+                   'seq_stride_s': 0.05,
+                   'nb_rnn_layers': 3,
+                   'RNN': True,
+                   'envelope_input': True,
+                   'lr_adam': 0.0007,
+                   'window_size_s': 0.218,
+                   'stride_pool': 1,
+                   'stride_conv': 1,
+                   'kernel_conv': 5,
+                   'kernel_pool': 9,
+                   'dilation_conv': 2,
+                   'dilation_pool': 1,
+                   'nb_out': 6,
+                   'time_in_past': 2.25,
+                   'estimator_size_memory': 4155494400}
     run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True)

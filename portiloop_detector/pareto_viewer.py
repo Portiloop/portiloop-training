@@ -10,3 +10,6 @@ print(f"Best network with {best['cost_hardware']} params and a loss validation o
 plt.hist([exp["cost_hardware"] for exp in finished_experiment], bins=100, range=(0, MAX_NB_PARAMETERS))
 plt.title("histogram")
 plt.show()
+
+implemented_run = [run for run in finished_experiment if "507" in run['config_dict']['experiment_name']]
+print(implemented_run)
