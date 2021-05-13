@@ -26,8 +26,8 @@ window_size_s_range_t = [0.05, 1, 0.008]  # min, max, step
 seq_stride_s_range_t = [0.05, 0.1, 0.004]  # min, max, step
 nb_conv_layers_range_t = [1, 7, 1]  # min, max, step
 nb_rnn_layers_range_t = [1, 5, 1]  # min, max, step
-rnn_range_t = [0, 1, 1]
-envelope_input_range_t = [0, 1, 1]
+rnn_range_t = [1, 1, 1]
+envelope_input_range_t = [1, 1, 1]
 lr_adam_range_t = [0.0001, 0.001, 0.0003]
 
 MAXIMIZE_F1_SCORE = True
