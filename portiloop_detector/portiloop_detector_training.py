@@ -919,4 +919,4 @@ if __name__ == "__main__":
                    'adam_w': 0.01, 'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 3, 'seq_len': 45, 'nb_channel': 26, 'hidden_size': 42, 'seq_stride_s': 0.05,
                    'nb_rnn_layers': 3, 'RNN': True, 'envelope_input': True, 'lr_adam': 0.0007, 'window_size_s': 0.218, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 5,
                    'kernel_pool': 9, 'dilation_conv': 2, 'dilation_pool': 1, 'nb_out': 6, 'time_in_past': 2.25, 'estimator_size_memory': 4155494400}
-    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False)
+    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=True) #unique name for variance test
