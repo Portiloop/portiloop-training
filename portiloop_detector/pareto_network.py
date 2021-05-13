@@ -570,6 +570,7 @@ class MetaLearner:
                 self.__to_launch.append(exp)
                 self.__to_launch_lock.release()
                 launched_experiments.append(exp)
+                prev_exp = {}
 
             else:
                 self.__must_launch_lock.release()
