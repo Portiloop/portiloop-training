@@ -47,21 +47,21 @@ with torch.no_grad():
     test_model_loss = meta_model(x).item()
 print(f"DEBUG: test model loss = {test_model_loss} / real loss = {test['cost_software']}")
 test, _ = sample_config_dict(name="test2", previous_exp={}, all_exp=finished_experiment)
-print(test)
+#print(test)
 with torch.no_grad():
     config_dict = test
     x = transform_config_dict_to_input(config_dict)
     test_model_loss = meta_model(x).item()
 print(f"DEBUG: test model loss = {test_model_loss}")
 test, _ = sample_config_dict(name="test2", previous_exp={}, all_exp=finished_experiment)
-print(test)
+#print(test)
 with torch.no_grad():
     config_dict = test
     x = transform_config_dict_to_input(config_dict)
     test_model_loss = meta_model(x).item()
 print(f"DEBUG: test model loss = {test_model_loss}")
 test, _ = sample_config_dict(name="test2", previous_exp={}, all_exp=finished_experiment)
-print(test)
+#print(test)
 with torch.no_grad():
     config_dict = test
     x = transform_config_dict_to_input(config_dict)
