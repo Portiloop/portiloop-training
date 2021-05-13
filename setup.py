@@ -15,6 +15,7 @@ install_requires = [
     'scipy',
     'matplotlib',
     'requests',
+    'pyinstrument'
 ]
 
 setup(name='portiloop',

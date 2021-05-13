@@ -32,6 +32,8 @@ lr_adam_range_t = [0.0001, 0.001, 0.0003]
 
 MAXIMIZE_F1_SCORE = True
 
+PROFILE_META = True
+
 
 # dropout_range_t = ["f", 0.5, 0.5]
 # first_layer_dropout_range_t = ["b", False, False]
