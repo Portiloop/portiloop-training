@@ -45,7 +45,7 @@ DEFAULT_META_EPOCHS = 100  # default number of meta-epochs before entering meta 
 START_META_TRAIN_VAL_AFTER = 100  # minimum number of experiments in the dataset before using a validation set
 META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
 MAX_META_EPOCHS = 500  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
-META_EARLY_STOPPING = 100  # meta early stopping after this number of unsuccessful meta epochs
+META_EARLY_STOPPING = 30  # meta early stopping after this number of unsuccessful meta epochs
 
 
 class MetaDataset(Dataset):
