@@ -482,13 +482,15 @@ class MetaLearner:
         prev_exp = {}
 
         while True:
-            if PROFILE_META:
-                pro = Profiler()
-                pro.start()
             self.__must_launch_lock.acquire()
             if self.__must_launch:
                 self.__must_launch = False
                 self.__must_launch_lock.release()
+
+                if PROFILE_META:
+                    pro = Profiler()
+                    pro.start()
+
                 self.__results_lock.acquire()
                 temp_results = deepcopy(self.__results)
                 self.__results = []
@@ -575,13 +577,13 @@ class MetaLearner:
                 launched_experiments.append(exp)
                 prev_exp = {}
 
+                if PROFILE_META:
+                    pro.stop()
+                    print(pro.output_text(unicode=False, color=False))
+
             else:
                 self.__must_launch_lock.release()
             time.sleep(LOOP_SLEEP_TIME)
-
-            if PROFILE_META:
-                pro.stop()
-                print(pro.output_text(unicode=False, color=False))
 
 
 # WORKER: ===================================
