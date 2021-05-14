@@ -14,4 +14,5 @@ plt.show()
 implemented_run = [run for run in finished_experiment if "619" in run['config_dict']['experiment_name']]
 for run in implemented_run:
     print(run['cost_software'])
+    print(run['cost_hardware'])
     print(run['config_dict'])
