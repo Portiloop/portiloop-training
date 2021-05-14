@@ -331,7 +331,7 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
             efficiency = pareto_efficiency(exp, all_experiments)
             assert histo[1][0] <= exp["cost_hardware"] <= histo[1][-1]
             idx = np.where(histo[1] <= exp["cost_hardware"])[0][-1]
-            nerf = histo[0][max(idx, len(histo[0]) - 1)] * MAX_NB_PARAMETERS
+            nerf = histo[0][min(idx, len(histo[0]) - 1)] * MAX_NB_PARAMETERS
             efficiency -= nerf
             if efficiency >= max_efficiency:
                 max_efficiency = efficiency
