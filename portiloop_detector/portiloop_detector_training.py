@@ -32,28 +32,8 @@ precision_validation_factor = 0.5
 
 # hyperparameters
 
-batch_size_list = [256, 256, 256, 256]
-seq_len_list = [40, 40, 40, 40]
-kernel_conv_list = [5, 5, 5, 5]
-kernel_pool_list = [3, 3, 3, 3]
-stride_conv_list = [1, 1, 1, 1]
-stride_pool_list = [1, 1, 1, 1]
-dilation_conv_list = [1, 1, 1, 1]
-dilation_pool_list = [1, 1, 1, 1]
-nb_channel_list = [20, 20, 20, 20]
-hidden_size_list = [15, 15, 15, 15]
-dropout_list = [0.5, 0.5, 0.5, 0.5]
-windows_size_s_list = [0.25, 0.25, 0.25, 0.25]
-seq_stride_s_list = [0.1, 0.1, 0.1, 0.1]
-lr_adam_list = [0.0003, 0.0003, 0.0003, 0.0003]
-nb_conv_layers_list = [7, 7, 7, 7]
-nb_rnn_layers_list = [1, 1, 1, 1]
-first_layer_dropout_list = [False, False, False, False]
-power_features_input_list = [False, False, False, False]
-adam_w_list = [0.01, 0.01, 0.01, 0.01]
-distribution_mode_list = [0, 1, 0, 1]
-classification_list = [False, False, True, True]
-
+batch_size_list = [128, 128, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512]
+lr_adam_list = [0.0001, 0.0003, 0.0005, 0.0007]
 
 # all classes and functions:
 
@@ -832,63 +812,12 @@ def run(config_dict, wandb_project, save_model, unique_name):
     return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
 
 
-def get_config_dict(index, name):
-    config_dict = dict(experiment_name=name,
-                       device_train="cuda:0",
-                       device_val="cuda:0",
-                       nb_epoch_max=1000000,
-                       max_duration=int(71.5 * 3600),
-                       nb_epoch_early_stopping_stop=100,
-                       early_stopping_smoothing_factor=0.01,
-                       fe=250,
-                       nb_batch_per_epoch=5000)
+def get_config_dict(index):
+    config_dict = {'experiment_name': f'pareto_search_10_619_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000, 'first_layer_dropout': False,
+                   'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001, 'nb_rnn_layers': 1, 'RNN': True, 'envelope_input': True,
+                   'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
+                   "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
 
-    config_dict["batch_size"] = batch_size_list[index]
-    config_dict["RNN"] = True
-    config_dict["seq_len"] = seq_len_list[index]
-    config_dict["nb_channel"] = nb_channel_list[index]
-    config_dict["dropout"] = dropout_list[index]
-    config_dict["hidden_size"] = hidden_size_list[index]
-    config_dict["seq_stride_s"] = seq_stride_s_list[index]
-    config_dict["lr_adam"] = lr_adam_list[index]
-    config_dict["nb_rnn_layers"] = nb_rnn_layers_list[index]
-    config_dict["first_layer_dropout"] = first_layer_dropout_list[index]
-    config_dict["envelope_input"] = True
-    config_dict["power_features_input"] = power_features_input_list[index]
-    config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
-    config_dict["adam_w"] = adam_w_list[index]
-    config_dict["distribution_mode"] = distribution_mode_list[index]
-    config_dict["classification"] = classification_list[index]
-
-    config_dict["window_size_s"] = windows_size_s_list[index]
-    config_dict["nb_conv_layers"] = nb_conv_layers_list[index]
-    config_dict["stride_pool"] = stride_pool_list[index]
-    config_dict["stride_conv"] = stride_conv_list[index]
-    config_dict["kernel_conv"] = kernel_conv_list[index]
-    config_dict["kernel_pool"] = kernel_pool_list[index]
-    config_dict["dilation_conv"] = dilation_conv_list[index]
-    config_dict["dilation_pool"] = dilation_pool_list[index]
-
-    stride_pool = config_dict["stride_pool"]
-    stride_conv = config_dict["stride_conv"]
-    kernel_conv = config_dict["kernel_conv"]
-    kernel_pool = config_dict["kernel_pool"]
-    window_size_s = config_dict["window_size_s"]
-    dilation_conv = config_dict["dilation_conv"]
-    dilation_pool = config_dict["dilation_pool"]
-    fe = config_dict["fe"]
-    nb_conv_layers = config_dict["nb_conv_layers"]
-
-    conv_padding = 0  # int(kernel_conv // 2)
-    pool_padding = 0  # int(kernel_pool // 2)
-    window_size = int(window_size_s * fe)
-    nb_out = window_size
-
-    for _ in range(nb_conv_layers):
-        nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
-        nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
-    assert nb_out > 0
-    config_dict["nb_out"] = nb_out
     return config_dict
 
 
@@ -899,12 +828,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     exp_name = args.experiment_name
-    exp_index = args.experiment_index % len(power_features_input_list)
+    exp_index = args.experiment_index
 
-    config_dict = get_config_dict(exp_index, exp_name)
+    config_dict = get_config_dict(exp_index)
     seed()  # reset the seed
-    config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000, 'batch_size': 256,
-                   'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001, 'nb_rnn_layers': 1,
-                   'RNN': True,
-                   'envelope_input': True, 'lr_adam': 0.0007, 'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400}
-    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=True)
+    # config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000, 'batch_size': 256,
+    #                'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001, 'nb_rnn_layers': 1,
+    #                'RNN': True,
+    #                'envelope_input': True, 'lr_adam': 0.0007, 'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400}
+
+    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False)
