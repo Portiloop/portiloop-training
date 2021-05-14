@@ -39,7 +39,7 @@ META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
 RUN_NAME = "pareto_search_10"
 
-NB_SAMPLED_MODELS_PER_ITERATION = 500  # number of models sampled per iteration, only the best predicted one is selected
+NB_SAMPLED_MODELS_PER_ITERATION = 200  # number of models sampled per iteration, only the best predicted one is selected
 
 DEFAULT_META_EPOCHS = 100  # default number of meta-epochs before entering meta train/val training regime
 START_META_TRAIN_VAL_AFTER = 100  # minimum number of experiments in the dataset before using a validation set
