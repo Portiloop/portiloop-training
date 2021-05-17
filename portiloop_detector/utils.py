@@ -6,12 +6,12 @@ from random import choices, uniform, gauss
 MIN_NB_PARAMETERS = 1000  # everything below this number of parameters will be discarded
 MAX_NB_PARAMETERS = 150000  # everything over this number of parameters will be discarded
 
-NB_BATCH_PER_EPOCH = 5000
-EPOCHS_PER_EXPERIMENT = 11  # experiments are evaluated after this number of epoch by the meta learner
+NB_BATCH_PER_EPOCH = 1000
+MAX_EPOCHS_PER_EXPERIMENT = 150  # experiments are evaluated after this number of epoch by the meta learner
 
 EPSILON_NOISE = 0.25  # a completely random model will be selected this portion of the time, otherwise, it is sampled from a gaussian
 EPSILON_EXP_NOISE = 0.1  # a random experiment is selected within all sampled experiments this portion of the time
-NETWORK_EARLY_STOPPING = 10
+NETWORK_EARLY_STOPPING = 20
 
 seq_len_range_t = [10, 50, 5]  # min, max, step
 kernel_conv_range_t = [3, 11, 2]  # min, max, step
@@ -29,6 +29,7 @@ nb_rnn_layers_range_t = [1, 2, 1]  # min, max, step
 rnn_range_t = [1, 1, 1]
 envelope_input_range_t = [1, 1, 1]
 lr_adam_range_t = [0.0001, 0.001, 0.0003]
+batch_size_range_t = [64, 256, 64]
 
 MAXIMIZE_F1_SCORE = True
 
@@ -100,6 +101,8 @@ def same_config_dict(config1, config2):
         flag += 1
     if config1["lr_adam"] != config2["lr_adam"]:
         flag += 1
+    if config1["batch_size"] != config2["batch_size"]:
+        flag += 1
     return flag == 0
 
 
@@ -107,7 +110,7 @@ def sample_config_dict(name, previous_exp, all_exp):
     config_dict = dict(experiment_name=name,
                        device_train="cuda:0",
                        device_val="cuda:0",
-                       nb_epoch_max=EPOCHS_PER_EXPERIMENT,
+                       nb_epoch_max=MAX_EPOCHS_PER_EXPERIMENT,
                        max_duration=int(71.5 * 3600),
                        nb_epoch_early_stopping_stop=NETWORK_EARLY_STOPPING,
                        early_stopping_smoothing_factor=0.1,
@@ -120,7 +123,7 @@ def sample_config_dict(name, previous_exp, all_exp):
 
     # config_dict["RNN"] = True
     # config_dict["envelope_input"] = True
-    config_dict["batch_size"] = 256
+   # config_dict["batch_size"] = 256
     config_dict["first_layer_dropout"] = False
     config_dict["power_features_input"] = False
     config_dict["dropout"] = 0.5
@@ -145,6 +148,7 @@ def sample_config_dict(name, previous_exp, all_exp):
             config_dict["envelope_input"], unrounded["envelope_input"] = sample_from_range(envelope_input_range_t)
             config_dict["envelope_input"] = config_dict["envelope_input"] == 1
             config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t)
+            config_dict["batch_size"], unrounded["batch_size"] = sample_from_range(batch_size_range_t)
         else:
             previous_unrounded = previous_exp["unrounded"]
             if 'RNN' not in previous_unrounded.keys():
@@ -162,6 +166,7 @@ def sample_config_dict(name, previous_exp, all_exp):
             config_dict["envelope_input"], unrounded["envelope_input"] = sample_from_range(envelope_input_range_t, previous_unrounded['envelope_input'])
             config_dict["envelope_input"] = config_dict["envelope_input"] == 1
             config_dict["lr_adam"], unrounded["lr_adam"] = sample_from_range(lr_adam_range_t, previous_unrounded['lr_adam'])
+            config_dict["batch_size"], unrounded["batch_size"] = sample_from_range(batch_size_range_t, previous_unrounded['batch_size'])
         config_dict["seq_len"] = 1 if not config_dict["RNN"] else config_dict["seq_len"]
         while nb_out < 1:
 

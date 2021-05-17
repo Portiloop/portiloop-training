@@ -720,6 +720,9 @@ def run(config_dict, wandb_project, save_model, unique_name):
     best_model_recall_validation = 0
     best_model_loss_validation = 1
 
+    accuracy_train = None
+    loss_train = None
+
     early_stopping_counter = 0
     loss_early_stopping = None
     h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
@@ -728,10 +731,10 @@ def run(config_dict, wandb_project, save_model, unique_name):
 
         print(f"DEBUG: epoch: {epoch}")
 
-        accuracy_train = 0
-        loss_train = 0
         n = 0
-        if epoch > 0:
+        if epoch > -1:
+            accuracy_train = 0
+            loss_train = 0
             _t_start = time.time()
             for batch_data in train_loader:
                 batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
@@ -796,7 +799,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
             best_model_loss_validation = loss_validation
             best_model_accuracy = accuracy_validation
 
-        loss_early_stopping = loss_validation if loss_early_stopping is None and early_stopping_smoothing_factor == 1 else max(1, loss_validation) if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
+        loss_early_stopping = loss_validation if loss_early_stopping is None and early_stopping_smoothing_factor == 1 else loss_validation if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
                 1.0 - early_stopping_smoothing_factor)
 
         if loss_early_stopping < best_loss_early_stopping:
