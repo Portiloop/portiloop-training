@@ -37,7 +37,7 @@ MAX_META_ITERATIONS = 1000  # maximum number of experiments
 
 META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
-RUN_NAME = "pareto_search_10"
+RUN_NAME = "pareto_search_11"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 200  # number of models sampled per iteration, only the best predicted one is selected
 
@@ -499,7 +499,7 @@ def iterative_training_local():
         print(f"nb parameters: {nb_params}")
         print(f"predicted cost: {predicted_cost}")
         print("training...")
-        best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], WANDB_PROJECT_PARETO + "_runs", save_model=False, unique_name=True)
+        best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], WANDB_PROJECT_PARETO + "_runs_11", save_model=False, unique_name=True)
         exp["cost_software"] = 1 - best_f1_score if MAXIMIZE_F1_SCORE else best_loss
 
         pareto_front = update_pareto(exp, pareto_front)

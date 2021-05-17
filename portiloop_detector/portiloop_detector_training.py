@@ -731,7 +731,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
         accuracy_train = 0
         loss_train = 0
         n = 0
-        if epoch > -1:
+        if epoch > 0:
             _t_start = time.time()
             for batch_data in train_loader:
                 batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
@@ -851,8 +851,8 @@ if __name__ == "__main__":
     exp_index = args.experiment_index
 
     config_dict = get_config_dict(exp_index)
-    config_dict["experiment_name"] = "test_sans_balancing"
-    config_dict["nb_batch_per_epoch"] = 100
+    config_dict["experiment_name"] = "test_sans_balancing_v2"
+    config_dict["nb_batch_per_epoch"] = 5000
     config_dict["distribution_mode"] = 1
     seed()  # reset the seed
     # config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000, 'batch_size': 256,
