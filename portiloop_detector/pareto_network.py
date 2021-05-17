@@ -673,7 +673,7 @@ class Worker:
                 self.__exp_to_run_lock.release()
 
                 predicted_loss = exp['cost_software']
-                best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], WANDB_PROJECT_PARETO + "_runs", save_model=False, unique_name=True)
+                best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], WANDB_PROJECT_PARETO + "_runs_11", save_model=False, unique_name=True)
                 exp["cost_software"] = 1 - best_f1_score if MAXIMIZE_F1_SCORE else best_loss
                 exp['surprise'] = exp["cost_software"] - predicted_loss
                 self.__finished_exp_lock.acquire()
