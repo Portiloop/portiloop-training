@@ -491,10 +491,10 @@ def f1_loss(output, batch_labels):
     # print(f"DEBUG: output in loss : {output[:,1]}")
     # print(f"DEBUG: batch_labels in loss : {batch_labels}")
     y_pred = output[:, 1]
-    tp = (batch_labels * y_pred).sum().to(torch.float32).item()
+    tp = (batch_labels * y_pred).sum().to(torch.float32)
     # tn = ((1 - batch_labels) * (1 - y_pred)).sum().to(torch.float32).item()
-    fp = ((1 - batch_labels) * y_pred).sum().to(torch.float32).item()
-    fn = (batch_labels * (1 - y_pred)).sum().to(torch.float32).item()
+    fp = ((1 - batch_labels) * y_pred).sum().to(torch.float32)
+    fn = (batch_labels * (1 - y_pred)).sum().to(torch.float32)
 
     epsilon = 1e-7
 
