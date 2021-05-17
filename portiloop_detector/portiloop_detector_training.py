@@ -486,6 +486,25 @@ class LoggerWandb:
         self.wandb_run.restore(self.experiment_name, root=path_dataset)
 
 
+def f1_loss(output, batch_labels):
+    print(f"DEBUG: output in loss : {output}")
+    print(f"DEBUG: batch_labels in loss : {batch_labels}")
+    assert False
+    y_pred = output[1]
+    tp = (batch_labels * y_pred).sum().to(torch.float32).item()
+    tn = ((1 - batch_labels) * (1 - y_pred)).sum().to(torch.float32).item()
+    fp = ((1 - batch_labels) * y_pred).sum().to(torch.float32).item()
+    fn = (batch_labels * (1 - y_pred)).sum().to(torch.float32).item()
+
+    epsilon = 1e-7
+
+    precision = tp / (tp + fp + epsilon)
+    recall = tp / (tp + fn + epsilon)
+
+    f1 = 2 * (precision * recall) / (precision + recall + epsilon)
+    return 1 - f1
+
+
 def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation):
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
@@ -664,7 +683,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     logger = LoggerWandb(experiment_name, config_dict, wandb_project)
     torch.seed()
     net = PortiloopNetwork(config_dict).to(device=device_train)
-    criterion = nn.MSELoss() if not classification else nn.CrossEntropyLoss()
+    criterion = nn.MSELoss() if not classification else f1_loss
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
 
     first_epoch = 0
@@ -777,7 +796,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
             best_model_loss_validation = loss_validation
             best_model_accuracy = accuracy_validation
 
-        loss_early_stopping = loss_validation if loss_early_stopping is None and early_stopping_smoothing_factor == 1 else max(0.2, loss_validation) if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
+        loss_early_stopping = loss_validation if loss_early_stopping is None and early_stopping_smoothing_factor == 1 else max(1, loss_validation) if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
                 1.0 - early_stopping_smoothing_factor)
 
         if loss_early_stopping < best_loss_early_stopping:
@@ -831,6 +850,7 @@ if __name__ == "__main__":
     exp_index = args.experiment_index
 
     config_dict = get_config_dict(exp_index)
+    config_dict["experiment_name"] = "test"
     seed()  # reset the seed
     # config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000, 'batch_size': 256,
     #                'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001, 'nb_rnn_layers': 1,
