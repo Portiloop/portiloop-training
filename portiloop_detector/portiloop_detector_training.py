@@ -20,8 +20,9 @@ from torch.utils.data.sampler import Sampler
 import wandb
 from utils import out_dim, MAXIMIZE_F1_SCORE
 
-THRESHOLD = 0.2
 PHASE = 'p1'
+threshold_list = {'p1': 0.2, 'p2': 0.35}
+THRESHOLD = threshold_list[PHASE]
 WANDB_PROJECT_RUN = f"{PHASE}-dataset"
 
 filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
@@ -528,7 +529,7 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             batch_samples_input3 = batch_samples_input3.to(device=device).float()
             batch_labels = batch_labels.to(device=device).float()
             if classification:
-                batch_labels = (batch_labels >= THRESHOLD)
+                batch_labels = (batch_labels > THRESHOLD)
                 batch_labels = batch_labels.long()
             output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
             # print(f"DEBUG: label = {batch_labels}")
@@ -539,8 +540,8 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             loss += loss_py.item()
             # print(f"DEBUG: loss = {loss}")
             if not classification:
-                output = (output >= THRESHOLD)
-                batch_labels = (batch_labels >= THRESHOLD)
+                output = (output > THRESHOLD)
+                batch_labels = (batch_labels > THRESHOLD)
             else:
                 assert output.ndim == 2
                 output = output.argmax(dim=1)
@@ -747,7 +748,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
 
                 optimizer.zero_grad()
                 if classification:
-                    batch_labels = (batch_labels >= THRESHOLD)
+                    batch_labels = (batch_labels > THRESHOLD)
                     batch_labels = batch_labels.long()
 
                 output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
@@ -761,8 +762,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
                 optimizer.step()
 
                 if not classification:
-                    output = (output >= THRESHOLD)
-                    batch_labels = (batch_labels >= THRESHOLD)
+                    output = (output > THRESHOLD)
+                    batch_labels = (batch_labels > THRESHOLD)
                 else:
                     if output.ndim == 2:
                         output = output.argmax(dim=1)
