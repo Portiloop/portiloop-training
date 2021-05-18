@@ -14,7 +14,7 @@ import pandas as pd
 import pyedflib
 
 phase = 'p2'
-subject_file = {'p1': "6_segListSrcDataLoc_p1.txt", 'p2': "7_segListSrcDataLoc_p2"}
+subject_file = {'p1': "6_segListSrcDataLoc_p1.txt", 'p2': "7_segListSrcDataLoc_p2.txt"}
 
 t_start = time()
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
