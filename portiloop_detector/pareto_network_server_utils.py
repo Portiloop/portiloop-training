@@ -2,10 +2,11 @@ import pickle
 import socket
 import time
 from copy import deepcopy
-from threading import Lock, Thread
-from requests import get
-import select
 from datetime import datetime
+from threading import Lock, Thread
+
+import select
+from requests import get
 
 IP_SERVER = "142.182.5.48"  # Yann = "45.74.221.204"; Nicolas = "142.182.5.48"
 PORT_META = 6666
