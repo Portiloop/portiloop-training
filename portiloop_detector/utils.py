@@ -27,7 +27,7 @@ nb_conv_layers_range_t = [1, 5, 1]  # min, max, step
 nb_rnn_layers_range_t = [1, 2, 1]  # min, max, step
 rnn_range_t = [1, 1, 1]
 envelope_input_range_t = [1, 1, 1]
-lr_adam_range_t = [0.0001, 0.001, 0.0003]
+lr_adam_range_t = [0.0003, 0.0009, 0.0002]
 batch_size_range_t = [64, 256, 64]
 
 MAXIMIZE_F1_SCORE = True
