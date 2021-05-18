@@ -499,8 +499,9 @@ def f1_loss(output, batch_labels):
     fp = ((1 - batch_labels) * y_pred).sum().to(torch.float32)
     fn = (batch_labels * (1 - y_pred)).sum().to(torch.float32)
 
-    F1_class1 = 2 * tp / (2 * tp + fp + fn)
-    F1_class0 = 2 * tn / (2 * tn + fn + fp)
+    epsilon = 1e-7
+    F1_class1 = 2 * tp / (2 * tp + fp + fn + epsilon)
+    F1_class0 = 2 * tn / (2 * tn + fn + fp + epsilon)
     New_F1 = (F1_class1 + F1_class0) / 2
     return 1 - New_F1
 
