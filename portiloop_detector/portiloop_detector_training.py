@@ -21,9 +21,11 @@ import wandb
 from utils import out_dim, MAXIMIZE_F1_SCORE
 
 THRESHOLD = 0.2
-WANDB_PROJECT_RUN = "p1-dataset"
+PHASE = 'p1'
+WANDB_PROJECT_RUN = f"{PHASE}-dataset"
 
-filename_dataset = "dataset_p1_big_250_matlab_standardized_envelope_pf.txt"
+filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+subject_list = f"subject_sequence_{PHASE}_big.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
@@ -576,7 +578,7 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
 # run:
 
 def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch):
-    all_subject = pd.read_csv(Path(path_dataset) / "subject_sequence_p1_big.txt", header=None, delim_whitespace=True).to_numpy()
+    all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
     train_subject, test_subject = train_test_split(all_subject, train_size=0.9, random_state=0)
     train_subject, validation_subject = train_test_split(train_subject, train_size=0.95, random_state=0)  # with K fold cross validation, this split will be done K times
 
