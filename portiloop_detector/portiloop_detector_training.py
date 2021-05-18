@@ -495,17 +495,14 @@ def f1_loss(output, batch_labels):
     # print(f"DEBUG: batch_labels in loss : {batch_labels}")
     y_pred = output[:, 1]
     tp = (batch_labels * y_pred).sum().to(torch.float32)
-    # tn = ((1 - batch_labels) * (1 - y_pred)).sum().to(torch.float32).item()
+    tn = ((1 - batch_labels) * (1 - y_pred)).sum().to(torch.float32).item()
     fp = ((1 - batch_labels) * y_pred).sum().to(torch.float32)
     fn = (batch_labels * (1 - y_pred)).sum().to(torch.float32)
 
-    epsilon = 1e-7
-
-    precision = tp / (tp + fp + epsilon)
-    recall = tp / (tp + fn + epsilon)
-
-    f1 = 2 * (precision * recall) / (precision + recall + epsilon)
-    return 1 - f1
+    F1_class1 = 2 * tp / (2 * tp + fp + fn)
+    F1_class0 = 2 * tn / (2 * tn + fn + fp)
+    New_F1 = (F1_class1 + F1_class0) / 2
+    return 1 - New_F1
 
 
 def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation):
