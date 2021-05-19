@@ -684,7 +684,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     logger = LoggerWandb(experiment_name, config_dict, wandb_project)
     torch.seed()
     net = PortiloopNetwork(config_dict).to(device=device_train)
-    criterion = nn.MSELoss() if not classification else f1_loss
+    criterion = nn.MSELoss() if not classification else nn.CrossEntropyLoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
 
     first_epoch = 0
