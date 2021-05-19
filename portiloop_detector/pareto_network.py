@@ -361,5 +361,6 @@ if __name__ == "__main__":
         logging.info('So should this')
         logging.warning('And this, too')
         logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
-
+    else:
+        logging.basicConfig(level=logging.DEBUG)
     main(args)
