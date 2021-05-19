@@ -742,8 +742,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
 
                 output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
 
-                if not classification:
-                    output = output.view(-1)
+                output = output.view(-1)
 
                 loss = criterion(output, batch_labels)
                 loss_train += loss.item()
