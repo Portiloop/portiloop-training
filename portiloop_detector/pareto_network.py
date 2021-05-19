@@ -1,5 +1,6 @@
 # Networking ===========================================================================
 import socket
+import sys
 import time
 from argparse import ArgumentParser
 from copy import deepcopy
@@ -317,9 +318,12 @@ class Worker:
                 exp = deepcopy(self.__exp_to_run)
                 self.__exp_to_run = None
                 self.__exp_to_run_lock.release()
-
-                predicted_loss = exp['cost_software']
-                best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], f"{WANDB_PROJECT_PARETO}_runs_{PARETO_ID}", save_model=False, unique_name=True)
+                original_stdout = sys.stdout  # Save a reference to the original standard output
+                with open("test_output_.txt", 'a') as f:
+                    sys.stdout = f  # Change the standard output to the file we created.
+                    predicted_loss = exp['cost_software']
+                    best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], f"{WANDB_PROJECT_PARETO}_runs_{PARETO_ID}", save_model=False, unique_name=True)
+                sys.stdout = original_stdout  # Reset the standard output to its original value
                 exp["cost_software"] = 1 - best_f1_score if MAXIMIZE_F1_SCORE else best_loss
                 exp['surprise'] = exp["cost_software"] - predicted_loss
                 self.__finished_exp_lock.acquire()
