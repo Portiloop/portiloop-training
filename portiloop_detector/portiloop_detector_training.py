@@ -488,7 +488,7 @@ class LoggerWandb:
 def f1_loss(output, batch_labels):
     # logging.debug(f"output in loss : {output[:,1]}")
     # logging.debug(f"batch_labels in loss : {batch_labels}")
-    y_pred = output[:, 1]
+    y_pred = output
     tp = (batch_labels * y_pred).sum().to(torch.float32)
     tn = ((1 - batch_labels) * (1 - y_pred)).sum().to(torch.float32).item()
     fp = ((1 - batch_labels) * y_pred).sum().to(torch.float32)
@@ -675,7 +675,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     logger = LoggerWandb(experiment_name, config_dict, wandb_project)
     torch.seed()
     net = PortiloopNetwork(config_dict).to(device=device_train)
-    criterion = nn.MSELoss() if not classification else nn.BCELoss()
+    criterion = nn.MSELoss() if not classification else f1_loss
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
 
     first_epoch = 0
