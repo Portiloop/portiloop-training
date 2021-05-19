@@ -38,7 +38,7 @@ MAX_META_ITERATIONS = 1000  # maximum number of experiments
 
 META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
-PARETO_ID = 13
+PARETO_ID = 14
 RUN_NAME = f"pareto_search_{PARETO_ID}"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 200  # number of models sampled per iteration, only the best predicted one is selected
