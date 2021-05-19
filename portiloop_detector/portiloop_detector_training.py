@@ -523,7 +523,7 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             batch_labels = batch_labels.to(device=device).float()
             if classification:
                 batch_labels = (batch_labels > THRESHOLD)
-                batch_labels = batch_labels.long()
+                batch_labels = batch_labels.float()
             output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
             # logging.debug(f"label = {batch_labels}")
             # logging.debug(f"output = {output}")
@@ -738,7 +738,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
                 optimizer.zero_grad()
                 if classification:
                     batch_labels = (batch_labels > THRESHOLD)
-                    batch_labels = batch_labels.long()
+                    batch_labels = batch_labels.float()
 
                 output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
 
