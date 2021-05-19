@@ -3,12 +3,6 @@ from math import floor
 from random import choices, uniform, gauss
 
 import logging
-logging.basicConfig(filename='example.log', level=logging.DEBUG)
-logging.debug('This message should go to the log file')
-logging.info('So should this')
-logging.warning('And this, too')
-logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
-
 
 
 MIN_NB_PARAMETERS = 1000  # everything below this number of parameters will be discarded

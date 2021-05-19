@@ -353,5 +353,13 @@ if __name__ == "__main__":
     parser.add_argument('--server', action='store_true')
     parser.add_argument('--meta', action='store_true')
     parser.add_argument('--worker', action='store_true')
+    parser.add_argument('--output_file', type=str, default=None)
     args = parser.parse_args()
+    if args.output_file is not None:
+        logging.basicConfig(filename=args.output_file, level=logging.DEBUG)
+        logging.debug('This message should go to the log file')
+        logging.info('So should this')
+        logging.warning('And this, too')
+        logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
+
     main(args)
