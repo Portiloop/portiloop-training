@@ -2,6 +2,7 @@ import logging
 import pickle
 import socket
 import time
+from argparse import ArgumentParser
 from copy import deepcopy
 from threading import Lock, Thread
 
@@ -12,7 +13,7 @@ IP_SERVER = "142.182.5.48"  # Yann = "45.74.221.204"; Nicolas = "142.182.5.48"
 PORT_META = 6666
 PORT_WORKER = 6667
 
-WAIT_BEFORE_RECONNECTION = 60.0
+WAIT_BEFORE_RECONNECTION = 10.0
 
 SOCKET_TIMEOUT_COMMUNICATE = 20.0
 
@@ -315,6 +316,7 @@ class Server:
             s = get_listening_socket(SOCKET_TIMEOUT_ACCEPT_WORKER, ip, PORT_WORKER)
             conn, addr = accept_or_close_socket(s)
             if conn is None:
+                logging.debug("No incoming connection in workers thread")
                 continue
             logging.debug(f"INFO WORKERS THREAD: server connected by worker at address {addr}")
             Thread(target=self.__worker_thread, args=(conn,), kwargs={}, daemon=True).start()  # we don't keep track of this for now
@@ -369,6 +371,18 @@ class Server:
 
 
 if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument('--output_file', type=str, default=None)
+    args = parser.parse_args()
+    if args.output_file is not None:
+        logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
+        logging.debug('This message should go to the log file')
+        logging.info('So should this')
+        logging.warning('And this, too')
+        logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
+    else:
+        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
+
     Server()
     while True:
         time.sleep(10.0)
