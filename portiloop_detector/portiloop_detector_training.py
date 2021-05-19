@@ -386,8 +386,6 @@ class PortiloopNetwork(nn.Module):
         if self.power_features_input:
             fc_features += 1
         out_features = 1
-        if self.classification:
-            out_features = 2
         self.fc = nn.Linear(in_features=fc_features,  # enveloppe and signal + power features ratio
                             out_features=out_features)  # probability of being a spindle
 
@@ -428,10 +426,7 @@ class PortiloopNetwork(nn.Module):
             x = torch.cat((x, x3), -1)
 
         x = self.fc(x)  # output size: 1
-        if self.classification:
-            x = torch.softmax(x, dim=-1)
-        else:
-            x = torch.sigmoid(x)
+        x = torch.sigmoid(x)
         return x, hn1, hn2
 
 
@@ -532,17 +527,13 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
             # logging.debug(f"label = {batch_labels}")
             # logging.debug(f"output = {output}")
-            if not classification:
-                output = output.view(-1)
+            output = output.view(-1)
             loss_py = criterion(output, batch_labels)
             loss += loss_py.item()
             # logging.debug(f"loss = {loss}")
             if not classification:
                 output = (output > THRESHOLD)
                 batch_labels = (batch_labels > THRESHOLD)
-            else:
-                assert output.ndim == 2
-                output = output.argmax(dim=1)
             # logging.debug(f"label = {batch_labels}")
             # logging.debug(f"output = {output}")
 
@@ -684,7 +675,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     logger = LoggerWandb(experiment_name, config_dict, wandb_project)
     torch.seed()
     net = PortiloopNetwork(config_dict).to(device=device_train)
-    criterion = nn.MSELoss() if not classification else nn.CrossEntropyLoss()
+    criterion = nn.MSELoss() if not classification else nn.BCELoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
 
     first_epoch = 0
