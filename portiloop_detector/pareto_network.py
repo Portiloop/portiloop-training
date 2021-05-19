@@ -57,7 +57,7 @@ class MetaLearner:
             wait_ack = False
             s = get_connected_socket(SOCKET_TIMEOUT_CONNECT_META, self.server_ip, PORT_META)
             if s is None:
-                print_with_timestamp("DEBUG: get_connected_socket failed in Meta thread")
+                print_with_timestamp("get_connected_socket failed in Meta thread")
                 continue
             while True:
                 # send weights
@@ -70,7 +70,7 @@ class MetaLearner:
                             wait_ack = True
                         else:
                             self.__to_launch_lock.release()
-                            print_with_timestamp("DEBUG: select_and_send_or_close_socket failed in Meta")
+                            print_with_timestamp("select_and_send_or_close_socket failed in Meta")
                             break
                     else:
                         elapsed = time.time() - ack_time
@@ -83,7 +83,7 @@ class MetaLearner:
                 # checks for samples batch
                 success, obj = poll_and_recv_or_close_socket(s)
                 if not success:
-                    print_with_timestamp("DEBUG: poll failed in Meta thread")
+                    print_with_timestamp("poll failed in Meta thread")
                     break
                 elif obj is not None and obj != 'ACK':  # received finished
                     print_with_timestamp(f"DEBUG INFO: Meta interface received obj")
@@ -98,7 +98,7 @@ class MetaLearner:
                     wait_ack = False
                     print_with_timestamp(f"INFO: transfer acknowledgment received after {time.time() - ack_time}s")
                 elif time.time() - recv_time > self.recv_tiemout:
-                    print_with_timestamp(f"DEBUG: Timeout in TrainerInterface, not received anything for too long")
+                    print_with_timestamp(f"Timeout in TrainerInterface, not received anything for too long")
                     break
                 time.sleep(LOOP_SLEEP_TIME)
             s.close()
@@ -112,13 +112,13 @@ class MetaLearner:
         launched_experiments = []
 
         if finished_experiments is None:
-            logging.debug(f"DEBUG: no meta dataset found, starting new run")
+            logging.debug(f"no meta dataset found, starting new run")
             finished_experiments = []  # list of dictionaries
             pareto_front = []  # list of dictionaries, subset of finished_experiments
             meta_model = SurrogateModel()
             meta_model.to(META_MODEL_DEVICE)
         else:
-            logging.debug(f"DEBUG: existing meta dataset loaded")
+            logging.debug(f"existing meta dataset loaded")
             logging.debug("training new surrogate model...")
             meta_model = SurrogateModel()
             meta_model.to(META_MODEL_DEVICE)
@@ -145,7 +145,7 @@ class MetaLearner:
                 self.__results_lock.release()
                 for res in temp_results:
                     if 'best_epoch' in res.keys():
-                        logging.debug(f"DEBUG: best epoch for the model received : {res['best_epoch']}")
+                        logging.debug(f"best epoch for the model received : {res['best_epoch']}")
                     to_remove = -1
                     to_update = -1
                     for i, exp in enumerate(launched_experiments):
@@ -267,13 +267,13 @@ class Worker:
             wait_ack = False
             s = get_connected_socket(SOCKET_TIMEOUT_CONNECT_WORKER, self.server_ip, PORT_WORKER)
             if s is None:
-                print_with_timestamp("DEBUG: get_connected_socket failed in worker")
+                print_with_timestamp("get_connected_socket failed in worker")
                 continue
             while True:
                 # send buffer
                 self.__finished_exp_lock.acquire()  # BUFFER LOCK.............................................................
                 if self.__finished_exp is not None:  # a new result is available
-                    print_with_timestamp("DEBUG: new result available")
+                    print_with_timestamp("new result available")
                     if not wait_ack:
                         obj = deepcopy(self.__finished_exp)
                         if select_and_send_or_close_socket(obj, s):
@@ -281,7 +281,7 @@ class Worker:
                             wait_ack = True
                         else:
                             self.__finished_exp_lock.release()
-                            print_with_timestamp("DEBUG: select_and_send_or_close_socket failed in worker")
+                            print_with_timestamp("select_and_send_or_close_socket failed in worker")
                             break
                         self.__finished_exp = None
                     else:
@@ -307,7 +307,7 @@ class Worker:
                     wait_ack = False
                     print_with_timestamp(f"INFO: transfer acknowledgment received after {time.time() - ack_time}s")
                 elif time.time() - recv_time > self.recv_timeout:
-                    print_with_timestamp(f"DEBUG: Timeout in worker, not received anything for too long")
+                    print_with_timestamp(f"Timeout in worker, not received anything for too long")
                     break
                 time.sleep(LOOP_SLEEP_TIME)
             s.close()
@@ -356,11 +356,11 @@ if __name__ == "__main__":
     parser.add_argument('--output_file', type=str, default=None)
     args = parser.parse_args()
     if args.output_file is not None:
-        logging.basicConfig(filename=args.output_file, level=logging.DEBUG)
+        logging.basicConfig(format='%(levelname)s:%(message)s', filename=args.output_file, level=logging.DEBUG)
         logging.debug('This message should go to the log file')
         logging.info('So should this')
         logging.warning('And this, too')
         logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
     else:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
     main(args)

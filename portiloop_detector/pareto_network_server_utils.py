@@ -97,13 +97,13 @@ def recv_object(sock):
         except OSError:  # connection closed or broken
             return None
         l = len(msg)
-        # print_with_timestamp(f"DEBUG: l:{l}")
-    # print_with_timestamp("DEBUG: data len:", msg[:HEADER_SIZE])
-    # print_with_timestamp(f"DEBUG: msg[:4]: {msg[:4]}")
+        # print_with_timestamp(f"l:{l}")
+    # print_with_timestamp("data len:", msg[:HEADER_SIZE])
+    # print_with_timestamp(f"msg[:4]: {msg[:4]}")
     if msg[:3] == b'ACK':
         return 'ACK'
     msglen = int(msg[:HEADER_SIZE])
-    # print_with_timestamp(f"DEBUG: receiving {msglen} bytes")
+    # print_with_timestamp(f"receiving {msglen} bytes")
     t_start = time.time()
     # now, we receive the actual data (no more than the data length, again to prevent collisions)
     msg = b''
@@ -118,8 +118,8 @@ def recv_object(sock):
             return None
         l = len(msg)
         # print_with_timestamp(f"DEBUG2: l:{l}")
-    # print_with_timestamp("DEBUG: final data len:", l)
-    # print_with_timestamp(f"DEBUG: finished receiving after {time.time() - t_start}s.")
+    # print_with_timestamp("final data len:", l)
+    # print_with_timestamp(f"finished receiving after {time.time() - t_start}s.")
     send_ack(sock)
     return pickle.loads(msg)
 
@@ -175,9 +175,9 @@ def select_and_send_or_close_socket(obj, conn):
     Returns True if success
     False if disconnected (closes sockets)
     """
-    print_with_timestamp(f"DEBUG: start select")
+    print_with_timestamp(f"start select")
     _, wl, xl = select.select([], [conn], [conn], SELECT_TIMEOUT_OUTBOUND)  # select for writing
-    print_with_timestamp(f"DEBUG: end select")
+    print_with_timestamp(f"end select")
     if len(xl) != 0:
         print_with_timestamp("INFO: error when writing, closing socket")
         conn.close()
@@ -213,7 +213,7 @@ def poll_and_recv_or_close_socket(conn):
     elif obj == 'PINGPONG':
         return True, None
     else:
-        # print_with_timestamp(f"DEBUG: received obj:{obj}")
+        # print_with_timestamp(f"received obj:{obj}")
         return True, obj
 
 
@@ -251,7 +251,7 @@ class Server:
             s = get_listening_socket(SOCKET_TIMEOUT_ACCEPT_META, ip, PORT_META)
             conn, addr = accept_or_close_socket(s)
             if conn is None:
-                # print_with_timestamp("DEBUG: accept_or_close_socket failed in trainers thread")
+                # print_with_timestamp("accept_or_close_socket failed in trainers thread")
                 continue
             print_with_timestamp(f"INFO METAS THREAD: server connected by meta at address {addr}")
             Thread(target=self.__meta_thread, args=(conn,), kwargs={}, daemon=True).start()  # we don't keep track of this for now
@@ -294,7 +294,7 @@ class Server:
             # checks for weights
             success, obj = poll_and_recv_or_close_socket(conn)
             if not success:
-                print_with_timestamp("DEBUG: poll failed in meta thread")
+                print_with_timestamp("poll failed in meta thread")
                 break
             elif obj is not None and obj != 'ACK':
                 is_working = False
@@ -342,7 +342,7 @@ class Server:
                             wait_ack = True
                         else:
                             self.__to_launch_lock.release()
-                            print_with_timestamp("DEBUG: select_and_send_or_close_socket failed in worker thread")
+                            print_with_timestamp("select_and_send_or_close_socket failed in worker thread")
                             break
                     else:
                         elapsed = time.time() - ack_time
@@ -355,7 +355,7 @@ class Server:
             # checks for samples
             success, obj = poll_and_recv_or_close_socket(conn)
             if not success:
-                print_with_timestamp("DEBUG: poll failed in worker thread")
+                print_with_timestamp("poll failed in worker thread")
                 break
             elif obj is not None and obj != 'ACK':
                 is_working = False
