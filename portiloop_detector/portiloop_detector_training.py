@@ -831,7 +831,9 @@ def run(config_dict, wandb_project, save_model, unique_name):
         if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
             logging.debug("Early stopping.")
             break
+    logging.debug("Delete logger")
     del logger
+    logging.debug("Logger deleted")
     return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
 
 
@@ -852,13 +854,13 @@ if __name__ == "__main__":
     parser.add_argument('--output_file', type=str, default=None)
     args = parser.parse_args()
     if args.output_file is not None:
-        logging.basicConfig(format='%(levelname)s:%(message)s', filename=args.output_file, level=logging.DEBUG)
+        logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
         logging.debug('This message should go to the log file')
         logging.info('So should this')
         logging.warning('And this, too')
         logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
     else:
-        logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
+        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
 
     exp_name = args.experiment_name
     exp_index = args.experiment_index

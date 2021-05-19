@@ -1,9 +1,7 @@
-import logging
 import pickle
 import socket
 import time
 from copy import deepcopy
-from datetime import datetime
 from threading import Lock, Thread
 
 import select
@@ -45,10 +43,10 @@ BUFFER_SIZE = 4096
 PRINT_BYTESIZES = True
 
 
-def print_with_timestamp(s):
-    x = datetime.now()
-    sx = x.strftime("%x %X ")
-    logging.debug(sx + str(s))
+# def print_with_timestamp(s):
+#     x = datetime.now()
+#     sx = x.strftime("%x %X ")
+#     logging.debug(sx + str(s))
 
 
 def send_ack(sock):

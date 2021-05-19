@@ -1,9 +1,7 @@
+import logging
 from copy import deepcopy
 from math import floor
 from random import choices, uniform, gauss
-
-import logging
-
 
 MIN_NB_PARAMETERS = 1000  # everything below this number of parameters will be discarded
 MAX_NB_PARAMETERS = 150000  # everything over this number of parameters will be discarded
