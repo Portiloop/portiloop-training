@@ -1,6 +1,7 @@
 """
 Pareto-optimal hyperparameter search (meta-learning)
 """
+import logging
 import os
 import pickle as pkl
 # all imports
@@ -204,7 +205,7 @@ def train_surrogate(net, all_experiments):
             optimizer.step()
 
         mean_loss = np.mean(losses)
-        # print(f"DEBUG: epoch {epoch} mean_loss_training = {mean_loss}")
+        # logging.debug(f"DEBUG: epoch {epoch} mean_loss_training = {mean_loss}")
 
         if len(all_experiments) > START_META_TRAIN_VAL_AFTER:
             net.eval()
@@ -221,7 +222,7 @@ def train_surrogate(net, all_experiments):
                     losses.append(loss.item())
 
                 mean_loss_validation = np.mean(losses)
-                # print(f"DEBUG: mean_loss_validation = {mean_loss_validation}")
+                # logging.debug(f"DEBUG: mean_loss_validation = {mean_loss_validation}")
                 if mean_loss_validation < best_val_loss:
                     best_val_loss = mean_loss_validation
                     early_stopping_counter = 0
@@ -232,10 +233,10 @@ def train_surrogate(net, all_experiments):
                 if early_stopping_counter >= META_EARLY_STOPPING:
                     net = best_model
                     mean_loss = best_val_loss
-                    print(f"DEBUG: meta training converged at epoch:{epoch} (-{META_EARLY_STOPPING})")
+                    logging.debug(f"DEBUG: meta training converged at epoch:{epoch} (-{META_EARLY_STOPPING})")
                     break
                 elif epoch == MAX_META_EPOCHS - 1:
-                    print(f"DEBUG: meta training did not converge after epoch:{epoch}")
+                    logging.debug(f"DEBUG: meta training did not converge after epoch:{epoch}")
                     break
     net.eval()
     return net, mean_loss
@@ -341,7 +342,7 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
                 best_efficiency = efficiency + nerf
                 best_nerf = nerf
         assert best_exp is not None
-        print(f"DEBUG: selected {best_exp['cost_hardware']}: efficiency:{best_efficiency}, nerf:{best_nerf}")
+        logging.debug(f"DEBUG: selected {best_exp['cost_hardware']}: efficiency:{best_efficiency}, nerf:{best_nerf}")
         return best_exp
 
 
@@ -438,26 +439,26 @@ def iterative_training_local():
     all_experiments, pareto_front = load_network_files()
 
     if all_experiments is None:
-        print(f"DEBUG: no meta dataset found, starting new run")
+        logging.debug(f"DEBUG: no meta dataset found, starting new run")
         all_experiments = []  # list of dictionaries
         pareto_front = []  # list of dictionaries, subset of all_experiments
         meta_model = SurrogateModel()
         meta_model.to(META_MODEL_DEVICE)
     else:
-        print(f"DEBUG: existing meta dataset loaded")
-        print("training new surrogate model...")
+        logging.debug(f"DEBUG: existing meta dataset loaded")
+        logging.debug("training new surrogate model...")
         meta_model = SurrogateModel()
         meta_model.to(META_MODEL_DEVICE)
         meta_model.train()
         meta_model, meta_loss = train_surrogate(meta_model, deepcopy(all_experiments))
-        print(f"surrogate model loss: {meta_loss}")
+        logging.debug(f"surrogate model loss: {meta_loss}")
 
     # main meta-learning procedure:
 
     for meta_iteration in range(MAX_META_ITERATIONS):
         num_experiment = len(all_experiments)
-        print("---")
-        print(f"ITERATION N° {meta_iteration}")
+        logging.debug("---")
+        logging.debug(f"ITERATION N° {meta_iteration}")
 
         exp = {}
         prev_exp = {}
@@ -475,7 +476,7 @@ def iterative_training_local():
             if nb_params > MAX_NB_PARAMETERS or nb_params < MIN_NB_PARAMETERS:
                 continue
             if nb_params < MIN_NB_PARAMETERS:
-                print("ERROR")
+                logging.debug("ERROR")
             with torch.no_grad():
                 input = transform_config_dict_to_input(config_dict)
                 predicted_cost = meta_model(input).item()
@@ -496,11 +497,11 @@ def iterative_training_local():
         predicted_cost = exp["cost_software"]
         nb_params = exp["cost_hardware"]
 
-        print(f"config: {config_dict}")
+        logging.debug(f"config: {config_dict}")
 
-        print(f"nb parameters: {nb_params}")
-        print(f"predicted cost: {predicted_cost}")
-        print("training...")
+        logging.debug(f"nb parameters: {nb_params}")
+        logging.debug(f"predicted cost: {predicted_cost}")
+        logging.debug("training...")
         best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], f"{WANDB_PROJECT_PARETO}_runs_{PARETO_ID}", save_model=False, unique_name=True)
         exp["cost_software"] = 1 - best_f1_score if MAXIMIZE_F1_SCORE else best_loss
 
@@ -509,11 +510,11 @@ def iterative_training_local():
 
         prev_exp = exp
 
-        print(f"actual cost: {exp['cost_software']}")
+        logging.debug(f"actual cost: {exp['cost_software']}")
         surprise = exp['cost_software'] - predicted_cost
-        print(f"surprise: {surprise}")
+        logging.debug(f"surprise: {surprise}")
 
-        print("training new surrogate model...")
+        logging.debug("training new surrogate model...")
 
         meta_model = SurrogateModel()
         meta_model.to(META_MODEL_DEVICE)
@@ -521,12 +522,12 @@ def iterative_training_local():
         meta_model.train()
         meta_model, meta_loss = train_surrogate(meta_model, deepcopy(all_experiments))
 
-        print(f"surrogate model loss: {meta_loss}")
+        logging.debug(f"surrogate model loss: {meta_loss}")
 
         dump_network_files(all_experiments, pareto_front)
         logger.log(surrogate_loss=meta_loss, surprise=surprise, all_experiments=all_experiments, pareto_front=pareto_front)
 
-    print(f"End of meta-training.")
+    logging.debug(f"End of meta-training.")
 
 
 # Main:

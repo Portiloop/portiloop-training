@@ -11,7 +11,7 @@ from pyinstrument import Profiler
 from requests import get
 
 from pareto_network_server_utils import Server, RECV_TIMEOUT_META_FROM_SERVER, SOCKET_TIMEOUT_CONNECT_META, PORT_META, LOOP_SLEEP_TIME, RECV_TIMEOUT_WORKER_FROM_SERVER, \
-    PORT_WORKER, SOCKET_TIMEOUT_CONNECT_WORKER, ACK_TIMEOUT_WORKER_TO_SERVER, IP_SERVER, ACK_TIMEOUT_META_TO_SERVER, select_and_send_or_close_socket, print_with_timestamp, poll_and_recv_or_close_socket, get_connected_socket
+    PORT_WORKER, SOCKET_TIMEOUT_CONNECT_WORKER, ACK_TIMEOUT_WORKER_TO_SERVER, IP_SERVER, ACK_TIMEOUT_META_TO_SERVER, select_and_send_or_close_socket, logging.debug_with_timestamp, poll_and_recv_or_close_socket, get_connected_socket
 from pareto_search import LoggerWandbPareto, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, update_pareto, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, run, \
     load_network_files, dump_network_files, transform_config_dict_to_input, WANDB_PROJECT_PARETO, PARETO_ID, path_dataset
 from utils import same_config_dict, sample_config_dict, MIN_NB_PARAMETERS, MAXIMIZE_F1_SCORE, PROFILE_META
@@ -39,9 +39,9 @@ class MetaLearner:
         self.__must_launch = False
         self.__must_launch_lock = Lock()
 
-        print_with_timestamp(f"local IP: {self.local_ip}")
-        print_with_timestamp(f"public IP: {self.public_ip}")
-        print_with_timestamp(f"server IP: {self.server_ip}")
+        logging.debug_with_timestamp(f"local IP: {self.local_ip}")
+        logging.debug_with_timestamp(f"public IP: {self.public_ip}")
+        logging.debug_with_timestamp(f"server IP: {self.server_ip}")
 
         Thread(target=self.__run_thread, args=(), kwargs={}, daemon=True).start()
         self.run()
@@ -56,7 +56,7 @@ class MetaLearner:
             wait_ack = False
             s = get_connected_socket(SOCKET_TIMEOUT_CONNECT_META, self.server_ip, PORT_META)
             if s is None:
-                print_with_timestamp("DEBUG: get_connected_socket failed in Meta thread")
+                logging.debug_with_timestamp("DEBUG: get_connected_socket failed in Meta thread")
                 continue
             while True:
                 # send weights
@@ -69,23 +69,23 @@ class MetaLearner:
                             wait_ack = True
                         else:
                             self.__to_launch_lock.release()
-                            print_with_timestamp("DEBUG: select_and_send_or_close_socket failed in Meta")
+                            logging.debug_with_timestamp("DEBUG: select_and_send_or_close_socket failed in Meta")
                             break
                     else:
                         elapsed = time.time() - ack_time
-                        print_with_timestamp(f"WARNING: object ready but ACK from last transmission not received. Elapsed:{elapsed}s")
+                        logging.debug_with_timestamp(f"WARNING: object ready but ACK from last transmission not received. Elapsed:{elapsed}s")
                         if elapsed >= ACK_TIMEOUT_META_TO_SERVER:
-                            print_with_timestamp("INFO: ACK timed-out, breaking connection")
+                            logging.debug_with_timestamp("INFO: ACK timed-out, breaking connection")
                             self.__to_launch_lock.release()
                             break
                 self.__to_launch_lock.release()  # END LOCK.......................................................
                 # checks for samples batch
                 success, obj = poll_and_recv_or_close_socket(s)
                 if not success:
-                    print_with_timestamp("DEBUG: poll failed in Meta thread")
+                    logging.debug_with_timestamp("DEBUG: poll failed in Meta thread")
                     break
                 elif obj is not None and obj != 'ACK':  # received finished
-                    print_with_timestamp(f"DEBUG INFO: Meta interface received obj")
+                    logging.debug_with_timestamp(f"DEBUG INFO: Meta interface received obj")
                     recv_time = time.time()
                     self.__results_lock.acquire()  # LOCK.........................................................
                     self.__results += obj
@@ -95,9 +95,9 @@ class MetaLearner:
                     self.__must_launch_lock.release()
                 elif obj == 'ACK':
                     wait_ack = False
-                    print_with_timestamp(f"INFO: transfer acknowledgment received after {time.time() - ack_time}s")
+                    logging.debug_with_timestamp(f"INFO: transfer acknowledgment received after {time.time() - ack_time}s")
                 elif time.time() - recv_time > self.recv_tiemout:
-                    print_with_timestamp(f"DEBUG: Timeout in TrainerInterface, not received anything for too long")
+                    logging.debug_with_timestamp(f"DEBUG: Timeout in TrainerInterface, not received anything for too long")
                     break
                 time.sleep(LOOP_SLEEP_TIME)
             s.close()
@@ -111,19 +111,19 @@ class MetaLearner:
         launched_experiments = []
 
         if finished_experiments is None:
-            print(f"DEBUG: no meta dataset found, starting new run")
+            logging.debug(f"DEBUG: no meta dataset found, starting new run")
             finished_experiments = []  # list of dictionaries
             pareto_front = []  # list of dictionaries, subset of finished_experiments
             meta_model = SurrogateModel()
             meta_model.to(META_MODEL_DEVICE)
         else:
-            print(f"DEBUG: existing meta dataset loaded")
-            print("training new surrogate model...")
+            logging.debug(f"DEBUG: existing meta dataset loaded")
+            logging.debug("training new surrogate model...")
             meta_model = SurrogateModel()
             meta_model.to(META_MODEL_DEVICE)
             meta_model.train()
             meta_model, meta_loss = train_surrogate(meta_model, deepcopy(finished_experiments))
-            print(f"surrogate model loss: {meta_loss}")
+            logging.debug(f"surrogate model loss: {meta_loss}")
 
         # main meta-learning procedure:
         prev_exp = {}
@@ -144,7 +144,7 @@ class MetaLearner:
                 self.__results_lock.release()
                 for res in temp_results:
                     if 'best_epoch' in res.keys():
-                        print(f"DEBUG: best epoch for the model received : {res['best_epoch']}")
+                        logging.debug(f"DEBUG: best epoch for the model received : {res['best_epoch']}")
                     to_remove = -1
                     to_update = -1
                     for i, exp in enumerate(launched_experiments):
@@ -167,7 +167,7 @@ class MetaLearner:
                     dump_network_files(finished_experiments, pareto_front)
                     prev_exp = res
                 if len(finished_experiments) > 0 and prev_exp != {}:  # train before sampling a new model
-                    print("training new surrogate model...")
+                    logging.debug("training new surrogate model...")
 
                     meta_model = SurrogateModel()
                     meta_model.to(META_MODEL_DEVICE)
@@ -175,13 +175,13 @@ class MetaLearner:
                     meta_model.train()
                     meta_model, meta_loss = train_surrogate(meta_model, deepcopy(finished_experiments))
 
-                    print(f"surrogate model loss: {meta_loss}")
+                    logging.debug(f"surrogate model loss: {meta_loss}")
 
                     logger.log(surrogate_loss=meta_loss, surprise=prev_exp["surprise"], all_experiments=finished_experiments, pareto_front=pareto_front)
 
                 num_experiment = len(finished_experiments) + len(launched_experiments)
-                print("---")
-                print(f"ITERATION N° {num_experiment}")
+                logging.debug("---")
+                logging.debug(f"ITERATION N° {num_experiment}")
 
                 exp = {}
                 exps = []
@@ -214,9 +214,9 @@ class MetaLearner:
                         model_selected = True
                         exp = exp_max_pareto_efficiency(exps, pareto_front, finished_experiments)
 
-                print(f"config: {exp['config_dict']}")
-                print(f"nb parameters: {exp['cost_hardware']}")
-                print(f"predicted cost: {exp['cost_software']}")
+                logging.debug(f"config: {exp['config_dict']}")
+                logging.debug(f"nb parameters: {exp['cost_hardware']}")
+                logging.debug(f"predicted cost: {exp['cost_software']}")
 
                 self.__to_launch_lock.acquire()
                 self.__to_launch.append(exp)
@@ -226,7 +226,7 @@ class MetaLearner:
 
                 if PROFILE_META:
                     pro.stop()
-                    print(pro.output_text(unicode=False, color=False))
+                    logging.debug(pro.output_text(unicode=False, color=False))
 
             else:
                 self.__must_launch_lock.release()
@@ -249,9 +249,9 @@ class Worker:
         self.__exp_to_run = None
         self.__exp_to_run_lock = Lock()
 
-        print_with_timestamp(f"local IP: {self.local_ip}")
-        print_with_timestamp(f"public IP: {self.public_ip}")
-        print_with_timestamp(f"server IP: {self.server_ip}")
+        logging.debug_with_timestamp(f"local IP: {self.local_ip}")
+        logging.debug_with_timestamp(f"public IP: {self.public_ip}")
+        logging.debug_with_timestamp(f"server IP: {self.server_ip}")
 
         Thread(target=self.__run_thread, args=(), kwargs={}, daemon=True).start()
         self.run()
@@ -266,13 +266,13 @@ class Worker:
             wait_ack = False
             s = get_connected_socket(SOCKET_TIMEOUT_CONNECT_WORKER, self.server_ip, PORT_WORKER)
             if s is None:
-                print_with_timestamp("DEBUG: get_connected_socket failed in worker")
+                logging.debug_with_timestamp("DEBUG: get_connected_socket failed in worker")
                 continue
             while True:
                 # send buffer
                 self.__finished_exp_lock.acquire()  # BUFFER LOCK.............................................................
                 if self.__finished_exp is not None:  # a new result is available
-                    print_with_timestamp("DEBUG: new result available")
+                    logging.debug_with_timestamp("DEBUG: new result available")
                     if not wait_ack:
                         obj = deepcopy(self.__finished_exp)
                         if select_and_send_or_close_socket(obj, s):
@@ -280,33 +280,33 @@ class Worker:
                             wait_ack = True
                         else:
                             self.__finished_exp_lock.release()
-                            print_with_timestamp("DEBUG: select_and_send_or_close_socket failed in worker")
+                            logging.debug_with_timestamp("DEBUG: select_and_send_or_close_socket failed in worker")
                             break
                         self.__finished_exp = None
                     else:
                         elapsed = time.time() - ack_time
-                        print_with_timestamp(f"WARNING: object ready but ACK from last transmission not received. Elapsed:{elapsed}s")
+                        logging.debug_with_timestamp(f"WARNING: object ready but ACK from last transmission not received. Elapsed:{elapsed}s")
                         if elapsed >= ACK_TIMEOUT_WORKER_TO_SERVER:
-                            print_with_timestamp("INFO: ACK timed-out, breaking connection")
+                            logging.debug_with_timestamp("INFO: ACK timed-out, breaking connection")
                             self.__finished_exp_lock.release()
                             break
                 self.__finished_exp_lock.release()  # END BUFFER LOCK.........................................................
                 # checks for new experiments to launch
                 success, obj = poll_and_recv_or_close_socket(s)
                 if not success:
-                    print_with_timestamp(f"INFO: worker poll failed")
+                    logging.debug_with_timestamp(f"INFO: worker poll failed")
                     break
                 elif obj is not None and obj != 'ACK':
-                    print_with_timestamp(f"DEBUG INFO: worker received obj")
+                    logging.debug_with_timestamp(f"DEBUG INFO: worker received obj")
                     recv_time = time.time()
                     self.__exp_to_run_lock.acquire()  # LOCK.......................................................
                     self.__exp_to_run = obj
                     self.__exp_to_run_lock.release()  # END LOCK...................................................
                 elif obj == 'ACK':
                     wait_ack = False
-                    print_with_timestamp(f"INFO: transfer acknowledgment received after {time.time() - ack_time}s")
+                    logging.debug_with_timestamp(f"INFO: transfer acknowledgment received after {time.time() - ack_time}s")
                 elif time.time() - recv_time > self.recv_timeout:
-                    print_with_timestamp(f"DEBUG: Timeout in worker, not received anything for too long")
+                    logging.debug_with_timestamp(f"DEBUG: Timeout in worker, not received anything for too long")
                     break
                 time.sleep(LOOP_SLEEP_TIME)
             s.close()
@@ -318,14 +318,10 @@ class Worker:
                 exp = deepcopy(self.__exp_to_run)
                 self.__exp_to_run = None
                 self.__exp_to_run_lock.release()
-                original_stdout = sys.stdout  # Save a reference to the original standard output
                 with open(path_dataset / f"{exp['config_dict']['experiment_name']}.txt", 'a') as f:
-                    print(f"DEBUG: change stdout to a file")
-                    sys.stdout = f  # Change the standard output to the file we created.
+                    logging.debug(f"DEBUG: change stdout to a file")
                     predicted_loss = exp['cost_software']
-                    best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], f"{WANDB_PROJECT_PARETO}_runs_{PARETO_ID}", save_model=False, unique_name=True)
-                sys.stdout = original_stdout  # Reset the standard output to its original value
-                print(f"DEBUG: reset stdout")
+                    best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], f"{WANDB_PROJECT_PARETO}_runs_{PARETO_ID}", save_model=False, unique_name=True, logging.debug_file=f)
                 exp["cost_software"] = 1 - best_f1_score if MAXIMIZE_F1_SCORE else best_loss
                 exp['surprise'] = exp["cost_software"] - predicted_loss
                 self.__finished_exp_lock.acquire()
@@ -338,16 +334,16 @@ class Worker:
 
 def main(args):
     if args.server:
-        print("INFO: now running: server")
+        logging.debug("INFO: now running: server")
         Server()
     elif args.worker:
         Worker(server_ip=IP_SERVER)
-        print("INFO: now running: worker")
+        logging.debug("INFO: now running: worker")
     elif args.meta:
         MetaLearner(server_ip=IP_SERVER)
-        print("INFO: now running: meta")
+        logging.debug("INFO: now running: meta")
     else:
-        print("ERROR: wrong argument")
+        logging.debug("ERROR: wrong argument")
     while True:
         time.sleep(10.0)
         pass

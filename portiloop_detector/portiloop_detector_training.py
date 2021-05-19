@@ -1,6 +1,7 @@
 # all imports
 
 import copy
+import logging
 import os
 import time
 from argparse import ArgumentParser
@@ -53,7 +54,7 @@ class SignalDataset(Dataset):
         split_data = np.array(np.split(self.data, int(len(self.data) / (len_segment + 30 * fe))))  # 115+30 = nb seconds per sequence in the dataset
         split_data = split_data[used_sequence]
         self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
-        # print(f"DEBUG: data shape = {self.data.shape}")
+        # logging.debug(f"DEBUG: data shape = {self.data.shape}")
         # if "portiloop" in filename:
         #     split_data = np.array(np.split(self.data, int(len(self.data) / (900 * fe))))  # 900 = nb seconds per sequence in the dataset
         # else:
@@ -76,7 +77,7 @@ class SignalDataset(Dataset):
                         if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
                                 or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
         total_spindles = np.sum(self.data[3] > THRESHOLD)
-        print(f"DEBUG: nb total of spindles in this dataset : {total_spindles}")
+        logging.debug(f"DEBUG: nb total of spindles in this dataset : {total_spindles}")
 
     def __len__(self):
         return len(self.indices)
@@ -160,7 +161,7 @@ class RandomSampler(Sampler):
         proba = 0.5
         if self.distribution_mode == 1:
             proba = 1
-        print(f"DEBUG: proba: {proba}")
+        logging.debug(f"DEBUG: proba: {proba}")
 
         while cur_iter < self.length:
             cur_iter += 1
@@ -199,7 +200,7 @@ class ValidationSampler(Sampler):
     def __iter__(self):
         seed()
         nb_batch = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
-        # print(f"DEBUG: nb_batch_validation = {nb_batch}")
+        # logging.debug(f"DEBUG: nb_batch_validation = {nb_batch}")
         cur_batch = 0
         cnt = 0
         while cur_batch < nb_batch:
@@ -209,7 +210,7 @@ class ValidationSampler(Sampler):
                     cnt += 1
                     yield cur_idx
             cur_batch += 1
-        # print(f"DEBUG: nb iteration in validation sampler = {cnt}")
+        # logging.debug(f"DEBUG: nb iteration in validation sampler = {cnt}")
         #
         # for i in range(nb_iter):
         #     cur_iter = 0
@@ -490,8 +491,8 @@ class LoggerWandb:
 
 
 def f1_loss(output, batch_labels):
-    # print(f"DEBUG: output in loss : {output[:,1]}")
-    # print(f"DEBUG: batch_labels in loss : {batch_labels}")
+    # logging.debug(f"DEBUG: output in loss : {output[:,1]}")
+    # logging.debug(f"DEBUG: batch_labels in loss : {batch_labels}")
     y_pred = output[:, 1]
     tp = (batch_labels * y_pred).sum().to(torch.float32)
     tn = ((1 - batch_labels) * (1 - y_pred)).sum().to(torch.float32).item()
@@ -529,24 +530,24 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
                 batch_labels = (batch_labels > THRESHOLD)
                 batch_labels = batch_labels.long()
             output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
-            # print(f"DEBUG: label = {batch_labels}")
-            # print(f"DEBUG: output = {output}")
+            # logging.debug(f"DEBUG: label = {batch_labels}")
+            # logging.debug(f"DEBUG: output = {output}")
             if not classification:
                 output = output.view(-1)
             loss_py = criterion(output, batch_labels)
             loss += loss_py.item()
-            # print(f"DEBUG: loss = {loss}")
+            # logging.debug(f"DEBUG: loss = {loss}")
             if not classification:
                 output = (output > THRESHOLD)
                 batch_labels = (batch_labels > THRESHOLD)
             else:
                 assert output.ndim == 2
                 output = output.argmax(dim=1)
-            # print(f"DEBUG: label = {batch_labels}")
-            # print(f"DEBUG: output = {output}")
+            # logging.debug(f"DEBUG: label = {batch_labels}")
+            # logging.debug(f"DEBUG: output = {output}")
 
             acc += (output == batch_labels).float().mean()
-            # print(f"DEBUG: acc = {acc}")
+            # logging.debug(f"DEBUG: acc = {acc}")
 
             output = output.float()
             batch_labels = batch_labels.float()
@@ -555,10 +556,10 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             tn += ((1 - batch_labels) * (1 - output)).sum().to(torch.float32).item()
             fp += ((1 - batch_labels) * output).sum().to(torch.float32).item()
             fn += (batch_labels * (1 - output)).sum().to(torch.float32).item()
-            # print(f"DEBUG: tp = {tp}")
-            # print(f"DEBUG: tn = {tn}")
-            # print(f"DEBUG: fp = {fp}")
-            # print(f"DEBUG: fn = {fn}")
+            # logging.debug(f"DEBUG: tp = {tp}")
+            # logging.debug(f"DEBUG: tn = {tn}")
+            # logging.debug(f"DEBUG: fp = {fp}")
+            # logging.debug(f"DEBUG: fn = {fn}")
             # assert n < 20
             n += 1
     acc /= n
@@ -580,9 +581,9 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     train_subject, test_subject = train_test_split(all_subject, train_size=0.9, random_state=0)
     train_subject, validation_subject = train_test_split(train_subject, train_size=0.95, random_state=0)  # with K fold cross validation, this split will be done K times
 
-    print(f"DEBUG: Subjects in training : {train_subject[:, 0]}")
-    print(f"DEBUG: Subjects in validation : {validation_subject[:, 0]}")
-    print(f"DEBUG: Subjects in test : {test_subject[:, 0]}")
+    logging.debug(f"DEBUG: Subjects in training : {train_subject[:, 0]}")
+    logging.debug(f"DEBUG: Subjects in validation : {validation_subject[:, 0]}")
+    logging.debug(f"DEBUG: Subjects in test : {test_subject[:, 0]}")
 
     len_segment = 115 * fe
 
@@ -620,7 +621,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                distribution_mode=distribution_mode)
 
     nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
-    # print(f"DEBUG: nb_segment_validation = {nb_segment_validation}")
+    # logging.debug(f"DEBUG: nb_segment_validation = {nb_segment_validation}")
 
     samp_validation = ValidationSampler(ds_validation,
                                         #  nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
@@ -636,7 +637,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                               pin_memory=True)
 
     batch_size_validation = seq_stride * nb_segment_validation
-    # print(f"DEBUG: batch_size_validation = {batch_size_validation}")
+    # logging.debug(f"DEBUG: batch_size_validation = {batch_size_validation}")
 
     validation_loader = DataLoader(ds_validation,
                                    batch_size=batch_size_validation,
@@ -653,7 +654,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     global precision_validation_factor
     global recall_validation_factor
     _t_start = time.time()
-    print(f"DEBUG: config_dict: {config_dict}")
+    logging.debug(f"DEBUG: config_dict: {config_dict}")
     experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}" if unique_name else config_dict['experiment_name']
     nb_epoch_max = config_dict["nb_epoch_max"]
     nb_batch_per_epoch = config_dict["nb_batch_per_epoch"]
@@ -690,7 +691,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     try:
         logger.restore()
         checkpoint = torch.load(path_dataset / experiment_name)
-        print("DEBUG: Use checkpoint model")
+        logging.debug("DEBUG: Use checkpoint model")
         net.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         first_epoch = checkpoint['epoch'] + 1
@@ -698,7 +699,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
         precision_validation_factor = checkpoint['precision_validation_factor']
     except (ValueError, FileNotFoundError):
         #    net = PortiloopNetwork(config_dict).to(device=device_train)
-        print("DEBUG: Create new model")
+        logging.debug("DEBUG: Create new model")
     net = net.train()
     nb_weights = 0
     for i in net.parameters():
@@ -729,7 +730,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     for epoch in range(first_epoch, first_epoch + nb_epoch_max):
 
-        print(f"DEBUG: epoch: {epoch}")
+        logging.debug(f"DEBUG: epoch: {epoch}")
 
         n = 0
         if epoch > -1:
@@ -767,7 +768,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
                 accuracy_train += (output == batch_labels).float().mean()
                 n += 1
             _t_stop = time.time()
-            print(f"DEBUG: Training time for 1 epoch : {_t_stop - _t_start} s")
+            logging.debug(f"DEBUG: Training time for 1 epoch : {_t_stop - _t_start} s")
             accuracy_train /= n
             loss_train /= n
 
@@ -775,7 +776,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
         accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
             validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers, classification, batch_size_validation)
         _t_stop = time.time()
-        print(f"DEBUG: Validation time for 1 epoch : {_t_stop - _t_start} s")
+        logging.debug(f"DEBUG: Validation time for 1 epoch : {_t_stop - _t_start} s")
 
         recall_validation_factor = recall_validation
         precision_validation_factor = precision_validation
@@ -828,7 +829,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
                    updated_model=updated_model)
 
         if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
-            print("Early stopping.")
+            logging.debug("Early stopping.")
             break
     del logger
     return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping

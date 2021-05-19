@@ -2,6 +2,15 @@ from copy import deepcopy
 from math import floor
 from random import choices, uniform, gauss
 
+import logging
+logging.basicConfig(filename='example.log', encoding='utf-8', level=logging.DEBUG)
+logging.debug('This message should go to the log file')
+logging.info('So should this')
+logging.warning('And this, too')
+logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
+
+
+
 MIN_NB_PARAMETERS = 1000  # everything below this number of parameters will be discarded
 MAX_NB_PARAMETERS = 150000  # everything over this number of parameters will be discarded
 
@@ -122,7 +131,7 @@ def sample_config_dict(name, previous_exp, all_exp):
 
     # config_dict["RNN"] = True
     # config_dict["envelope_input"] = True
-   # config_dict["batch_size"] = 256
+    # config_dict["batch_size"] = 256
     config_dict["first_layer_dropout"] = False
     config_dict["power_features_input"] = False
     config_dict["dropout"] = 0.5
@@ -211,7 +220,7 @@ def sample_config_dict(name, previous_exp, all_exp):
         for exp in all_exp:
             if same_config_dict(exp['config_dict'], config_dict):
                 flag_in_exps = True
-                print(f"DEBUG : config already tried = {config_dict}")
+                logging.debug(f"DEBUG : config already tried = {config_dict}")
                 break
 
     config_dict["nb_out"] = nb_out
@@ -222,4 +231,3 @@ def sample_config_dict(name, previous_exp, all_exp):
 
 def out_dim(window_size, padding, dilation, kernel, stride):
     return floor((window_size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)
-

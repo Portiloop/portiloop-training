@@ -1,3 +1,4 @@
+import logging
 import pickle
 import socket
 import time
@@ -47,7 +48,7 @@ PRINT_BYTESIZES = True
 def print_with_timestamp(s):
     x = datetime.now()
     sx = x.strftime("%x %X ")
-    print(sx + str(s))
+    logging.debug(sx + str(s))
 
 
 def send_ack(sock):
