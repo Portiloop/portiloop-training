@@ -10,8 +10,8 @@ import torch
 from pyinstrument import Profiler
 from requests import get
 
-from pareto_network_server_utils import Server, RECV_TIMEOUT_META_FROM_SERVER, SOCKET_TIMEOUT_CONNECT_META, PORT_META, LOOP_SLEEP_TIME, RECV_TIMEOUT_WORKER_FROM_SERVER, \
-    PORT_WORKER, SOCKET_TIMEOUT_CONNECT_WORKER, ACK_TIMEOUT_WORKER_TO_SERVER, IP_SERVER, ACK_TIMEOUT_META_TO_SERVER, select_and_send_or_close_socket, poll_and_recv_or_close_socket, get_connected_socket
+from pareto_network_server_utils import Server, RECV_TIMEOUT_META_FROM_SERVER, SOCKET_TIMEOUT_CONNECT_META, PORT_META, RECV_TIMEOUT_WORKER_FROM_SERVER, \
+    PORT_WORKER, SOCKET_TIMEOUT_CONNECT_WORKER, ACK_TIMEOUT_WORKER_TO_SERVER, IP_SERVER, ACK_TIMEOUT_META_TO_SERVER, select_and_send_or_close_socket, poll_and_recv_or_close_socket, get_connected_socket, LOOP_SLEEP_TIME_META, LOOP_SLEEP_TIME_WORKER, LOOP_SLEEP_TIME
 from pareto_search import LoggerWandbPareto, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, update_pareto, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, run, \
     load_network_files, dump_network_files, transform_config_dict_to_input, WANDB_PROJECT_PARETO, PARETO_ID
 from utils import same_config_dict, sample_config_dict, MIN_NB_PARAMETERS, MAXIMIZE_F1_SCORE, PROFILE_META
@@ -116,7 +116,7 @@ class MetaLearner:
                 elif time.time() - recv_time > self.recv_tiemout:
                     logging.debug(f"Timeout in TrainerInterface, not received anything for too long")
                     break
-                time.sleep(LOOP_SLEEP_TIME)
+                time.sleep(LOOP_SLEEP_TIME_META)
             s.close()
 
     def run(self):
@@ -342,7 +342,7 @@ class Worker:
                 elif time.time() - recv_time > self.recv_timeout:
                     logging.debug(f"Timeout in worker, not received anything for too long")
                     break
-                time.sleep(LOOP_SLEEP_TIME)
+                time.sleep(LOOP_SLEEP_TIME_WORKER)
             s.close()
 
     def run(self):
