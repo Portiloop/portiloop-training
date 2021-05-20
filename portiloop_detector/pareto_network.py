@@ -11,7 +11,7 @@ from pyinstrument import Profiler
 from requests import get
 
 from pareto_network_server_utils import Server, RECV_TIMEOUT_META_FROM_SERVER, SOCKET_TIMEOUT_CONNECT_META, PORT_META, RECV_TIMEOUT_WORKER_FROM_SERVER, \
-    PORT_WORKER, SOCKET_TIMEOUT_CONNECT_WORKER, ACK_TIMEOUT_WORKER_TO_SERVER, IP_SERVER, ACK_TIMEOUT_META_TO_SERVER, select_and_send_or_close_socket, poll_and_recv_or_close_socket, get_connected_socket, LOOP_SLEEP_TIME_META, LOOP_SLEEP_TIME_WORKER, LOOP_SLEEP_TIME
+    PORT_WORKER, SOCKET_TIMEOUT_CONNECT_WORKER, ACK_TIMEOUT_WORKER_TO_SERVER, IP_SERVER, ACK_TIMEOUT_META_TO_SERVER, select_and_send_or_close_socket, poll_and_recv_or_close_socket, get_connected_socket, LOOP_SLEEP_TIME_META, LOOP_SLEEP_TIME_WORKER, LOOP_SLEEP_TIME, SEND_ALIVE
 from pareto_search import LoggerWandbPareto, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, update_pareto, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, run, \
     load_network_files, dump_network_files, transform_config_dict_to_input, WANDB_PROJECT_PARETO, PARETO_ID
 from utils import same_config_dict, sample_config_dict, MIN_NB_PARAMETERS, MAXIMIZE_F1_SCORE, PROFILE_META
@@ -51,6 +51,7 @@ class MetaLearner:
         Meta interface thread
         """
         while True:  # main client loop
+            alive_time = time.time()
             ack_time = time.time()
             recv_time = time.time()
             wait_ack = False
@@ -80,14 +81,17 @@ class MetaLearner:
                             break
                 else:
                     if not wait_ack:
-                        obj = "ALIVE"
-                        if select_and_send_or_close_socket(obj, s):
-                            ack_time = time.time()
-                            wait_ack = True
-                        else:
-                            self.__to_launch_lock.release()
-                            logging.debug("select_and_send_or_close_socket failed in Meta")
-                            break
+                        elapsed = time.time() - alive_time
+                        if elapsed >= SEND_ALIVE:
+                            alive_time = time.time()
+                            obj = "ALIVE"
+                            if select_and_send_or_close_socket(obj, s):
+                                ack_time = time.time()
+                                wait_ack = True
+                            else:
+                                self.__to_launch_lock.release()
+                                logging.debug("select_and_send_or_close_socket failed in Meta")
+                                break
                     else:
                         elapsed = time.time() - ack_time
                         logging.debug(f"WARNING: object ready but ACK from last transmission not received. Elapsed:{elapsed}s")
@@ -278,6 +282,7 @@ class Worker:
         Worker thread
         """
         while True:  # main client loop
+            alive_time = time.time()
             ack_time = time.time()
             recv_time = time.time()
             wait_ack = False
@@ -309,14 +314,17 @@ class Worker:
                             break
                 else:
                     if not wait_ack:
-                        obj = "ALIVE"
-                        if select_and_send_or_close_socket(obj, s):
-                            ack_time = time.time()
-                            wait_ack = True
-                        else:
-                            self.__finished_exp_lock.release()
-                            logging.debug("select_and_send_or_close_socket failed in Meta")
-                            break
+                        elapsed = time.time() - alive_time
+                        if elapsed >= SEND_ALIVE:
+                            alive_time = time.time()
+                            obj = "ALIVE"
+                            if select_and_send_or_close_socket(obj, s):
+                                ack_time = time.time()
+                                wait_ack = True
+                            else:
+                                self.__finished_exp_lock.release()
+                                logging.debug("select_and_send_or_close_socket failed in Meta")
+                                break
                     else:
                         elapsed = time.time() - ack_time
                         logging.debug(f"WARNING: object ready but ACK from last transmission not received. Elapsed:{elapsed}s")
