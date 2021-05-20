@@ -175,9 +175,9 @@ def select_and_send_or_close_socket(obj, conn):
     Returns True if success
     False if disconnected (closes sockets)
     """
-    logging.debug(f"start select")
+    # logging.debug(f"start select")
     _, wl, xl = select.select([], [conn], [conn], SELECT_TIMEOUT_OUTBOUND)  # select for writing
-    logging.debug(f"end select")
+    # logging.debug(f"end select")
     if len(xl) != 0:
         logging.debug("INFO: error when writing, closing socket")
         conn.close()
@@ -358,7 +358,7 @@ class Server:
             if not success:
                 logging.debug("poll failed in worker thread")
                 break
-            elif obj is not None and obj != 'ACK':
+            elif obj is not None and obj != 'ACK' and obj != "ALIVE":
                 is_working = False
                 logging.debug(f"DEBUG INFO: worker thread received obj")
                 self.__finished_lock.acquire()  # BUFFER LOCK.............................................................
