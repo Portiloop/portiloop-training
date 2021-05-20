@@ -512,8 +512,8 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
     fn = 0
     loss = 0
     n = 0
-    batch_labels_total = None
-    output_total = None
+    batch_labels_total = []
+    output_total = []
     h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
     h2 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
     with torch.no_grad():
