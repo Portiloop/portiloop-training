@@ -538,12 +538,8 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
                 batch_labels = (batch_labels > THRESHOLD)
             else:
                 output = (output >= 0.5)
-            if batch_labels_total is None:
-                batch_labels_total = batch_labels
-                output_total = output
-            else:
-                batch_labels_total += batch_labels
-                output_total += output
+            batch_labels_total = torch.cat([batch_labels_total, batch_labels])
+            output_total = torch.cat([output_total, output])
             logging.debug(f"batch_label_total : {batch_labels_total}")
             logging.debug(f"output_total : {output_total}")
 
@@ -873,9 +869,10 @@ if __name__ == "__main__":
     exp_index = args.experiment_index
 
     config_dict = get_config_dict(exp_index)
-    config_dict["experiment_name"] = "test_sans_balancing_v2"
+    config_dict["experiment_name"] = "test_v3"
     config_dict["nb_batch_per_epoch"] = 1000
     config_dict["distribution_mode"] = 0
+    config_dict["seq_len"] = 1
     seed()  # reset the seed
     # config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000, 'batch_size': 256,
     #                'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001, 'nb_rnn_layers': 1,
