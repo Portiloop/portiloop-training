@@ -31,7 +31,7 @@ class MetaLearner:
         self.public_ip = get('http://api.ipify.org').text
         self.local_ip = socket.gethostbyname(socket.gethostname())
         self.server_ip = server_ip if server_ip is not None else '127.0.0.1'
-        self.recv_tiemout = RECV_TIMEOUT_META_FROM_SERVER
+        self.recv_timeout = RECV_TIMEOUT_META_FROM_SERVER
         self.__results_lock = Lock()
         self.__results = []
         self.__to_launch_lock = Lock()
@@ -115,9 +115,10 @@ class MetaLearner:
                     self.__must_launch = True
                     self.__must_launch_lock.release()
                 elif obj == 'ACK':
+                    recv_time = time.time()
                     wait_ack = False
                     logging.debug(f"INFO: transfer acknowledgment received after {time.time() - ack_time}s")
-                elif time.time() - recv_time > self.recv_tiemout:
+                elif time.time() - recv_time > self.recv_timeout:
                     logging.debug(f"Timeout in TrainerInterface, not received anything for too long")
                     break
                 time.sleep(LOOP_SLEEP_TIME_META)
@@ -345,6 +346,7 @@ class Worker:
                     self.__exp_to_run = obj
                     self.__exp_to_run_lock.release()  # END LOCK...................................................
                 elif obj == 'ACK':
+                    recv_time = time.time()
                     wait_ack = False
                     logging.debug(f"INFO: transfer acknowledgment received after {time.time() - ack_time}s")
                 elif time.time() - recv_time > self.recv_timeout:
