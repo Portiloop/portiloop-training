@@ -540,8 +540,8 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
                 output = (output >= 0.5)
             batch_labels_total = torch.cat([batch_labels_total, batch_labels])
             output_total = torch.cat([output_total, output])
-            logging.debug(f"batch_label_total : {batch_labels_total}")
-            logging.debug(f"output_total : {output_total}")
+            # logging.debug(f"batch_label_total : {batch_labels_total}")
+            # logging.debug(f"output_total : {output_total}")
 
     acc += (output_total == batch_labels_total).float().mean()
 
