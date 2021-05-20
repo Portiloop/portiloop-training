@@ -80,12 +80,12 @@ class SurrogateModel(nn.Module):
         self.fc1 = nn.Linear(in_features=nb_features,  # nb hyperparameters
                              out_features=nb_features * 25)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
-        self.d1 = nn.Dropout(0.5)
+        self.d1 = nn.Dropout(0)
 
         self.fc2 = nn.Linear(in_features=nb_features * 25,
                              out_features=nb_features * 25)
 
-        self.d2 = nn.Dropout(0.5)
+        self.d2 = nn.Dropout(0)
 
         self.fc3 = nn.Linear(in_features=nb_features * 25,
                              out_features=1)
@@ -170,7 +170,7 @@ def transform_config_dict_to_input(config_dict):
 
 
 def train_surrogate(net, all_experiments):
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0, dampening=0, weight_decay=0.0, nesterov=False)
     criterion = nn.MSELoss()
     best_val_loss = np.inf
     best_model = None
