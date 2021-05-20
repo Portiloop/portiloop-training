@@ -534,6 +534,9 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             if not classification:
                 output = (output > THRESHOLD)
                 batch_labels = (batch_labels > THRESHOLD)
+            else:
+                output = (output >= 0.5)
+
             # logging.debug(f"label = {batch_labels}")
             # logging.debug(f"output = {output}")
 
@@ -753,8 +756,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
                     output = (output > THRESHOLD)
                     batch_labels = (batch_labels > THRESHOLD)
                 else:
-                    if output.ndim == 2:
-                        output = output.argmax(dim=1)
+                    output = (output >= 0.5)
                 accuracy_train += (output == batch_labels).float().mean()
                 n += 1
             _t_stop = time.time()
