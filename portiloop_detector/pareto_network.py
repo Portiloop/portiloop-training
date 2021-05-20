@@ -84,14 +84,14 @@ class MetaLearner:
                     if elapsed >= SEND_ALIVE:
                         alive_time = time.time()
                         if not wait_ack:
-                                obj = "ALIVE"
-                                if select_and_send_or_close_socket(obj, s):
-                                    ack_time = time.time()
-                                    wait_ack = True
-                                else:
-                                    self.__to_launch_lock.release()
-                                    logging.debug("select_and_send_or_close_socket failed in Meta")
-                                    break
+                            obj = "ALIVE"
+                            if select_and_send_or_close_socket(obj, s):
+                                ack_time = time.time()
+                                wait_ack = True
+                            else:
+                                self.__to_launch_lock.release()
+                                logging.debug("select_and_send_or_close_socket failed in Meta")
+                                break
                         else:
                             elapsed = time.time() - ack_time
                             logging.debug(f"WARNING: object ready but ACK from last transmission not received. Elapsed:{elapsed}s")
@@ -317,14 +317,14 @@ class Worker:
                     if elapsed >= SEND_ALIVE:
                         alive_time = time.time()
                         if not wait_ack:
-                                obj = "ALIVE"
-                                if select_and_send_or_close_socket(obj, s):
-                                    ack_time = time.time()
-                                    wait_ack = True
-                                else:
-                                    self.__finished_exp_lock.release()
-                                    logging.debug("select_and_send_or_close_socket failed in Meta")
-                                    break
+                            obj = "ALIVE"
+                            if select_and_send_or_close_socket(obj, s):
+                                ack_time = time.time()
+                                wait_ack = True
+                            else:
+                                self.__finished_exp_lock.release()
+                                logging.debug("select_and_send_or_close_socket failed in Meta")
+                                break
                         else:
                             elapsed = time.time() - ack_time
                             logging.debug(f"WARNING: object ready but ACK from last transmission not received. Elapsed:{elapsed}s")
