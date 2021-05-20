@@ -541,10 +541,12 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
 
     loss /= n
     acc = (output_total == batch_labels_total).float().mean()
-    tp = (batch_labels * output)
-    tn = ((1 - batch_labels) * (1 - output))
-    fp = ((1 - batch_labels) * output)
-    fn = (batch_labels * (1 - output))
+    output_total = output_total.float()
+    batch_labels_total = batch_labels_total.float()
+    tp = (batch_labels_total * output_total)
+    tn = ((1 - batch_labels_total) * (1 - output_total))
+    fp = ((1 - batch_labels_total) * output_total)
+    fn = (batch_labels_total * (1 - output_total))
     return output_total, batch_labels_total, loss, acc, tp, tn, fp, fn
 
 
