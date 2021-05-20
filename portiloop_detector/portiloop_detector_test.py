@@ -53,7 +53,7 @@ test_loader = portiloop.DataLoader(ds_test,
 
 criterion = portiloop.nn.MSELoss()
 
-accuracy_test, loss_test, f1_test, precision_test, recall_test = portiloop.get_accuracy_and_loss_pytorch(
+accuracy_test, loss_test, f1_test, precision_test, recall_test = portiloop.run_inference(
     test_loader, criterion, net, device_val, hidden_size, nb_rnn_layers)
 
 print(f"accuracy_test = {accuracy_test}")

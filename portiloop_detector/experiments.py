@@ -3,7 +3,8 @@ import logging
 import torch
 from torch import nn
 
-from portiloop_detector_training import PortiloopNetwork, generate_dataloader, path_dataset
+from portiloop_detector_training import PortiloopNetwork, generate_dataloader, path_dataset, run_inference, get_metrics
+
 
 
 def run_test(config_dict):
@@ -34,26 +35,8 @@ def run_test(config_dict):
     logging.debug("Use checkpoint model")
     net.load_state_dict(checkpoint['model_state_dict'])
 
+    output_test, labels_test, loss_test, accuracy_test, tp, tn, fp, fn = run_inference(test_loader, criterion, net, device_val, hidden_size, nb_rnn_layers, classification, batch_size_test)
+    f1_test, precision_test, recall_test = get_metrics(tp, fp, fn)
 
-with torch.no_grad():
-    for idx in range(0, 250 * 60*45, seq_stride):
-        batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = ds_test[idx]
-        batch_samples_input1 = batch_samples_input1.to(device=device_val).float().view(1, 1, -1)
-        batch_samples_input2 = batch_samples_input2.to(device=device_val).float().view(1, 1, -1)
-        batch_samples_input3 = batch_samples_input3.to(device=device_val).float().view(1, 1, -1)
-        batch_labels = batch_labels.to(device=device_val).float()
-        output, h1, h2 = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
-        output = output.view(-1)
-
-        if output > THRESHOLD:
-            if batch_labels > THRESHOLD:
-                state.append(1)
-            else:
-                state.append(2)
-        else:
-            if batch_labels > THRESHOLD:
-                state.append(3)
-            else:
-                state.append(4)
 
 np.savetxt(portiloop.path_dataset / "labels_portiloop.txt", state)

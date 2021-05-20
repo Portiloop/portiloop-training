@@ -501,15 +501,10 @@ def f1_loss(output, batch_labels):
     return 1 - New_F1
 
 
-def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation):
+def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation):
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
     net_copy = net_copy.eval()
-    acc = 0
-    tp = 0
-    tn = 0
-    fp = 0
-    fn = 0
     loss = 0
     n = 0
     batch_labels_total = torch.tensor([], device=device)
@@ -545,24 +540,26 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
             n += 1
 
     loss /= n
-    acc += (output_total == batch_labels_total).float().mean()
+    acc = (output_total == batch_labels_total).float().mean()
+    tp = (batch_labels * output)
+    tn = ((1 - batch_labels) * (1 - output))
+    fp = ((1 - batch_labels) * output)
+    fn = (batch_labels * (1 - output))
+    return output_total, batch_labels_total, loss, acc, tp, tn, fp, fn
 
-    output = output_total.float()
-    batch_labels = batch_labels_total.float()
 
-    tp += (batch_labels * output).sum().to(torch.float32).item()
-    tn += ((1 - batch_labels) * (1 - output)).sum().to(torch.float32).item()
-    fp += ((1 - batch_labels) * output).sum().to(torch.float32).item()
-    fn += (batch_labels * (1 - output)).sum().to(torch.float32).item()
-
+def get_metrics(tp, fp, fn):
+    tp_sum = tp.sum().to(torch.float32).item()
+    fp_sum = fp.sum().to(torch.float32).item()
+    fn_sum = fn.sum().to(torch.float32).item()
     epsilon = 1e-7
 
-    precision = tp / (tp + fp + epsilon)
-    recall = tp / (tp + fn + epsilon)
+    precision = tp_sum / (tp_sum + fp_sum + epsilon)
+    recall = tp_sum / (tp_sum + fn_sum + epsilon)
 
     f1 = 2 * (precision * recall) / (precision + recall + epsilon)
 
-    return acc, loss, f1, precision, recall
+    return f1, precision, recall
 
 
 # run:
@@ -778,8 +775,9 @@ def run(config_dict, wandb_project, save_model, unique_name):
             loss_train /= n
 
             _t_start = time.time()
-        accuracy_validation, loss_validation, f1_validation, precision_validation, recall_validation = get_accuracy_and_loss_pytorch(
-            validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers, classification, batch_size_validation)
+        output_validation, labels_validation, loss_validation, accuracy_validation, tp, tn, fp, fn = run_inference(validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers, classification, batch_size_validation)
+        f1_validation, precision_validation, recall_validation = get_metrics(tp, fp, fn)
+
         _t_stop = time.time()
         logging.debug(f"Validation time for 1 epoch : {_t_stop - _t_start} s")
 

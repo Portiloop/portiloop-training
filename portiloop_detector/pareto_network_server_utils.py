@@ -25,8 +25,8 @@ ACK_TIMEOUT_SERVER_TO_META = 60.0
 ACK_TIMEOUT_META_TO_SERVER = 60.0
 ACK_TIMEOUT_WORKER_TO_SERVER = 60.0
 
-RECV_TIMEOUT_WORKER_FROM_SERVER = 10800.0
-RECV_TIMEOUT_META_FROM_SERVER = 10800.0
+RECV_TIMEOUT_WORKER_FROM_SERVER = 60.0
+RECV_TIMEOUT_META_FROM_SERVER = 60.0
 
 SELECT_TIMEOUT_OUTBOUND = 60.0
 SELECT_TIMEOUT_INBOUND = 60.0
@@ -296,7 +296,7 @@ class Server:
             if not success:
                 logging.debug("poll failed in meta thread")
                 break
-            elif obj is not None and obj != 'ACK':
+            elif obj is not None and obj != 'ACK' and obj != "ALIVE":
                 is_working = False
                 logging.debug(f"DEBUG INFO: meta thread received obj")
                 self.__to_launch_lock.acquire()  # LOCK.......................................................

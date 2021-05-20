@@ -78,6 +78,23 @@ class MetaLearner:
                             logging.debug("INFO: ACK timed-out, breaking connection")
                             self.__to_launch_lock.release()
                             break
+                else:
+                    if not wait_ack:
+                        obj = "ALIVE"
+                        if select_and_send_or_close_socket(obj, s):
+                            ack_time = time.time()
+                            wait_ack = True
+                        else:
+                            self.__to_launch_lock.release()
+                            logging.debug("select_and_send_or_close_socket failed in Meta")
+                            break
+                    else:
+                        elapsed = time.time() - ack_time
+                        logging.debug(f"WARNING: object ready but ACK from last transmission not received. Elapsed:{elapsed}s")
+                        if elapsed >= ACK_TIMEOUT_META_TO_SERVER:
+                            logging.debug("INFO: ACK timed-out, breaking connection")
+                            self.__to_launch_lock.release()
+                            break
                 self.__to_launch_lock.release()  # END LOCK.......................................................
                 # checks for samples batch
                 success, obj = poll_and_recv_or_close_socket(s)
@@ -287,6 +304,23 @@ class Worker:
                         elapsed = time.time() - ack_time
                         logging.debug(f"WARNING: object ready but ACK from last transmission not received. Elapsed:{elapsed}s")
                         if elapsed >= ACK_TIMEOUT_WORKER_TO_SERVER:
+                            logging.debug("INFO: ACK timed-out, breaking connection")
+                            self.__finished_exp_lock.release()
+                            break
+                else:
+                    if not wait_ack:
+                        obj = "ALIVE"
+                        if select_and_send_or_close_socket(obj, s):
+                            ack_time = time.time()
+                            wait_ack = True
+                        else:
+                            self.__finished_exp_lock.release()
+                            logging.debug("select_and_send_or_close_socket failed in Meta")
+                            break
+                    else:
+                        elapsed = time.time() - ack_time
+                        logging.debug(f"WARNING: object ready but ACK from last transmission not received. Elapsed:{elapsed}s")
+                        if elapsed >= ACK_TIMEOUT_META_TO_SERVER:
                             logging.debug("INFO: ACK timed-out, breaking connection")
                             self.__finished_exp_lock.release()
                             break
