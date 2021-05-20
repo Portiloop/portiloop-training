@@ -32,14 +32,12 @@ path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
 
-# div_val_samp = 0
-
 # hyperparameters
 
 batch_size_list = [128, 128, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512]
 lr_adam_list = [0.0001, 0.0003, 0.0005, 0.0007]
 
-
+LEN_SEGMENT = 115
 # all classes and functions:
 
 class SignalDataset(Dataset):
@@ -54,16 +52,6 @@ class SignalDataset(Dataset):
         split_data = np.array(np.split(self.data, int(len(self.data) / (len_segment + 30 * fe))))  # 115+30 = nb seconds per sequence in the dataset
         split_data = split_data[used_sequence]
         self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
-        # logging.debug(f"data shape = {self.data.shape}")
-        # if "portiloop" in filename:
-        #     split_data = np.array(np.split(self.data, int(len(self.data) / (900 * fe))))  # 900 = nb seconds per sequence in the dataset
-        # else:
-        #     split_data = np.array(np.split(self.data, int(len(self.data) / ((115 + 30) * fe))))  # 115+30 = nb seconds per sequence in the dataset
-        # np.random.seed(0)  # fixed seed value
-        # np.random.shuffle(split_data)
-        # self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
-        # len_data = np.shape(self.data)[1]
-        # self.data = self.data[:, int(start_ratio * len_data):int(end_ratio * len_data)]
 
         assert self.window_size <= len(self.data[0]), "Dataset smaller than window size."
         self.full_signal = torch.tensor(self.data[0], dtype=torch.float)
@@ -87,8 +75,10 @@ class SignalDataset(Dataset):
         idx = self.indices[idx]
         assert self.data[3][idx + self.window_size - 1] >= 0, f"Bad index: {idx}."
 
-        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
-        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
+        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size,
+                                                                                                                    self.idx_stride)
+        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size,
+                                                                                                                        self.idx_stride)
 
         ratio_pf = torch.tensor(self.data[2][idx + self.window_size - 1], dtype=torch.float)
         label = torch.tensor(self.data[3][idx + self.window_size - 1], dtype=torch.float)
@@ -188,19 +178,14 @@ class ValidationSampler(Sampler):
     """
 
     def __init__(self, data_source, seq_stride, nb_segment, len_segment):
-        #  self.length = nb_samples
         self.seq_stride = seq_stride
         self.data = data_source
         self.nb_segment = nb_segment
         self.len_segment = len_segment
-        #  self.last_possible = len(data_source) - self.length * self.seq_stride - 1
-
-    #    self.first_idx = 0#randint(0, self.last_possible)
 
     def __iter__(self):
         seed()
         nb_batch = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
-        # logging.debug(f"nb_batch_validation = {nb_batch}")
         cur_batch = 0
         cnt = 0
         while cur_batch < nb_batch:
@@ -210,15 +195,6 @@ class ValidationSampler(Sampler):
                     cnt += 1
                     yield cur_idx
             cur_batch += 1
-        # logging.debug(f"nb iteration in validation sampler = {cnt}")
-        #
-        # for i in range(nb_iter):
-        #     cur_iter = 0
-        #     cur_idx = i
-        #     while cur_idx < len(self.data):
-        #         cur_iter += 1
-        #         yield cur_idx
-        #         cur_idx += self.seq_stride
 
     def __len__(self):
         return len(self.data)
@@ -346,7 +322,8 @@ class PortiloopNetwork(nn.Module):
         #       fc_size = hidden_size
         else:
             self.first_fc_input1 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
-            self.seq_fc_input1 = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
+            self.seq_fc_input1 = nn.Sequential(
+                *(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
         if self.envelope_input:
             self.first_layer_input2 = ConvPoolModule(in_channels=1,
                                                      out_channel=nb_channel,
@@ -379,7 +356,8 @@ class PortiloopNetwork(nn.Module):
                                          batch_first=True)
             else:
                 self.first_fc_input2 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
-                self.seq_fc_input2 = nn.Sequential(*(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
+                self.seq_fc_input2 = nn.Sequential(
+                    *(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
         fc_features = hidden_size
         if self.envelope_input:
             fc_features += hidden_size
@@ -569,13 +547,14 @@ def get_metrics(tp, fp, fn):
 def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch):
     all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
     train_subject, test_subject = train_test_split(all_subject, train_size=0.9, random_state=0)
-    train_subject, validation_subject = train_test_split(train_subject, train_size=0.95, random_state=0)  # with K fold cross validation, this split will be done K times
+    train_subject, validation_subject = train_test_split(train_subject, train_size=0.95, random_state=0)  # with K fold cross validation, this
+    # split will be done K times
 
     logging.debug(f"Subjects in training : {train_subject[:, 0]}")
     logging.debug(f"Subjects in validation : {validation_subject[:, 0]}")
     logging.debug(f"Subjects in test : {test_subject[:, 0]}")
 
-    len_segment = 115 * fe
+    len_segment_s = LEN_SEGMENT * fe
     train_loader = None
     validation_loader = None
     test_loader = None
@@ -589,7 +568,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                  seq_len=seq_len,
                                  seq_stride=seq_stride,
                                  list_subject=train_subject,
-                                 len_segment=len_segment)
+                                 len_segment=len_segment_s)
 
         ds_validation = SignalDataset(filename=filename_dataset,
                                       path=path_dataset,
@@ -598,7 +577,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                       seq_len=1,
                                       seq_stride=1,  # just to be sure, fixed value
                                       list_subject=validation_subject,
-                                      len_segment=len_segment)
+                                      len_segment=len_segment_s)
         idx_true, idx_false = get_class_idxs(ds_train, distribution_mode)
         samp_train = RandomSampler(ds_train,
                                    idx_true=idx_true,
@@ -611,7 +590,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
 
         samp_validation = ValidationSampler(ds_validation,
                                             seq_stride=seq_stride,
-                                            len_segment=len_segment,
+                                            len_segment=len_segment_s,
                                             nb_segment=nb_segment_validation)
         train_loader = DataLoader(ds_train,
                                   batch_size=batch_size,
@@ -635,13 +614,13 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                 seq_len=1,
                                 seq_stride=1,  # just to be sure, fixed value
                                 list_subject=test_subject,
-                                len_segment=len_segment)
+                                len_segment=len_segment_s)
 
         nb_segment_test = len(np.hstack([range(int(s[1]), int(s[2])) for s in test_subject]))
 
         samp_test = ValidationSampler(ds_test,
                                       seq_stride=seq_stride,
-                                      len_segment=len_segment,
+                                      len_segment=len_segment_s,
                                       nb_segment=nb_segment_test)
 
         batch_size_test = seq_stride * nb_segment_test
@@ -715,7 +694,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
         has_envelope = 2
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
-    train_loader, validation_loader, batch_size_validation, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch)
+    train_loader, validation_loader, batch_size_validation, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
+                                                                                       batch_size, nb_batch_per_epoch)
 
     best_model_accuracy = 0
     best_epoch = 0
@@ -777,7 +757,10 @@ def run(config_dict, wandb_project, save_model, unique_name):
             loss_train /= n
 
             _t_start = time.time()
-        output_validation, labels_validation, loss_validation, accuracy_validation, tp, tn, fp, fn = run_inference(validation_loader, criterion, net, device_val, hidden_size, nb_rnn_layers, classification, batch_size_validation)
+        output_validation, labels_validation, loss_validation, accuracy_validation, tp, tn, fp, fn = run_inference(validation_loader, criterion, net,
+                                                                                                                   device_val, hidden_size,
+                                                                                                                   nb_rnn_layers, classification,
+                                                                                                                   batch_size_validation)
         f1_validation, precision_validation, recall_validation = get_metrics(tp, fp, fn)
 
         _t_stop = time.time()
@@ -786,7 +769,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
         recall_validation_factor = recall_validation
         precision_validation_factor = precision_validation
         updated_model = False
-        if (not MAXIMIZE_F1_SCORE and loss_validation < best_model_loss_validation) or (MAXIMIZE_F1_SCORE and f1_validation > best_model_f1_score_validation):
+        if (not MAXIMIZE_F1_SCORE and loss_validation < best_model_loss_validation) or (
+                MAXIMIZE_F1_SCORE and f1_validation > best_model_f1_score_validation):
             best_model = copy.deepcopy(net)
             best_epoch = epoch
             # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
@@ -843,10 +827,15 @@ def run(config_dict, wandb_project, save_model, unique_name):
 
 
 def get_config_dict(index):
-    config_dict = {'experiment_name': f'pareto_search_10_619_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 1000, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,
+    config_dict = {'experiment_name': f'pareto_search_10_619_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 1000,
+                   'max_duration': 257400, 'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
+                   'nb_batch_per_epoch': 5000,
                    'first_layer_dropout': False,
-                   'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001, 'nb_rnn_layers': 1, 'RNN': True, 'envelope_input': True,
-                   'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
+                   'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
+                   'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001, 'nb_rnn_layers': 1,
+                   'RNN': True, 'envelope_input': True,
+                   'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1,
+                   'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
                    "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
 
     return config_dict
@@ -876,9 +865,12 @@ if __name__ == "__main__":
     config_dict["distribution_mode"] = 0
     config_dict["seq_len"] = 1
     seed()  # reset the seed
-    # config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11, 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000, 'batch_size': 256,
-    #                'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001, 'nb_rnn_layers': 1,
-    #                'RNN': True,
-    #                'envelope_input': True, 'lr_adam': 0.0007, 'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400}
+    # config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11,
+    # 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,
+    # 'batch_size': 256, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0,
+    # 'classification': True, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001,
+    # 'nb_rnn_layers': 1, 'RNN': True, 'envelope_input': True, 'lr_adam': 0.0007, 'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1,
+    # 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001,
+    # 'estimator_size_memory': 1628774400}
 
     run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=True)
