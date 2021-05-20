@@ -77,17 +77,18 @@ class SurrogateModel(nn.Module):
     def __init__(self):
         super(SurrogateModel, self).__init__()
         nb_features = 17
+        coeff = 5
         self.fc1 = nn.Linear(in_features=nb_features,  # nb hyperparameters
-                             out_features=nb_features * 25)  # in SMBO paper : 25 * hyperparameters... Seems huge
+                             out_features=nb_features * coeff)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
         self.d1 = nn.Dropout(0)
 
-        self.fc2 = nn.Linear(in_features=nb_features * 25,
-                             out_features=nb_features * 25)
+        self.fc2 = nn.Linear(in_features=nb_features * coeff,
+                             out_features=nb_features * coeff)
 
         self.d2 = nn.Dropout(0)
 
-        self.fc3 = nn.Linear(in_features=nb_features * 25,
+        self.fc3 = nn.Linear(in_features=nb_features * coeff,
                              out_features=1)
 
     def to(self, device):
