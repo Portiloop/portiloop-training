@@ -119,7 +119,7 @@ class MetaLearner:
                     wait_ack = False
                     logging.debug(f"INFO: transfer acknowledgment received after {time.time() - ack_time}s")
                 elif time.time() - recv_time > self.recv_timeout:
-                    logging.debug(f"Timeout in TrainerInterface, not received anything for too long")
+                    logging.debug(f"Timeout in Meta, not received anything for too long")
                     break
                 time.sleep(LOOP_SLEEP_TIME_META)
             s.close()
