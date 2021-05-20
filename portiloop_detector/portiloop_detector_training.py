@@ -512,6 +512,8 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
     fn = 0
     loss = 0
     n = 0
+    batch_labels_total = None
+    output_total = None
     h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
     h2 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
     with torch.no_grad():
@@ -536,28 +538,23 @@ def get_accuracy_and_loss_pytorch(dataloader, criterion, net, device, hidden_siz
                 batch_labels = (batch_labels > THRESHOLD)
             else:
                 output = (output >= 0.5)
+            if batch_labels_total is None:
+                batch_labels_total = batch_labels
+                output_total = output
+            else:
+                batch_labels_total += batch_labels
+                output_total += output
 
-            # logging.debug(f"label = {batch_labels}")
-            # logging.debug(f"output = {output}")
+    acc += (output_total == batch_labels_total).float().mean()
 
-            acc += (output == batch_labels).float().mean()
-            # logging.debug(f"acc = {acc}")
+    output = output_total.float()
+    batch_labels = batch_labels_total.float()
 
-            output = output.float()
-            batch_labels = batch_labels.float()
+    tp += (batch_labels * output).sum().to(torch.float32).item()
+    tn += ((1 - batch_labels) * (1 - output)).sum().to(torch.float32).item()
+    fp += ((1 - batch_labels) * output).sum().to(torch.float32).item()
+    fn += (batch_labels * (1 - output)).sum().to(torch.float32).item()
 
-            tp += (batch_labels * output).sum().to(torch.float32).item()
-            tn += ((1 - batch_labels) * (1 - output)).sum().to(torch.float32).item()
-            fp += ((1 - batch_labels) * output).sum().to(torch.float32).item()
-            fn += (batch_labels * (1 - output)).sum().to(torch.float32).item()
-            # logging.debug(f"tp = {tp}")
-            # logging.debug(f"tn = {tn}")
-            # logging.debug(f"fp = {fp}")
-            # logging.debug(f"fn = {fn}")
-            # assert n < 20
-            n += 1
-    acc /= n
-    loss /= n
     epsilon = 1e-7
 
     precision = tp / (tp + fp + epsilon)
@@ -580,68 +577,84 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     logging.debug(f"Subjects in test : {test_subject[:, 0]}")
 
     len_segment = 115 * fe
+    train_loader = None
+    validation_loader = None
+    test_loader = None
+    batch_size_validation = None
+    batch_size_test = None
+    if seq_len is not None:
+        ds_train = SignalDataset(filename=filename_dataset,
+                                 path=path_dataset,
+                                 window_size=window_size,
+                                 fe=fe,
+                                 seq_len=seq_len,
+                                 seq_stride=seq_stride,
+                                 list_subject=train_subject,
+                                 len_segment=len_segment)
 
-    ds_train = SignalDataset(filename=filename_dataset,
-                             path=path_dataset,
-                             window_size=window_size,
-                             fe=fe,
-                             seq_len=seq_len,
-                             seq_stride=seq_stride,
-                             list_subject=train_subject,
-                             len_segment=len_segment)
-    # start_ratio=0.0,
-    # end_ratio=0.9)
+        ds_validation = SignalDataset(filename=filename_dataset,
+                                      path=path_dataset,
+                                      window_size=window_size,
+                                      fe=fe,
+                                      seq_len=1,
+                                      seq_stride=1,  # just to be sure, fixed value
+                                      list_subject=validation_subject,
+                                      len_segment=len_segment)
+        idx_true, idx_false = get_class_idxs(ds_train, distribution_mode)
+        samp_train = RandomSampler(ds_train,
+                                   idx_true=idx_true,
+                                   idx_false=idx_false,
+                                   batch_size=batch_size,
+                                   nb_batch=nb_batch_per_epoch,
+                                   distribution_mode=distribution_mode)
 
-    ds_validation = SignalDataset(filename=filename_dataset,
-                                  path=path_dataset,
-                                  window_size=window_size,
-                                  fe=fe,
-                                  seq_len=1,
-                                  seq_stride=1,  # just to be sure, fixed value
-                                  list_subject=validation_subject,
-                                  len_segment=len_segment)
-    # start_ratio=0.9,
-    # end_ratio=1)
+        nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
 
-    # ds_test = SignalDataset(filename=filename, path_dataset=path_dataset, window_size=window_size, fe=fe, max_length=15, start_ratio=0.95, end_ratio=1, seq_len=1)
+        samp_validation = ValidationSampler(ds_validation,
+                                            seq_stride=seq_stride,
+                                            len_segment=len_segment,
+                                            nb_segment=nb_segment_validation)
+        train_loader = DataLoader(ds_train,
+                                  batch_size=batch_size,
+                                  sampler=samp_train,
+                                  shuffle=False,
+                                  num_workers=0,
+                                  pin_memory=True)
 
-    idx_true, idx_false = get_class_idxs(ds_train, distribution_mode)
+        batch_size_validation = seq_stride * nb_segment_validation
+        validation_loader = DataLoader(ds_validation,
+                                       batch_size=batch_size_validation,
+                                       sampler=samp_validation,
+                                       num_workers=0,
+                                       pin_memory=True,
+                                       shuffle=False)
+    else:
+        ds_test = SignalDataset(filename=filename_dataset,
+                                path=path_dataset,
+                                window_size=window_size,
+                                fe=fe,
+                                seq_len=1,
+                                seq_stride=1,  # just to be sure, fixed value
+                                list_subject=test_subject,
+                                len_segment=len_segment)
 
-    samp_train = RandomSampler(ds_train,
-                               idx_true=idx_true,
-                               idx_false=idx_false,
-                               batch_size=batch_size,
-                               nb_batch=nb_batch_per_epoch,
-                               distribution_mode=distribution_mode)
+        nb_segment_test = len(np.hstack([range(int(s[1]), int(s[2])) for s in test_subject]))
 
-    nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
-    # logging.debug(f"nb_segment_validation = {nb_segment_validation}")
+        samp_test = ValidationSampler(ds_test,
+                                      seq_stride=seq_stride,
+                                      len_segment=len_segment,
+                                      nb_segment=nb_segment_test)
 
-    samp_validation = ValidationSampler(ds_validation,
-                                        #  nb_samples=int(len(ds_validation) / max(seq_stride, div_val_samp)),
-                                        seq_stride=seq_stride,
-                                        len_segment=len_segment,
-                                        nb_segment=nb_segment_validation)
+        batch_size_test = seq_stride * nb_segment_test
 
-    train_loader = DataLoader(ds_train,
-                              batch_size=batch_size,
-                              sampler=samp_train,
-                              shuffle=False,
-                              num_workers=0,
-                              pin_memory=True)
+        test_loader = DataLoader(ds_test,
+                                 batch_size=batch_size_test,
+                                 sampler=samp_test,
+                                 num_workers=0,
+                                 pin_memory=True,
+                                 shuffle=False)
 
-    batch_size_validation = seq_stride * nb_segment_validation
-    # logging.debug(f"batch_size_validation = {batch_size_validation}")
-
-    validation_loader = DataLoader(ds_validation,
-                                   batch_size=batch_size_validation,
-                                   sampler=samp_validation,
-                                   num_workers=0,
-                                   pin_memory=True,
-                                   shuffle=False)
-
-    # test_loader = DataLoader(ds_test, batch_size_list=1, sampler=samp_validation, num_workers=0, pin_memory=True, shuffle=False)
-    return train_loader, validation_loader, batch_size_validation
+    return train_loader, validation_loader, batch_size_validation, test_loader, batch_size_test
 
 
 def run(config_dict, wandb_project, save_model, unique_name):
@@ -703,7 +716,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
         has_envelope = 2
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
-    train_loader, validation_loader, batch_size_validation = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch)
+    train_loader, validation_loader, batch_size_validation, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch)
 
     best_model_accuracy = 0
     best_epoch = 0
