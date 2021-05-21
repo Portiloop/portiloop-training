@@ -881,4 +881,4 @@ if __name__ == "__main__":
     # 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001,
     # 'estimator_size_memory': 1628774400}
 
-    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=True)
+    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False)
