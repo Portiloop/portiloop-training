@@ -10,6 +10,7 @@ from portiloop_detector_training import PortiloopNetwork, generate_dataloader, p
 
 path_experiment = Path(__file__).absolute().parent.parent / 'experiments'
 
+
 def run_test(config_dict):
     logging.debug(f"config_dict: {config_dict}")
     experiment_name = config_dict['experiment_name']
@@ -32,8 +33,8 @@ def run_test(config_dict):
     net = PortiloopNetwork(config_dict).to(device=device_val)
     criterion = nn.MSELoss() if not classification else nn.BCELoss()
 
-    _, _, _, test_loader, batch_size_test = generate_dataloader(window_size=window_size, fe=fe, seq_len=None, seq_stride=seq_stride,
-                                                                distribution_mode=None, batch_size=None, nb_batch_per_epoch=None)
+    _, _, _, test_loader, batch_size_test, test_subject = generate_dataloader(window_size=window_size, fe=fe, seq_len=None, seq_stride=seq_stride,
+                                                                              distribution_mode=None, batch_size=None, nb_batch_per_epoch=None)
 
     checkpoint = torch.load(path_experiment / experiment_name)
     logging.debug("Use trained model")
@@ -52,6 +53,7 @@ def run_test(config_dict):
     state = np.hstack(np.transpose(np.split(state.cpu().detach().numpy(), batch_size_test)))
 
     np.savetxt(path_experiment / f"labels_{experiment_name}.txt", state)
+    np.savetxt(path_experiment / f"subject_{test_subject}.txt", state)
 
 
 if __name__ == "__main__":

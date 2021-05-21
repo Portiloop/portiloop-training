@@ -34,8 +34,8 @@ precision_validation_factor = 0.5
 
 # hyperparameters
 
-batch_size_list = [128, 128, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512]
-lr_adam_list = [0.0001, 0.0003, 0.0005, 0.0007]
+batch_size_list = [64, 64, 64, 128, 128, 128, 256, 256, 256]
+lr_adam_list = [0.0003, 0.0005, 0.0009]
 hidden_size_list = [2, 5, 10, 15, 20]
 
 LEN_SEGMENT = 115
@@ -635,7 +635,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                  pin_memory=True,
                                  shuffle=False)
 
-    return train_loader, validation_loader, batch_size_validation, test_loader, batch_size_test
+    return train_loader, validation_loader, batch_size_validation, test_loader, batch_size_test, test_subject
 
 
 def run(config_dict, wandb_project, save_model, unique_name):
@@ -697,8 +697,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
         has_envelope = 2
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
-    train_loader, validation_loader, batch_size_validation, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
-                                                                                       batch_size, nb_batch_per_epoch)
+    train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
+                                                                                          batch_size, nb_batch_per_epoch)
 
     best_model_accuracy = 0
     best_epoch = 0
@@ -840,15 +840,42 @@ def get_config_dict(index):
     #                'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1,
     #                'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
     #                "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
-    config_dict = {'experiment_name': f'pareto_search_14_93_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 150,
-                   'max_duration': 257400, 'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
-                   'nb_batch_per_epoch': 1000, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01,
-                   'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 4, 'seq_len': 50, 'nb_channel': 46,
-                   'hidden_size': hidden_size_list[index % len(hidden_size_list)], 'seq_stride_s': 0.05, 'nb_rnn_layers': 1, 'RNN': True,
-                   'envelope_input': True, 'lr_adam': 0.0003, 'batch_size': 256,
-                   'window_size_s': 0.274, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1,
-                   'dilation_pool': 1, 'nb_out': 20,
-                   'time_in_past': 2.5, 'estimator_size_memory': 1368268800}
+    if index < 9:
+        config_dict = {'experiment_name': f'batch_lr_pareto_search_14_93_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max':
+            500,
+                       'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
+                       'nb_batch_per_epoch': 1000, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01,
+                       'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 4, 'seq_len': 50, 'nb_channel': 46,
+                       'hidden_size': 2, 'seq_stride_s': 0.05, 'nb_rnn_layers': 1, 'RNN': True,
+                       'envelope_input': True, "batch_size": batch_size_list[index % len(batch_size_list)],
+                       "lr_adam": lr_adam_list[index % len(lr_adam_list)], 'window_size_s': 0.274, 'stride_pool': 1, 'stride_conv': 1,
+                       'kernel_conv': 7,
+                       'kernel_pool': 7, 'dilation_conv': 1,
+                       'dilation_pool': 1, 'nb_out': 20, 'time_in_past': 2.5, 'estimator_size_memory': 1368268800}
+    elif index < 18:
+        config_dict = {'experiment_name': f'batch_lr_pareto_search_14_284_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
+                       'nb_epoch_max': 500,
+                       'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
+                       'nb_batch_per_epoch': 1000,
+                       'first_layer_dropout': False,
+                       'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
+                       'nb_conv_layers': 4,
+                       'seq_len': 50, 'nb_channel': 26, 'hidden_size': 7, 'seq_stride_s': 0.062, 'nb_rnn_layers': 2, 'RNN': True,
+                       'envelope_input': True,
+                       "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)],
+                       'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
+                       'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400}
+    else:
+        config_dict = {'experiment_name': f'batch_lr_pareto_search_14_99999_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
+                       'nb_epoch_max': 500,
+                       'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
+                       'nb_batch_per_epoch': 1000, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01,
+                       'distribution_mode': 0, 'classification': True,
+                       'nb_conv_layers': 4, 'seq_len': 50, 'nb_channel': 30, 'hidden_size': 10, 'seq_stride_s': 0.025, 'nb_rnn_layers': 2,
+                       'RNN': True, 'envelope_input': True, "batch_size": batch_size_list[index % len(batch_size_list)],
+                       "lr_adam": lr_adam_list[index % len(lr_adam_list)],
+                       'window_size_s': 0.25, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
+                       'dilation_conv': 1, 'dilation_pool': 1}
 
     return config_dict
 
