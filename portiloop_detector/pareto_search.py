@@ -77,7 +77,7 @@ class SurrogateModel(nn.Module):
     def __init__(self):
         super(SurrogateModel, self).__init__()
         nb_features = 17
-        coeff = 5
+        coeff = 20
         self.fc1 = nn.Linear(in_features=nb_features,  # nb hyperparameters
                              out_features=nb_features * coeff)  # in SMBO paper : 25 * hyperparameters... Seems huge
 
