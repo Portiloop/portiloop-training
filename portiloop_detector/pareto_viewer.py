@@ -11,7 +11,7 @@ plt.hist([exp["cost_hardware"] for exp in finished_experiment], bins=100, range=
 plt.title("histogram")
 plt.show()
 
-implemented_run = [run for run in finished_experiment if "619" in run['config_dict']['experiment_name']]
+implemented_run = [run for run in finished_experiment if "93" in run['config_dict']['experiment_name']]
 for run in implemented_run:
     print(run['cost_software'])
     print(run['cost_hardware'])
