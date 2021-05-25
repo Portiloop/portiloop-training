@@ -33,7 +33,7 @@ def convert_test_set():
                             len_segment=len_segment_s)
 
     logging.debug(len(ds_test))
-    pynq_dataset = ds_test.data[ds_test.indices]
+    pynq_dataset = ds_test.data[:,ds_test.indices]
     logging.debug(pynq_dataset.shape)
     logging.debug(len(pynq_dataset))
 
