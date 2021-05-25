@@ -59,7 +59,7 @@ def run_test(config_dict):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('--output_file', type=str, default=None)
-    parser.add_argument('--experiment_index', type=str, default=0)
+    parser.add_argument('--experiment_index', type=int, default=0)
     args = parser.parse_args()
 
     exp_index = args.experiment_index
@@ -74,6 +74,5 @@ if __name__ == "__main__":
         logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
 
     config_dict = get_config_dict(exp_index)
-    config_dict["experiment_name"] = "test_v3_1621522310727862534"
 
     run_test(config_dict)
