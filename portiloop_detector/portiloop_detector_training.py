@@ -234,7 +234,7 @@ class ConvPoolModule(nn.Module):
     def forward(self, x, max_value):
         x = F.relu(self.conv(x))
         x = self.pool(x)
-        max_temp = max(x)
+        max_temp = torch.max(x)
         if max_temp > max_value:
             logging.debug(f"max_value = {max_temp}")
             max_value = max_temp
@@ -385,7 +385,7 @@ class PortiloopNetwork(nn.Module):
         if self.RNN:
             x1 = x1.view(batch_size, sequence_len, -1)
             x1, hn1 = self.gru_input1(x1, h1)
-            max_temp = max(x1)
+            max_temp = torch.max(x1)
             if max_temp > max_value:
                 logging.debug(f"max_value = {max_temp}")
                 max_value = max_temp
@@ -404,7 +404,7 @@ class PortiloopNetwork(nn.Module):
             if self.RNN:
                 x2 = x2.view(batch_size, sequence_len, -1)
                 x2, hn2 = self.gru_input2(x2, h2)
-                max_temp = max(x2)
+                max_temp = torch.max(x2)
                 if max_temp > max_value:
                     logging.debug(f"max_value = {max_temp}")
                     max_value = max_temp
