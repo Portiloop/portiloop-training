@@ -1,5 +1,6 @@
 # convert test set into file to be read by the pynq
 import logging
+import pickle
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from portiloop_detector.experiments import path_experiment
 from portiloop_detector_training import path_dataset, subject_list, LEN_SEGMENT, SignalDataset, filename_dataset
 
 fe = 250
@@ -36,6 +38,8 @@ def convert_test_set():
     pynq_dataset = ds_test.data[:,ds_test.indices]
     logging.debug(pynq_dataset.shape)
     logging.debug(len(pynq_dataset))
+    with open(path_experiment/"testset.pkl", "wb") as file:
+        pickle.dump(pynq_dataset, file)
 
 
 if __name__ == "__main__":
