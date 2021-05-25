@@ -249,7 +249,7 @@ class FcModule(nn.Module):
         super(FcModule, self).__init__()
 
         self.fc = nn.Linear(in_features=in_features, out_features=out_features)
-        self.dropout = nn.Dropout(dropout_p)  # why?
+        self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, x):
         x = F.relu(self.fc(x))
@@ -425,7 +425,7 @@ class PortiloopNetwork(nn.Module):
             max_value = max_temp
         x = torch.sigmoid(x)
 
-        return x, hn1, hn2, max_temp
+        return x, hn1, hn2, max_value
 
 
 class LoggerWandb:
