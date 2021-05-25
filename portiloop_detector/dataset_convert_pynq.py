@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from portiloop_detector.experiments import path_experiment
+from experiments import path_experiment
 from portiloop_detector_training import path_dataset, subject_list, LEN_SEGMENT, SignalDataset, filename_dataset
 
 fe = 250
