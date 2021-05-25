@@ -231,7 +231,8 @@ class ConvPoolModule(nn.Module):
                                  dilation=dilation_pool)
         self.dropout = nn.Dropout(dropout_p)
 
-    def forward(self, x, max_value=np.inf):
+    def forward(self, input):
+        x, max_value = input
         x = F.relu(self.conv(x))
         x = self.pool(x)
         max_temp = torch.max(x)
@@ -377,10 +378,8 @@ class PortiloopNetwork(nn.Module):
     def forward(self, x1, x2, x3, h1, h2, max_value=np.inf):
         (batch_size, sequence_len, features) = x1.shape
         x1 = x1.view(-1, 1, features)
-        x1, max_value = self.first_layer_input1(x1, max_value)
-        logging.debug(x1.shape)
-        logging.debug(max_value)
-        x1, max_value = self.seq_input1(x1, max_value)
+        x1, max_value = self.first_layer_input1((x1, max_value))
+        x1, max_value = self.seq_input1((x1, max_value))
 
         x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
         hn1 = None
@@ -399,8 +398,8 @@ class PortiloopNetwork(nn.Module):
         hn2 = None
         if self.envelope_input:
             x2 = x2.view(-1, 1, features)
-            x2, max_value = self.first_layer_input2(x2, max_value)
-            x2, max_value = self.seq_input2(x2, max_value)
+            x2, max_value = self.first_layer_input2((x2, max_value))
+            x2, max_value = self.seq_input2((x2, max_value))
 
             x2 = torch.flatten(x2, start_dim=1, end_dim=-1)
             if self.RNN:
