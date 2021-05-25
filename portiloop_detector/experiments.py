@@ -41,7 +41,7 @@ def run_test(config_dict):
     net.load_state_dict(checkpoint['model_state_dict'])
 
     output_test, labels_test, loss_test, accuracy_test, tp, tn, fp, fn = run_inference(test_loader, criterion, net, device_val, hidden_size,
-                                                                                       nb_rnn_layers, classification, batch_size_test)
+                                                                                       nb_rnn_layers, classification, batch_size_test, max_value=0)
     f1_test, precision_test, recall_test = get_metrics(tp, fp, fn)
     logging.debug(f"accuracy_test = {accuracy_test}")
     logging.debug(f"loss_test = {loss_test}")

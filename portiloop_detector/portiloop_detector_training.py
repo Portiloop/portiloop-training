@@ -231,10 +231,14 @@ class ConvPoolModule(nn.Module):
                                  dilation=dilation_pool)
         self.dropout = nn.Dropout(dropout_p)
 
-    def forward(self, x):
+    def forward(self, x, max_value):
         x = F.relu(self.conv(x))
         x = self.pool(x)
-        return self.dropout(x)
+        max_temp = max(x)
+        if max_temp > max_value:
+            logging.debug(f"max_value = {max_temp}")
+            max_value = max_temp
+        return self.dropout(x), max_value
 
 
 class FcModule(nn.Module):
@@ -245,7 +249,7 @@ class FcModule(nn.Module):
         super(FcModule, self).__init__()
 
         self.fc = nn.Linear(in_features=in_features, out_features=out_features)
-        self.dropout = nn.Dropout(dropout_p)
+        self.dropout = nn.Dropout(dropout_p)  # why?
 
     def forward(self, x):
         x = F.relu(self.fc(x))
@@ -370,17 +374,21 @@ class PortiloopNetwork(nn.Module):
         self.fc = nn.Linear(in_features=fc_features,  # enveloppe and signal + power features ratio
                             out_features=out_features)  # probability of being a spindle
 
-    def forward(self, x1, x2, x3, h1, h2):
+    def forward(self, x1, x2, x3, h1, h2, max_value=np.inf):
         (batch_size, sequence_len, features) = x1.shape
         x1 = x1.view(-1, 1, features)
-        x1 = self.first_layer_input1(x1)
-        x1 = self.seq_input1(x1)
+        x1, max_value = self.first_layer_input1(x1, max_value)
+        x1, max_value = self.seq_input1(x1, max_value)
 
         x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
         hn1 = None
         if self.RNN:
             x1 = x1.view(batch_size, sequence_len, -1)
             x1, hn1 = self.gru_input1(x1, h1)
+            max_temp = max(x1)
+            if max_temp > max_value:
+                logging.debug(f"max_value = {max_temp}")
+                max_value = max_temp
             x1 = x1[:, -1, :]
         else:
             x1 = self.first_fc_input1(x1)
@@ -389,13 +397,17 @@ class PortiloopNetwork(nn.Module):
         hn2 = None
         if self.envelope_input:
             x2 = x2.view(-1, 1, features)
-            x2 = self.first_layer_input2(x2)
-            x2 = self.seq_input2(x2)
+            x2, max_value = self.first_layer_input2(x2, max_value)
+            x2, max_value = self.seq_input2(x2, max_value)
 
             x2 = torch.flatten(x2, start_dim=1, end_dim=-1)
             if self.RNN:
                 x2 = x2.view(batch_size, sequence_len, -1)
                 x2, hn2 = self.gru_input2(x2, h2)
+                max_temp = max(x2)
+                if max_temp > max_value:
+                    logging.debug(f"max_value = {max_temp}")
+                    max_value = max_temp
                 x2 = x2[:, -1, :]
             else:
                 x2 = self.first_fc_input2(x2)
@@ -407,8 +419,13 @@ class PortiloopNetwork(nn.Module):
             x = torch.cat((x, x3), -1)
 
         x = self.fc(x)  # output size: 1
+        max_temp = x
+        if max_temp > max_value:
+            logging.debug(f"max_value = {max_temp}")
+            max_value = max_temp
         x = torch.sigmoid(x)
-        return x, hn1, hn2
+
+        return x, hn1, hn2, max_temp
 
 
 class LoggerWandb:
@@ -482,7 +499,7 @@ def f1_loss(output, batch_labels):
     return 1 - New_F1
 
 
-def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation):
+def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation, max_value=np.inf):
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
     net_copy = net_copy.eval()
@@ -502,7 +519,7 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
             if classification:
                 batch_labels = (batch_labels > THRESHOLD)
                 batch_labels = batch_labels.float()
-            output, h1, h2 = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2)
+            output, h1, h2, max_value = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2, max_value)
             # logging.debug(f"label = {batch_labels}")
             # logging.debug(f"output = {output}")
             output = output.view(-1)
@@ -738,7 +755,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
                     batch_labels = (batch_labels > THRESHOLD)
                     batch_labels = batch_labels.float()
 
-                output, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
+                output, _, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
 
                 output = output.view(-1)
 
@@ -841,8 +858,9 @@ def get_config_dict(index):
     #                'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
     #                "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
     if index < 9:
-        config_dict = {'experiment_name': f'v2_batch_lr_pareto_search_14_93_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max':
-            500,
+        config_dict = {'experiment_name': f'v2_batch_lr_pareto_search_14_93_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
+                       'nb_epoch_max':
+                           500,
                        'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
                        'nb_batch_per_epoch': 1000, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01,
                        'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 4, 'seq_len': 50, 'nb_channel': 46,
