@@ -378,6 +378,8 @@ class PortiloopNetwork(nn.Module):
         (batch_size, sequence_len, features) = x1.shape
         x1 = x1.view(-1, 1, features)
         x1, max_value = self.first_layer_input1(x1, max_value)
+        logging.debug(x1.shape)
+        logging.debug(max_value)
         x1, max_value = self.seq_input1(x1, max_value)
 
         x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
