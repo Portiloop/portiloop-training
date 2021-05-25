@@ -35,10 +35,10 @@ def convert_test_set():
                             len_segment=len_segment_s)
 
     logging.debug(len(ds_test))
-    pynq_dataset = ds_test.data[:,ds_test.indices]
-    logging.debug(pynq_dataset.shape)
+    pynq_dataset = (ds_test.data, ds_test.indices)
+
     logging.debug(len(pynq_dataset))
-    with open(path_experiment/"testset.pkl", "wb") as file:
+    with open(path_experiment / "testset.pkl", "wb") as file:
         pickle.dump(pynq_dataset, file)
 
 
