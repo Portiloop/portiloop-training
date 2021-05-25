@@ -1,4 +1,5 @@
 import logging
+import pickle
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -35,7 +36,8 @@ def run_test(config_dict):
 
     _, _, _, test_loader, batch_size_test, test_subject = generate_dataloader(window_size=window_size, fe=fe, seq_len=None, seq_stride=seq_stride,
                                                                               distribution_mode=None, batch_size=None, nb_batch_per_epoch=None)
-
+    with open(path_experiment / "testloader.pkl", 'w') as file:
+        pickle.dump(test_loader, file)
     checkpoint = torch.load(path_experiment / experiment_name)
     logging.debug("Use trained model")
     net.load_state_dict(checkpoint['model_state_dict'])
