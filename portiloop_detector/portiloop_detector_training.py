@@ -231,7 +231,7 @@ class ConvPoolModule(nn.Module):
                                  dilation=dilation_pool)
         self.dropout = nn.Dropout(dropout_p)
 
-    def forward(self, x, max_value):
+    def forward(self, x, max_value=np.inf):
         x = F.relu(self.conv(x))
         x = self.pool(x)
         max_temp = torch.max(x)
