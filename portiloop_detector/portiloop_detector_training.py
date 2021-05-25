@@ -420,7 +420,7 @@ class PortiloopNetwork(nn.Module):
             x = torch.cat((x, x3), -1)
 
         x = self.fc(x)  # output size: 1
-        max_temp = x
+        max_temp = torch.max(x)
         if max_temp > max_value:
             logging.debug(f"max_value = {max_temp}")
             max_value = max_temp
