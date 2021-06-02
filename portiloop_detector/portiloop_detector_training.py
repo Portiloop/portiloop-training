@@ -21,8 +21,8 @@ from torch.utils.data.sampler import Sampler
 import wandb
 from utils import out_dim, MAXIMIZE_F1_SCORE
 
-PHASE = 'p1'
-threshold_list = {'p1': 0.2, 'p2': 0.35}
+PHASE = 'full'
+threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
 THRESHOLD = threshold_list[PHASE]
 WANDB_PROJECT_RUN = f"{PHASE}-dataset"
 
@@ -128,15 +128,13 @@ class RandomSampler(Sampler):
     The sampling happens WITH replacement.
     __iter__ stops after an arbitrary number of iterations = batch_size_list * nb_batch
     Arguments:
-      data_source (Dataset): dataset to sample from
       idx_true: np.array
       idx_false: np.array
       batch_size (int)
       nb_batch (int, optional): number of iteration before end of __iter__(), this defaults to len(data_source)
     """
 
-    def __init__(self, data_source, idx_true, idx_false, batch_size, distribution_mode, nb_batch):
-        self.data_source = data_source
+    def __init__(self, idx_true, idx_false, batch_size, distribution_mode, nb_batch):
         self.idx_true = idx_true
         self.idx_false = idx_false
         self.nb_true = self.idx_true.size
@@ -149,8 +147,8 @@ class RandomSampler(Sampler):
         global recall_validation_factor
         cur_iter = 0
         seed()
-        #  epsilon = 1e-7
-        #    proba = float(0.5 + 0.5 * (precision_validation_factor - recall_validation_factor) / (precision_validation_factor + recall_validation_factor + epsilon))
+        # epsilon = 1e-7 proba = float(0.5 + 0.5 * (precision_validation_factor - recall_validation_factor) / (precision_validation_factor +
+        # recall_validation_factor + epsilon))
         proba = 0.5
         if self.distribution_mode == 1:
             proba = 1
@@ -170,7 +168,6 @@ class RandomSampler(Sampler):
 
     def __len__(self):
         return self.length
-        # return len(self.data_source)
 
 
 # Sampler validation
@@ -600,8 +597,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                       list_subject=validation_subject,
                                       len_segment=len_segment_s)
         idx_true, idx_false = get_class_idxs(ds_train, distribution_mode)
-        samp_train = RandomSampler(ds_train,
-                                   idx_true=idx_true,
+        samp_train = RandomSampler(idx_true=idx_true,
                                    idx_false=idx_false,
                                    batch_size=batch_size,
                                    nb_batch=nb_batch_per_epoch,
@@ -858,43 +854,18 @@ def get_config_dict(index):
     #                'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1,
     #                'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
     #                "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
-    if index < 9:
-        config_dict = {'experiment_name': f'v2_batch_lr_pareto_search_14_93_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
-                       'nb_epoch_max':
-                           500,
-                       'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
-                       'nb_batch_per_epoch': 1000, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01,
-                       'distribution_mode': 0, 'classification': True, 'nb_conv_layers': 4, 'seq_len': 50, 'nb_channel': 46,
-                       'hidden_size': 2, 'seq_stride_s': 0.05, 'nb_rnn_layers': 1, 'RNN': True,
-                       'envelope_input': True, "batch_size": batch_size_list[index % len(batch_size_list)],
-                       "lr_adam": lr_adam_list[index % len(lr_adam_list)], 'window_size_s': 0.274, 'stride_pool': 1, 'stride_conv': 1,
-                       'kernel_conv': 7,
-                       'kernel_pool': 7, 'dilation_conv': 1,
-                       'dilation_pool': 1, 'nb_out': 20, 'time_in_past': 2.5, 'estimator_size_memory': 1368268800}
-    elif index < 18:
-        config_dict = {'experiment_name': f'v2_batch_lr_pareto_search_14_284_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
-                       'nb_epoch_max': 500,
-                       'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
-                       'nb_batch_per_epoch': 1000,
-                       'first_layer_dropout': False,
-                       'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
-                       'nb_conv_layers': 4,
-                       'seq_len': 50, 'nb_channel': 26, 'hidden_size': 7, 'seq_stride_s': 0.062, 'nb_rnn_layers': 2, 'RNN': True,
-                       'envelope_input': True,
-                       "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)],
-                       'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
-                       'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400}
-    else:
-        config_dict = {'experiment_name': f'v2_batch_lr_pareto_search_14_99999_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
-                       'nb_epoch_max': 500,
-                       'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
-                       'nb_batch_per_epoch': 1000, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01,
-                       'distribution_mode': 0, 'classification': True,
-                       'nb_conv_layers': 4, 'seq_len': 50, 'nb_channel': 30, 'hidden_size': 10, 'seq_stride_s': 0.025, 'nb_rnn_layers': 2,
-                       'RNN': True, 'envelope_input': True, "batch_size": batch_size_list[index % len(batch_size_list)],
-                       "lr_adam": lr_adam_list[index % len(lr_adam_list)],
-                       'window_size_s': 0.25, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
-                       'dilation_conv': 1, 'dilation_pool': 1}
+    config_dict = {'experiment_name': f'implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
+                   'nb_epoch_max': 500,
+                   'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
+                   'nb_batch_per_epoch': 1000,
+                   'first_layer_dropout': False,
+                   'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
+                   'nb_conv_layers': 4,
+                   'seq_len': 50, 'nb_channel': 26, 'hidden_size': 7, 'seq_stride_s': 0.062, 'nb_rnn_layers': 2, 'RNN': True,
+                   'envelope_input': True,
+                   "batch_size": 64, "lr_adam": 0.0009,
+                   'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
+                   'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400}
 
     return config_dict
 
