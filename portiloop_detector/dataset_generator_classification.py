@@ -12,13 +12,20 @@ from time import time
 import numpy as np
 import pandas as pd
 import pyedflib
+phase = 'p1'
+subject_file = {'p1': "6_segListSrcDataLoc_p1.txt", 'p2': "7_segListSrcDataLoc_p2.txt"}
 
 t_start = time()
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 os.chdir(path_dataset/'classification_annot')
 annotation_files = glob.glob("*MODA_GS.txt")
 os.chdir(path_dataset)
-annotation_files = [files for files in annotation_files]
+if phase in subject_file.keys():
+    phase_list = pd.read_csv(subject_file[phase], delim_whitespace=True)
+    phase_subject_list = list(dict.fromkeys(phase_list["subjectID"]))
+    annotation_files = [files for files in annotation_files if files[0:-12] in phase_subject_list]
+else:
+    annotation_files = [files for files in annotation_files]
 signal_files = [(subject[0:-12] + " PSG.edf") for subject in annotation_files]
 fe = 256
 new_fe = 250
@@ -93,10 +100,10 @@ signal = np.hstack(np.hstack(signal_seq_list))
 spindle = np.hstack(np.hstack(spindle_seq_list))
 
 if fe == new_fe:
-    np.savetxt(f"dataset_full_{size_dataset}.txt", np.transpose((signal, spindle)), fmt='%e,%f')
+    np.savetxt(f"dataset_{phase}_{size_dataset}.txt", np.transpose((signal, spindle)), fmt='%e,%f')
 else:
-    np.savetxt(f"dataset_full_{size_dataset}_at_{fe}_to_resample.txt", np.transpose(signal), fmt='%e')
-    np.savetxt(f"spindles_annotations_full_{size_dataset}_at_{new_fe}hz.txt", np.transpose(spindle), fmt='%f')
+    np.savetxt(f"dataset_{phase}_{size_dataset}_at_{fe}_to_resample.txt", np.transpose(signal), fmt='%e')
+    np.savetxt(f"spindles_annotations_classification_{phase}_{size_dataset}_at_{new_fe}hz.txt", np.transpose(spindle), fmt='%f')
 
-np.savetxt(f"subject_sequence_full_{size_dataset}.txt", subject_seq_list, fmt="%s")
+np.savetxt(f"subject_sequence_{phase}_{size_dataset}.txt", subject_seq_list, fmt="%s")
 print("tot_time = ", str(time() - t_start))
