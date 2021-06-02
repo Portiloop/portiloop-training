@@ -21,7 +21,7 @@ from torch.utils.data.sampler import Sampler
 import wandb
 from utils import out_dim, MAXIMIZE_F1_SCORE
 
-PHASE = 'p1'
+PHASE = 'p2'
 threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
 THRESHOLD = threshold_list[PHASE]
 WANDB_PROJECT_RUN = f"{PHASE}-dataset"

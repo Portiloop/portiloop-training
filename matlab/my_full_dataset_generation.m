@@ -1,5 +1,5 @@
 path = "../dataset/";
-phase = 'p1';
+phase = 'p2';
 spindle_250 = load(path+"spindles_annotations_classification_"+phase+"_big_at_250hz.txt");
 data_256 = load(path+"dataset_"+phase+"_big_at_256_to_resample.txt");
 %% resample
