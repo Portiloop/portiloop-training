@@ -21,12 +21,13 @@ from torch.utils.data.sampler import Sampler
 import wandb
 from utils import out_dim, MAXIMIZE_F1_SCORE
 
-PHASE = 'full'
+PHASE = 'p1'
 threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
 THRESHOLD = threshold_list[PHASE]
 WANDB_PROJECT_RUN = f"{PHASE}-dataset"
 
 filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
 subject_list = f"subject_sequence_{PHASE}_big.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
@@ -562,7 +563,7 @@ def get_metrics(tp, fp, fn):
 
 # run:
 
-def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch):
+def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification):
     all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
     train_subject, test_subject = train_test_split(all_subject, train_size=0.9, random_state=0)
     train_subject, validation_subject = train_test_split(train_subject, train_size=0.95, random_state=0)  # with K fold cross validation, this
@@ -578,8 +579,9 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     test_loader = None
     batch_size_validation = None
     batch_size_test = None
+    filename = filename_classification_dataset if classification else filename_dataset
     if seq_len is not None:
-        ds_train = SignalDataset(filename=filename_dataset,
+        ds_train = SignalDataset(filename=filename,
                                  path=path_dataset,
                                  window_size=window_size,
                                  fe=fe,
@@ -588,7 +590,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                  list_subject=train_subject,
                                  len_segment=len_segment_s)
 
-        ds_validation = SignalDataset(filename=filename_dataset,
+        ds_validation = SignalDataset(filename=filename,
                                       path=path_dataset,
                                       window_size=window_size,
                                       fe=fe,
@@ -624,7 +626,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                        pin_memory=True,
                                        shuffle=False)
     else:
-        ds_test = SignalDataset(filename=filename_dataset,
+        ds_test = SignalDataset(filename=filename,
                                 path=path_dataset,
                                 window_size=window_size,
                                 fe=fe,
@@ -712,7 +714,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
     train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
-                                                                                          batch_size, nb_batch_per_epoch)
+                                                                                          batch_size, nb_batch_per_epoch, classification)
 
     best_model_accuracy = 0
     best_epoch = 0
@@ -854,7 +856,7 @@ def get_config_dict(index):
     #                'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1,
     #                'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
     #                "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
-    config_dict = {'experiment_name': f'implemented_on_portiloop_batch256_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
+    config_dict = {'experiment_name': f'implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
                    'nb_epoch_max': 500,
                    'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
                    'nb_batch_per_epoch': 1000,

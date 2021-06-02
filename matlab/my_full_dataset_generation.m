@@ -1,6 +1,6 @@
 path = "../dataset/";
-phase = 'full';
-spindle_250 = load(path+"spindles_annotations_"+phase+"_big_at_250hz.txt");
+phase = 'p1';
+spindle_250 = load(path+"spindles_annotations_classification_"+phase+"_big_at_250hz.txt");
 data_256 = load(path+"dataset_"+phase+"_big_at_256_to_resample.txt");
 %% resample
 fe = 250;
@@ -85,4 +85,4 @@ end
 
 datasetupdate = single([lp_standard, envelope_homemade_simulink, r, spindle_250]);
 
-writematrix(datasetupdate, path+"dataset_"+phase + "_big_250_matlab_standardized_envelope_pf.txt");
+writematrix(datasetupdate, path+"dataset_classification_"+phase + "_big_250_matlab_standardized_envelope_pf.txt");
