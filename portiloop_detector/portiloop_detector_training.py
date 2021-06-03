@@ -36,7 +36,7 @@ path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
 
-ABLATION = 0 # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
+ABLATION = 1  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
 # hyperparameters
 
 batch_size_list = [64, 64, 64, 128, 128, 128, 256, 256, 256]
@@ -291,6 +291,8 @@ class PortiloopNetwork(nn.Module):
             nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
             nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
 
+        output_cnn_size = int(nb_channel * nb_out)
+
         self.RNN = RNN
         if ABLATION != 1:
             self.first_layer_input1 = ConvPoolModule(in_channels=1,
@@ -315,14 +317,6 @@ class PortiloopNetwork(nn.Module):
                                                              pool_padding=pool_padding,
                                                              dilation_pool=dilation_pool,
                                                              dropout_p=dropout_p) for _ in range(nb_conv_layers - 1)))
-            nb_out = window_size
-
-            for _ in range(nb_conv_layers):
-                nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
-                nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
-
-            output_cnn_size = int(nb_channel * nb_out)
-            fc_size = output_cnn_size
             if RNN:
                 self.gru_input1 = nn.GRU(input_size=output_cnn_size,
                                          hidden_size=hidden_size,
@@ -648,7 +642,8 @@ class LabelDistributionSmoothing:
         self.bins = None
         self.lds_distribution = None
         if weights is None:
-            self.weights, self.distribution, self.lds_distribution, self.bins = generate_label_distribution_and_lds(dataset, kernel_size, kernel_std, nb_bins, weighting_mode)
+            self.weights, self.distribution, self.lds_distribution, self.bins = generate_label_distribution_and_lds(dataset, kernel_size, kernel_std,
+                                                                                                                    nb_bins, weighting_mode)
             logging.debug(f"self.distribution: {self.weights}")
             logging.debug(f"self.lds_distribution: {self.weights}")
         else:
@@ -902,7 +897,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
     train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                                                                           batch_size, nb_batch_per_epoch, classification)
     if balancer_type == 1:
-        lds = LabelDistributionSmoothing(c=1.0, dataset=train_loader.dataset, weights=None, kernel_size=5, kernel_std=0.01, nb_bins=100, weighting_mode='inv_sqrt')
+        lds = LabelDistributionSmoothing(c=1.0, dataset=train_loader.dataset, weights=None, kernel_size=5, kernel_std=0.01, nb_bins=100,
+                                         weighting_mode='inv_sqrt')
     elif balancer_type == 2:
         sr = SurpriseReweighting(dataset=train_loader.dataset, weights=None, nb_bins=100, alpha=1e-3)
 
@@ -953,7 +949,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
                 if balancer_type == 1:
                     batch_weights = lds.lds_weights_batch(batch_labels)
                     loss = loss * batch_weights
-                    error = batch_weights.isinf().any().item() or batch_weights.isnan().any().item() or torch.isnan(loss).any().item() or torch.isinf(loss).any().item()
+                    error = batch_weights.isinf().any().item() or batch_weights.isnan().any().item() or torch.isnan(
+                        loss).any().item() or torch.isinf(loss).any().item()
                     if error:
                         logging.debug(f"batch_labels: {batch_labels}")
                         logging.debug(f"batch_weights: {batch_weights}")
@@ -1068,12 +1065,13 @@ def get_config_dict(index):
     #                'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1,
     #                'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
     #                "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
-    config_dict = {'experiment_name': f'test_v1_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
-                   'nb_epoch_max': 500,
+    config_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v1_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
+        'cuda:0', 'nb_epoch_max': 500,
                    'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
                    'nb_batch_per_epoch': 1000,
                    'first_layer_dropout': False,
-                   'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True, 'reg_balancing': 'none',
+                   'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
+                   'reg_balancing': 'none',
                    'nb_conv_layers': 4,
                    'seq_len': 50, 'nb_channel': 26, 'hidden_size': 7, 'seq_stride_s': 0.062, 'nb_rnn_layers': 2, 'RNN': True,
                    'envelope_input': True,
