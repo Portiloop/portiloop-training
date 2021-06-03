@@ -23,20 +23,10 @@ from utils import out_dim, MAXIMIZE_F1_SCORE
 
 from scipy.ndimage import gaussian_filter1d, convolve1d
 
-PHASE = 'full'
-threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
-THRESHOLD = threshold_list[PHASE]
-WANDB_PROJECT_RUN = f"{PHASE}-dataset"
-# WANDB_PROJECT_RUN = f"tests_yann"
-
-filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
-filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
-subject_list = f"subject_sequence_{PHASE}_big.txt"
 path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
 
-ABLATION = 1  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
 # hyperparameters
 
 batch_size_list = [64, 64, 64, 128, 128, 128, 256, 256, 256]
@@ -1087,6 +1077,8 @@ if __name__ == "__main__":
     parser.add_argument('--experiment_name', type=str)
     parser.add_argument('--experiment_index', type=int)
     parser.add_argument('--output_file', type=str, default=None)
+    parser.add_argument('--phase', type=str, default='full')
+    parser.add_argument('--ablation', type=int, default=0)
     args = parser.parse_args()
     if args.output_file is not None:
         logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
@@ -1096,6 +1088,17 @@ if __name__ == "__main__":
         logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
     else:
         logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
+    ABLATION = args.ablation  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
+
+    PHASE = args.phase
+    threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
+    THRESHOLD = threshold_list[PHASE]
+    WANDB_PROJECT_RUN = f"{PHASE}-dataset"
+    # WANDB_PROJECT_RUN = f"tests_yann"
+
+    filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+    filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+    subject_list = f"subject_sequence_{PHASE}_big.txt"
 
     exp_name = args.experiment_name
     exp_index = args.experiment_index
