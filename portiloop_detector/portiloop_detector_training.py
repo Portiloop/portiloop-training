@@ -23,7 +23,7 @@ from utils import out_dim, MAXIMIZE_F1_SCORE
 
 from scipy.ndimage import gaussian_filter1d, convolve1d
 
-PHASE = 'p1'
+PHASE = 'full'
 threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
 THRESHOLD = threshold_list[PHASE]
 WANDB_PROJECT_RUN = f"{PHASE}-dataset"
