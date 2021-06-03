@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from portiloop_detector_training import PortiloopNetwork, generate_dataloader, path_dataset, run_inference, get_metrics, get_config_dict
+from portiloop_detector_training import PortiloopNetwork, generate_dataloader, run_inference, get_metrics, get_config_dict, PHASE
 
 path_experiment = Path(__file__).absolute().parent.parent / 'experiments'
 
@@ -35,7 +35,9 @@ def run_test(config_dict):
     criterion = nn.MSELoss() if not classification else nn.BCELoss()
 
     _, _, _, test_loader, batch_size_test, test_subject = generate_dataloader(window_size=window_size, fe=fe, seq_len=None, seq_stride=seq_stride,
-                                                                              distribution_mode=None, batch_size=None, nb_batch_per_epoch=None)
+                                                                              distribution_mode=None, batch_size=None, nb_batch_per_epoch=None,
+                                                                              classification=classification)
+    experiment_name = f"implemented_on_portiloop_{PHASE}"
     with open(path_experiment / "testloader.pkl", 'wb') as file:
         pickle.dump(test_loader, file)
     checkpoint = torch.load(path_experiment / experiment_name)
