@@ -26,8 +26,8 @@ from scipy.ndimage import gaussian_filter1d, convolve1d
 PHASE = 'p2'
 threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
 THRESHOLD = threshold_list[PHASE]
-# WANDB_PROJECT_RUN = f"{PHASE}-dataset"
-WANDB_PROJECT_RUN = f"tests_yann"
+WANDB_PROJECT_RUN = f"{PHASE}-dataset"
+# WANDB_PROJECT_RUN = f"tests_yann"
 
 filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
 filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
@@ -1068,7 +1068,7 @@ def get_config_dict(index):
                    'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
                    'nb_batch_per_epoch': 1000,
                    'first_layer_dropout': False,
-                   'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 1, 'classification': False,
+                   'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
                    'nb_conv_layers': 4,
                    'seq_len': 50, 'nb_channel': 26, 'hidden_size': 7, 'seq_stride_s': 0.062, 'nb_rnn_layers': 2, 'RNN': True,
                    'envelope_input': True,
