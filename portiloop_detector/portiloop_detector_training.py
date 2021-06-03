@@ -367,7 +367,7 @@ class PortiloopNetwork(nn.Module):
         (batch_size, sequence_len, features) = x1.shape
         hn1 = None
 
-        x = torch.Tensor([])
+        x = torch.Tensor([]).to(x2.device)
         if ABLATION != 1:
             x1 = x1.view(-1, 1, features)
             x1, max_value = self.first_layer_input1((x1, max_value))
