@@ -365,12 +365,14 @@ class PortiloopNetwork(nn.Module):
 
     def forward(self, x1, x2, x3, h1, h2, max_value=np.inf):
         (batch_size, sequence_len, features) = x1.shape
-        x1 = x1.view(-1, 1, features)
-        x1, max_value = self.first_layer_input1((x1, max_value))
-        x1, max_value = self.seq_input1((x1, max_value))
-        x = torch.Tensor([])
         hn1 = None
+
+        x = torch.Tensor([])
         if ABLATION != 1:
+            x1 = x1.view(-1, 1, features)
+            x1, max_value = self.first_layer_input1((x1, max_value))
+            x1, max_value = self.seq_input1((x1, max_value))
+
             x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
             hn1 = None
             if self.RNN:
