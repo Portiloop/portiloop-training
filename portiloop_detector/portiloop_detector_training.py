@@ -21,10 +21,13 @@ from torch.utils.data.sampler import Sampler
 import wandb
 from utils import out_dim, MAXIMIZE_F1_SCORE
 
+from scipy.ndimage import gaussian_filter1d, convolve1d
+
 PHASE = 'p2'
 threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
 THRESHOLD = threshold_list[PHASE]
-WANDB_PROJECT_RUN = f"{PHASE}-dataset"
+# WANDB_PROJECT_RUN = f"{PHASE}-dataset"
+WANDB_PROJECT_RUN = f"tests_yann"
 
 filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
 filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
@@ -522,7 +525,7 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
             # logging.debug(f"label = {batch_labels}")
             # logging.debug(f"output = {output}")
             output = output.view(-1)
-            loss_py = criterion(output, batch_labels)
+            loss_py = criterion(output, batch_labels).mean()
             loss += loss_py.item()
             # logging.debug(f"loss = {loss}")
             if not classification:
@@ -559,6 +562,172 @@ def get_metrics(tp, fp, fn):
     f1 = 2 * (precision * recall) / (precision + recall + epsilon)
 
     return f1, precision, recall
+
+
+# Regression balancing:
+
+
+def get_lds_kernel(ks, sigma):
+    half_ks = (ks - 1) // 2
+    base_kernel = [0.] * half_ks + [1.] + [0.] * half_ks
+    kernel_window = gaussian_filter1d(base_kernel, sigma=sigma) / max(gaussian_filter1d(base_kernel, sigma=sigma))
+    return kernel_window
+
+
+def generate_label_distribution_and_lds(dataset, kernel_size=5, kernel_std=2.0, nb_bins=100, reweight='inv_sqrt'):
+    """
+    Returns:
+        distribution: the distribution of labels in the dataset
+        lds: the same distribution, smoothed with a gaussian kernel
+    """
+
+    weights = torch.tensor([0.3252, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0069, 0.0163,
+                            0.0000, 0.0366, 0.0000, 0.0179, 0.0000, 0.0076, 0.0444, 0.0176, 0.0025,
+                            0.0056, 0.0000, 0.0416, 0.0039, 0.0000, 0.0000, 0.0000, 0.0171, 0.0000,
+                            0.0000, 0.0042, 0.0114, 0.0209, 0.0023, 0.0036, 0.0106, 0.0241, 0.0034,
+                            0.0000, 0.0056, 0.0000, 0.0029, 0.0241, 0.0076, 0.0027, 0.0012, 0.0000,
+                            0.0166, 0.0028, 0.0000, 0.0000, 0.0000, 0.0197, 0.0000, 0.0000, 0.0021,
+                            0.0054, 0.0191, 0.0014, 0.0023, 0.0074, 0.0000, 0.0186, 0.0000, 0.0088,
+                            0.0000, 0.0032, 0.0135, 0.0069, 0.0029, 0.0016, 0.0164, 0.0068, 0.0022,
+                            0.0000, 0.0000, 0.0000, 0.0191, 0.0000, 0.0000, 0.0017, 0.0082, 0.0181,
+                            0.0019, 0.0038, 0.0064, 0.0000, 0.0133, 0.0000, 0.0069, 0.0000, 0.0025,
+                            0.0186, 0.0076, 0.0031, 0.0016, 0.0218, 0.0105, 0.0049, 0.0000, 0.0000,
+                            0.0246], dtype=torch.float64)
+
+    lds = None
+    dist = None
+    bins = None
+    return weights, dist, lds, bins
+
+    # TODO: remove before
+
+    dataset_len = len(dataset)
+    logging.debug(f"Length of the dataset passed to generate_label_distribution_and_lds: {dataset_len}")
+    logging.debug(f"kernel_size: {kernel_size}")
+    logging.debug(f"kernel_std: {kernel_std}")
+    logging.debug(f"Generating empirical distribution...")
+
+    tab = np.array([dataset[i][3].item() for i in range(dataset_len)])
+    tab = np.around(tab, decimals=5)
+    elts = np.unique(tab)
+    logging.debug(f"all labels: {elts}")
+    dist, bins = np.histogram(tab, bins=nb_bins, density=False, range=(0.0, 1.0))
+
+    # dist, bins = np.histogram([dataset[i][3].item() for i in range(dataset_len)], bins=nb_bins, density=False, range=(0.0, 1.0))
+
+    logging.debug(f"dist: {dist}")
+
+    # kernel = get_lds_kernel(kernel_size, kernel_std)
+    # lds = convolve1d(dist, weights=kernel, mode='constant')
+
+    lds = gaussian_filter1d(input=dist, sigma=kernel_std, axis=- 1, order=0, output=None, mode='reflect', cval=0.0, truncate=4.0)
+
+    weights = np.sqrt(lds) if reweight == 'inv_sqrt' else lds
+    # scaling = len(weights) / np.sum(weights)  # not the same implementation as in the original repo
+    scaling = 1.0 / np.sum(weights)
+    weights = weights * scaling
+
+    return weights, dist, lds, bins
+
+
+class LabelDistributionSmoothing:
+    def __init__(self, c=1.0, dataset=None, weights=None, kernel_size=5, kernel_std=2.0, nb_bins=100, weighting_mode="inv_sqrt"):
+        """
+        If provided, lds_distribution must be a numpy.array representing a density over [0.0, 1.0] (e.g. first element of a numpy.histogram)
+        When lds_distribution is provided, it overrides everything else
+        c is the scaling constant for lds weights
+        weighting_mode can be 'inv' or 'inv_sqrt'
+        """
+        assert dataset is not None or weights is not None, "Either a dataset or weights must be provided"
+        self.distribution = None
+        self.bins = None
+        self.lds_distribution = None
+        if weights is None:
+            self.weights, self.distribution, self.lds_distribution, self.bins = generate_label_distribution_and_lds(dataset, kernel_size, kernel_std, nb_bins, weighting_mode)
+            logging.debug(f"self.distribution: {self.weights}")
+            logging.debug(f"self.lds_distribution: {self.weights}")
+        else:
+            self.weights = weights
+        self.nb_bins = len(self.weights)
+        self.bin_width = 1.0 / self.nb_bins
+        self.c = c
+        logging.debug(f"The LDS distribution has {self.nb_bins} bins of width {self.bin_width}")
+        self.weights = torch.tensor(self.weights)
+
+        logging.debug(f"self.weights: {self.weights}")
+
+    def lds_weights_batch(self, batch_labels):
+        device = batch_labels.device
+        if self.weights.device != device:
+            self.weights = self.weights.to(device)
+        last_bin = 1.0 - self.bin_width
+        batch_idxs = torch.minimum(batch_labels, torch.ones_like(batch_labels) * last_bin) / self.bin_width  # FIXME : double check
+        batch_idxs = batch_idxs.floor().long()
+        res = 1.0 / self.weights[batch_idxs]
+        return res
+
+    def __str__(self):
+        return f"LDS nb_bins: {self.nb_bins}\nbins: {self.bins}\ndistribution: {self.distribution}\nlds_distribution: {self.lds_distribution}\nweights: {self.weights}"
+
+
+class SurpriseReweighting:
+    """
+    Custom reweighting Yann
+    """
+
+    def __init__(self, dataset=None, weights=None, nb_bins=100, alpha=1e-3):
+        """
+        weighting_mode can be 'inv' or 'inv_sqrt'
+        """
+        assert dataset is not None or weights is not None, "Either a dataset or weights must be provided"
+
+        if weights is None:
+            self.weights = [1.0, ] * nb_bins
+            self.weights = torch.tensor(self.weights)
+            self.weights = self.weights / torch.sum(self.weights)
+        else:
+            self.weights = weights
+        self.nb_bins = len(self.weights)
+        self.bin_width = 1.0 / self.nb_bins
+        self.alpha = alpha
+        logging.debug(f"The SR distribution has {self.nb_bins} bins of width {self.bin_width}")
+        logging.debug(f"Initial self.weights: {self.weights}")
+
+    def update_and_get_weighted_loss(self, batch_labels, unweighted_loss):
+        device = batch_labels.device
+        if self.weights.device != device:
+            self.weights = self.weights.to(device)
+        last_bin = 1.0 - self.bin_width
+        batch_idxs = torch.minimum(batch_labels, torch.ones_like(batch_labels) * last_bin) / self.bin_width  # FIXME : double check
+        batch_idxs = batch_idxs.floor().long()
+        weights = copy.deepcopy(self.weights[batch_idxs])
+        res = unweighted_loss * weights
+        with torch.no_grad():
+            abs_loss = torch.abs(unweighted_loss)
+            # compute the mean loss per idx
+            bincount = torch.bincount(batch_idxs, minlength=self.nb_bins)
+            num = torch.zeros(self.nb_bins).to(device)
+            num = num.index_add(0, batch_idxs, abs_loss)
+            div = bincount.float()
+
+            # unique_idx = torch.unique(batch_idxs)
+
+            div[bincount == 0] = 1.0
+            mean_loss_per_idx = num / div
+            sum_other_weights = torch.sum(self.weights[bincount == 0])
+            mean_loss_per_idx_normalized = mean_loss_per_idx / torch.sum(mean_loss_per_idx)
+            mean_loss_per_idx_normalized[bincount != 0] -= sum_other_weights / len(mean_loss_per_idx_normalized[bincount != 0])
+            mean_loss_per_idx_normalized[bincount == 0] = self.weights[bincount == 0]
+            # logging.debug(f"old self.weights: {self.weights}")
+            self.weights[bincount != 0] = (1.0 - self.alpha) * self.weights[bincount != 0] + self.alpha * mean_loss_per_idx_normalized[bincount != 0]
+            # logging.debug(f"unique_idx: {unique_idx}")
+            # logging.debug(f"new self.weights: {self.weights}")
+            logging.debug(f"new torch.sum(self.weights): {torch.sum(self.weights)}")
+            # assert False
+        return res * self.nb_bins
+
+    def __str__(self):
+        return f"LDS nb_bins: {self.nb_bins}\nweights: {self.weights}"
 
 
 # run:
@@ -678,6 +847,17 @@ def run(config_dict, wandb_project, save_model, unique_name):
     adam_w = config_dict["adam_w"]
     distribution_mode = config_dict["distribution_mode"]
     classification = config_dict["classification"]
+    reg_balancing = config_dict["reg_balancing"]
+
+    assert reg_balancing in {'none', 'lds', 'sr'}, f"wrong key: {reg_balancing}"
+    assert classification or distribution_mode == 1, "distribution_mode must be 1 (no class balancing) in regression mode"
+    balancer_type = 0
+    lds = None
+    sr = None
+    if reg_balancing == 'lds':
+        balancer_type = 1
+    elif reg_balancing == 'sr':
+        balancer_type = 2
 
     window_size = int(window_size_s * fe)
     seq_stride = int(seq_stride_s * fe)
@@ -688,7 +868,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
     logger = LoggerWandb(experiment_name, config_dict, wandb_project)
     torch.seed()
     net = PortiloopNetwork(config_dict).to(device=device_train)
-    criterion = nn.MSELoss() if not classification else nn.BCELoss()
+    criterion = nn.MSELoss(reduction='none') if not classification else nn.BCELoss(reduction='none')
+    # criterion = nn.MSELoss() if not classification else nn.BCELoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
 
     first_epoch = 0
@@ -715,6 +896,10 @@ def run(config_dict, wandb_project, save_model, unique_name):
 
     train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                                                                           batch_size, nb_batch_per_epoch, classification)
+    if balancer_type == 1:
+        lds = LabelDistributionSmoothing(c=1.0, dataset=train_loader.dataset, weights=None, kernel_size=5, kernel_std=0.01, nb_bins=100, weighting_mode='inv_sqrt')
+    elif balancer_type == 2:
+        sr = SurpriseReweighting(dataset=train_loader.dataset, weights=None, nb_bins=100, alpha=1e-3)
 
     best_model_accuracy = 0
     best_epoch = 0
@@ -759,6 +944,28 @@ def run(config_dict, wandb_project, save_model, unique_name):
                 output = output.view(-1)
 
                 loss = criterion(output, batch_labels)
+
+                if balancer_type == 1:
+                    batch_weights = lds.lds_weights_batch(batch_labels)
+                    loss = loss * batch_weights
+                    error = batch_weights.isinf().any().item() or batch_weights.isnan().any().item() or torch.isnan(loss).any().item() or torch.isinf(loss).any().item()
+                    if error:
+                        logging.debug(f"batch_labels: {batch_labels}")
+                        logging.debug(f"batch_weights: {batch_weights}")
+                        logging.debug(f"loss: {loss}")
+                        logging.debug(f"LDS: {lds}")
+                        assert False, "loss is nan or inf"
+                elif balancer_type == 2:
+                    loss = sr.update_and_get_weighted_loss(batch_labels=batch_labels, unweighted_loss=loss)
+                    error = torch.isnan(loss).any().item() or torch.isinf(loss).any().item()
+                    if error:
+                        logging.debug(f"batch_labels: {batch_labels}")
+                        logging.debug(f"loss: {loss}")
+                        logging.debug(f"SR: {sr}")
+                        assert False, "loss is nan or inf"
+
+                loss = loss.mean()
+
                 loss_train += loss.item()
                 loss.backward()
                 optimizer.step()
@@ -856,7 +1063,7 @@ def get_config_dict(index):
     #                'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1,
     #                'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
     #                "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
-    config_dict = {'experiment_name': f'implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
+    config_dict = {'experiment_name': f'test_v1_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0',
                    'nb_epoch_max': 500,
                    'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
                    'nb_batch_per_epoch': 1000,
