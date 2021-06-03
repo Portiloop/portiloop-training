@@ -1068,7 +1068,7 @@ def get_config_dict(index):
                    'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
                    'nb_batch_per_epoch': 1000,
                    'first_layer_dropout': False,
-                   'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
+                   'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 1, 'classification': False,
                    'nb_conv_layers': 4,
                    'seq_len': 50, 'nb_channel': 26, 'hidden_size': 7, 'seq_stride_s': 0.062, 'nb_rnn_layers': 2, 'RNN': True,
                    'envelope_input': True,
