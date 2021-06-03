@@ -23,7 +23,7 @@ from utils import out_dim, MAXIMIZE_F1_SCORE
 
 from scipy.ndimage import gaussian_filter1d, convolve1d
 
-PHASE = 'p1'
+PHASE = 'p2'
 threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
 THRESHOLD = threshold_list[PHASE]
 WANDB_PROJECT_RUN = f"{PHASE}-dataset"
@@ -36,6 +36,7 @@ path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
 
+ABLATION = 0 # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
 # hyperparameters
 
 batch_size_list = [64, 64, 64, 128, 128, 128, 256, 256, 256]
@@ -291,49 +292,49 @@ class PortiloopNetwork(nn.Module):
             nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
 
         self.RNN = RNN
+        if ABLATION != 1:
+            self.first_layer_input1 = ConvPoolModule(in_channels=1,
+                                                     out_channel=nb_channel,
+                                                     kernel_conv=kernel_conv,
+                                                     stride_conv=stride_conv,
+                                                     conv_padding=conv_padding,
+                                                     dilation_conv=dilation_conv,
+                                                     kernel_pool=kernel_pool,
+                                                     stride_pool=stride_pool,
+                                                     pool_padding=pool_padding,
+                                                     dilation_pool=dilation_pool,
+                                                     dropout_p=dropout_p if first_layer_dropout else 0)
+            self.seq_input1 = nn.Sequential(*(ConvPoolModule(in_channels=nb_channel,
+                                                             out_channel=nb_channel,
+                                                             kernel_conv=kernel_conv,
+                                                             stride_conv=stride_conv,
+                                                             conv_padding=conv_padding,
+                                                             dilation_conv=dilation_conv,
+                                                             kernel_pool=kernel_pool,
+                                                             stride_pool=stride_pool,
+                                                             pool_padding=pool_padding,
+                                                             dilation_pool=dilation_pool,
+                                                             dropout_p=dropout_p) for _ in range(nb_conv_layers - 1)))
+            nb_out = window_size
 
-        self.first_layer_input1 = ConvPoolModule(in_channels=1,
-                                                 out_channel=nb_channel,
-                                                 kernel_conv=kernel_conv,
-                                                 stride_conv=stride_conv,
-                                                 conv_padding=conv_padding,
-                                                 dilation_conv=dilation_conv,
-                                                 kernel_pool=kernel_pool,
-                                                 stride_pool=stride_pool,
-                                                 pool_padding=pool_padding,
-                                                 dilation_pool=dilation_pool,
-                                                 dropout_p=dropout_p if first_layer_dropout else 0)
-        self.seq_input1 = nn.Sequential(*(ConvPoolModule(in_channels=nb_channel,
-                                                         out_channel=nb_channel,
-                                                         kernel_conv=kernel_conv,
-                                                         stride_conv=stride_conv,
-                                                         conv_padding=conv_padding,
-                                                         dilation_conv=dilation_conv,
-                                                         kernel_pool=kernel_pool,
-                                                         stride_pool=stride_pool,
-                                                         pool_padding=pool_padding,
-                                                         dilation_pool=dilation_pool,
-                                                         dropout_p=dropout_p) for _ in range(nb_conv_layers - 1)))
-        nb_out = window_size
+            for _ in range(nb_conv_layers):
+                nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
+                nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
 
-        for _ in range(nb_conv_layers):
-            nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
-            nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
-
-        output_cnn_size = int(nb_channel * nb_out)
-        fc_size = output_cnn_size
-        if RNN:
-            self.gru_input1 = nn.GRU(input_size=output_cnn_size,
-                                     hidden_size=hidden_size,
-                                     num_layers=nb_rnn_layers,
-                                     dropout=0,
-                                     batch_first=True)
-        #       fc_size = hidden_size
-        else:
-            self.first_fc_input1 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
-            self.seq_fc_input1 = nn.Sequential(
-                *(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
-        if self.envelope_input:
+            output_cnn_size = int(nb_channel * nb_out)
+            fc_size = output_cnn_size
+            if RNN:
+                self.gru_input1 = nn.GRU(input_size=output_cnn_size,
+                                         hidden_size=hidden_size,
+                                         num_layers=nb_rnn_layers,
+                                         dropout=0,
+                                         batch_first=True)
+            #       fc_size = hidden_size
+            else:
+                self.first_fc_input1 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
+                self.seq_fc_input1 = nn.Sequential(
+                    *(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
+        if ABLATION != 2 and self.envelope_input:
             self.first_layer_input2 = ConvPoolModule(in_channels=1,
                                                      out_channel=nb_channel,
                                                      kernel_conv=kernel_conv,
@@ -367,8 +368,10 @@ class PortiloopNetwork(nn.Module):
                 self.first_fc_input2 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
                 self.seq_fc_input2 = nn.Sequential(
                     *(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
-        fc_features = hidden_size
-        if self.envelope_input:
+        fc_features = 0
+        if ABLATION != 1:
+            fc_features += hidden_size
+        if ABLATION != 2 and self.envelope_input:
             fc_features += hidden_size
         if self.power_features_input:
             fc_features += 1
@@ -381,23 +384,25 @@ class PortiloopNetwork(nn.Module):
         x1 = x1.view(-1, 1, features)
         x1, max_value = self.first_layer_input1((x1, max_value))
         x1, max_value = self.seq_input1((x1, max_value))
-
-        x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
+        x = torch.Tensor([])
         hn1 = None
-        if self.RNN:
-            x1 = x1.view(batch_size, sequence_len, -1)
-            x1, hn1 = self.gru_input1(x1, h1)
-            max_temp = torch.max(abs(x1))
-            if max_temp > max_value:
-                logging.debug(f"max_value = {max_temp}")
-                max_value = max_temp
-            x1 = x1[:, -1, :]
-        else:
-            x1 = self.first_fc_input1(x1)
-            x1 = self.seq_fc_input1(x1)
-        x = x1
+        if ABLATION != 1:
+            x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
+            hn1 = None
+            if self.RNN:
+                x1 = x1.view(batch_size, sequence_len, -1)
+                x1, hn1 = self.gru_input1(x1, h1)
+                max_temp = torch.max(abs(x1))
+                if max_temp > max_value:
+                    logging.debug(f"max_value = {max_temp}")
+                    max_value = max_temp
+                x1 = x1[:, -1, :]
+            else:
+                x1 = self.first_fc_input1(x1)
+                x1 = self.seq_fc_input1(x1)
+            x = x1
         hn2 = None
-        if self.envelope_input:
+        if ABLATION != 2 and self.envelope_input:
             x2 = x2.view(-1, 1, features)
             x2, max_value = self.first_layer_input2((x2, max_value))
             x2, max_value = self.seq_input2((x2, max_value))
@@ -734,8 +739,8 @@ class SurpriseReweighting:
 
 def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification):
     all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
-    train_subject, test_subject = train_test_split(all_subject, train_size=0.9, random_state=0)
-    train_subject, validation_subject = train_test_split(train_subject, train_size=0.95, random_state=0)  # with K fold cross validation, this
+    train_subject, test_subject = train_test_split(all_subject, train_size=0.95, random_state=0)
+    train_subject, validation_subject = train_test_split(train_subject, train_size=0.9, random_state=0)  # with K fold cross validation, this
     # split will be done K times
 
     logging.debug(f"Subjects in training : {train_subject[:, 0]}")
