@@ -437,15 +437,20 @@ class LoggerWandb:
             f1_validation,
             precision_validation,
             recall_validation,
-            best_model_accuracy_validation,
             best_epoch,
             best_model,
             loss_early_stopping,
             best_epoch_early_stopping,
+            best_model_accuracy_validation,
             best_model_f1_score_validation,
             best_model_precision_validation,
             best_model_recall_validation,
             best_model_loss_validation,
+            best_model_on_loss_accuracy_validation,
+            best_model_on_loss_f1_score_validation,
+            best_model_on_loss_precision_validation,
+            best_model_on_loss_recall_validation,
+            best_model_on_loss_loss_validation,
             updated_model=False,
             ):
         self.best_model = best_model
@@ -466,8 +471,14 @@ class LoggerWandb:
         self.wandb_run.summary["best_model_recall_validation"] = best_model_recall_validation
         self.wandb_run.summary["best_model_loss_validation"] = best_model_loss_validation
         self.wandb_run.summary["best_model_accuracy_validation"] = best_model_accuracy_validation
+        self.wandb_run.summary["best_model_on_loss_f1_score_validation"] = best_model_on_loss_f1_score_validation
+        self.wandb_run.summary["best_model_on_loss_precision_validation"] = best_model_on_loss_precision_validation
+        self.wandb_run.summary["best_model_on_loss_recall_validation"] = best_model_on_loss_recall_validation
+        self.wandb_run.summary["best_model_on_loss_loss_validation"] = best_model_on_loss_loss_validation
+        self.wandb_run.summary["best_model_on_loss_accuracy_validation"] = best_model_on_loss_accuracy_validation
         if updated_model:
             self.wandb_run.save(os.path.join(path_dataset, self.experiment_name), policy="live", base_path=path_dataset)
+            self.wandb_run.save(os.path.join(path_dataset, self.experiment_name + "_on_loss"), policy="live", base_path=path_dataset)
 
     def __del__(self):
         self.wandb_run.finish()
@@ -904,6 +915,11 @@ def run(config_dict, wandb_project, save_model, unique_name):
     best_model_recall_validation = 0
     best_model_loss_validation = 1
 
+    best_model_on_loss_precision_validation = 0
+    best_model_on_loss_f1_score_validation = 0
+    best_model_on_loss_recall_validation = 0
+    best_model_on_loss_loss_validation = 1
+
     accuracy_train = None
     loss_train = None
 
@@ -1008,6 +1024,24 @@ def run(config_dict, wandb_project, save_model, unique_name):
             best_model_recall_validation = recall_validation
             best_model_loss_validation = loss_validation
             best_model_accuracy = accuracy_validation
+        if loss_validation < best_model_on_loss_loss_validation:
+            best_model = copy.deepcopy(net)
+            best_epoch = epoch
+            # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
+            if save_model:
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': best_model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'recall_validation_factor': recall_validation_factor,
+                    'precision_validation_factor': precision_validation_factor,
+                }, path_dataset / experiment_name + "_on_loss", _use_new_zipfile_serialization=False)
+                updated_model = True
+            best_model_on_loss_f1_score_validation = f1_validation
+            best_model_on_loss_precision_validation = precision_validation
+            best_model_on_loss_recall_validation = recall_validation
+            best_model_on_loss_loss_validation = loss_validation
+            best_model_on_loss_accuracy = accuracy_validation
 
         loss_early_stopping = loss_validation if loss_early_stopping is None and early_stopping_smoothing_factor == 1 else loss_validation if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
                 1.0 - early_stopping_smoothing_factor)
@@ -1026,15 +1060,20 @@ def run(config_dict, wandb_project, save_model, unique_name):
                    f1_validation=f1_validation,
                    precision_validation=precision_validation,
                    recall_validation=recall_validation,
-                   best_model_accuracy_validation=best_model_accuracy,
                    best_epoch=best_epoch,
                    best_model=best_model,
                    loss_early_stopping=loss_early_stopping,
                    best_epoch_early_stopping=best_epoch_early_stopping,
+                   best_model_accuracy_validation=best_model_accuracy,
                    best_model_f1_score_validation=best_model_f1_score_validation,
                    best_model_precision_validation=best_model_precision_validation,
                    best_model_recall_validation=best_model_recall_validation,
                    best_model_loss_validation=best_model_loss_validation,
+                   best_model_on_loss_accuracy_validation=best_model_on_loss_accuracy,
+                   best_model_on_loss_f1_score_validation=best_model_on_loss_f1_score_validation,
+                   best_model_on_loss_precision_validation=best_model_on_loss_precision_validation,
+                   best_model_on_loss_recall_validation=best_model_on_loss_recall_validation,
+                   best_model_on_loss_loss_validation=best_model_on_loss_loss_validation,
                    updated_model=updated_model)
 
         if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
