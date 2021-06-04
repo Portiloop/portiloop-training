@@ -737,8 +737,19 @@ class SurpriseReweighting:
 
 def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification):
     all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
-    train_subject, test_subject = train_test_split(all_subject, train_size=0.95, random_state=0)
-    train_subject, validation_subject = train_test_split(train_subject, train_size=0.9, random_state=0)  # with K fold cross validation, this
+    if PHASE == 'full':
+        p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
+        p2_subject = pd.read_csv(Path(path_dataset) / subject_list_p2, header=None, delim_whitespace=True).to_numpy()
+        train_subject_p1, test_subject_p1 = train_test_split(p1_subject, train_size=0.95, random_state=0)
+        train_subject_p1, validation_subject_p1 = train_test_split(train_subject_p1, train_size=0.9, random_state=0)
+        train_subject_p2, test_subject_p2 = train_test_split(p2_subject, train_size=0.95, random_state=0)
+        train_subject_p2, validation_subject_p2 = train_test_split(train_subject_p2, train_size=0.9, random_state=0)
+        train_subject = [s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]
+        test_subject = [s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]
+        validation_subject = [s for s in all_subject if s[0] in validation_subject_p1[:, 0] or s[0] in validation_subject_p2[:, 0]]
+    else:
+        train_subject, test_subject = train_test_split(all_subject, train_size=0.95, random_state=0)
+        train_subject, validation_subject = train_test_split(train_subject, train_size=0.9, random_state=0)  # with K fold cross validation, this
     # split will be done K times
 
     logging.debug(f"Subjects in training : {train_subject[:, 0]}")
@@ -1035,7 +1046,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'recall_validation_factor': recall_validation_factor,
                     'precision_validation_factor': precision_validation_factor,
-                }, path_dataset / experiment_name + "_on_loss", _use_new_zipfile_serialization=False)
+                }, path_dataset / (experiment_name + "_on_loss"), _use_new_zipfile_serialization=False)
                 updated_model = True
             best_model_on_loss_f1_score_validation = f1_validation
             best_model_on_loss_precision_validation = precision_validation
@@ -1132,14 +1143,7 @@ if __name__ == "__main__":
     ABLATION = args.ablation  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
 
     PHASE = args.phase
-    threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
-    THRESHOLD = threshold_list[PHASE]
     WANDB_PROJECT_RUN = f"{PHASE}-dataset"
-    # WANDB_PROJECT_RUN = f"tests_yann"
-
-    filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
-    filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
-    subject_list = f"subject_sequence_{PHASE}_big.txt"
 
     exp_name = args.experiment_name
     exp_index = args.experiment_index
@@ -1155,3 +1159,16 @@ if __name__ == "__main__":
     # 'estimator_size_memory': 1628774400}
 
     run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False)
+else:
+    ABLATION = 0
+    PHASE = 'p2'
+
+threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
+THRESHOLD = threshold_list[PHASE]
+# WANDB_PROJECT_RUN = f"tests_yann"
+
+filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+subject_list = f"subject_sequence_{PHASE}_big.txt"
+subject_list_p1 = f"subject_sequence_p1_big.txt"
+subject_list_p2 = f"subject_sequence_p2_big.txt"
