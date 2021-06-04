@@ -37,9 +37,9 @@ def run_test(config_dict):
     _, _, _, test_loader, batch_size_test, test_subject = generate_dataloader(window_size=window_size, fe=fe, seq_len=None, seq_stride=seq_stride,
                                                                               distribution_mode=None, batch_size=None, nb_batch_per_epoch=None,
                                                                               classification=classification)
-    experiment_name = f"implemented_on_portiloop_{PHASE}"
-    with open(path_experiment / "testloader.pkl", 'wb') as file:
-        pickle.dump(test_loader, file)
+    experiment_name = f"test_v1_implemented_on_portiloop_p2"
+    # with open(path_experiment / "testloader.pkl", 'wb') as file:
+    #     pickle.dump(test_loader, file)
     checkpoint = torch.load(path_experiment / experiment_name)
     logging.debug("Use trained model")
     net.load_state_dict(checkpoint['model_state_dict'])
@@ -53,11 +53,12 @@ def run_test(config_dict):
     logging.debug(f"precision_test = {precision_test}")
     logging.debug(f"recall_test = {recall_test}")
 
-    state = tp + fp * 2 + tn * 3 + fn * 4
-    state = np.hstack(np.transpose(np.split(state.cpu().detach().numpy(), batch_size_test)))
-
-    np.savetxt(path_experiment / f"labels_{experiment_name}.txt", state)
-    np.savetxt(path_experiment / f"subject_{test_subject}.txt", state)
+    # state = tp + fp * 2 + tn * 3 + fn * 4
+    # state = np.hstack(np.transpose(np.split(state.cpu().detach().numpy(), batch_size_test)))
+    #
+    # np.savetxt(path_experiment / f"labels_{experiment_name}.txt", state)
+    # np.savetxt(path_experiment / f"subject_{test_subject}.txt", state)
+    #
 
 
 if __name__ == "__main__":
