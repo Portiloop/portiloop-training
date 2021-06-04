@@ -744,9 +744,9 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
         train_subject_p1, validation_subject_p1 = train_test_split(train_subject_p1, train_size=0.9, random_state=0)
         train_subject_p2, test_subject_p2 = train_test_split(p2_subject, train_size=0.95, random_state=0)
         train_subject_p2, validation_subject_p2 = train_test_split(train_subject_p2, train_size=0.9, random_state=0)
-        train_subject = [s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]
-        test_subject = [s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]
-        validation_subject = [s for s in all_subject if s[0] in validation_subject_p1[:, 0] or s[0] in validation_subject_p2[:, 0]]
+        train_subject = np.array([s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
+        test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
+        validation_subject = np.array([s for s in all_subject if s[0] in validation_subject_p1[:, 0] or s[0] in validation_subject_p2[:, 0]]).squeeze()
     else:
         train_subject, test_subject = train_test_split(all_subject, train_size=0.95, random_state=0)
         train_subject, validation_subject = train_test_split(train_subject, train_size=0.9, random_state=0)  # with K fold cross validation, this
@@ -1144,6 +1144,15 @@ if __name__ == "__main__":
 
     PHASE = args.phase
     WANDB_PROJECT_RUN = f"{PHASE}-dataset"
+    threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
+    THRESHOLD = threshold_list[PHASE]
+    # WANDB_PROJECT_RUN = f"tests_yann"
+
+    filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+    filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+    subject_list = f"subject_sequence_{PHASE}_big.txt"
+    subject_list_p1 = f"subject_sequence_p1_big.txt"
+    subject_list_p2 = f"subject_sequence_p2_big.txt"
 
     exp_name = args.experiment_name
     exp_index = args.experiment_index
@@ -1161,14 +1170,14 @@ if __name__ == "__main__":
     run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False)
 else:
     ABLATION = 0
-    PHASE = 'p2'
+    PHASE = 'full'
 
-threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
-THRESHOLD = threshold_list[PHASE]
-# WANDB_PROJECT_RUN = f"tests_yann"
+    threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
+    THRESHOLD = threshold_list[PHASE]
+    # WANDB_PROJECT_RUN = f"tests_yann"
 
-filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
-filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
-subject_list = f"subject_sequence_{PHASE}_big.txt"
-subject_list_p1 = f"subject_sequence_p1_big.txt"
-subject_list_p2 = f"subject_sequence_p2_big.txt"
+    filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+    filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+    subject_list = f"subject_sequence_{PHASE}_big.txt"
+    subject_list_p1 = f"subject_sequence_p1_big.txt"
+    subject_list_p2 = f"subject_sequence_p2_big.txt"
