@@ -1,15 +1,16 @@
 path = "../dataset/";
-phase = 'p2';
-spindle_250 = load(path+"spindles_annotations_classification_"+phase+"_big_at_250hz.txt");
-data_256 = load(path+"dataset_"+phase+"_big_at_256_to_resample.txt");
+phase = 'p1';
+size_data = 'small';
+spindle_250 = load(path+"spindles_annotations_classification_"+phase+"_"+size_data+"_at_250hz.txt");
+data_256 = load(path+"dataset_"+phase+"_"+size_data+"_at_256_to_resample.txt");
 %% resample
 fe = 250;
 data_250_matlab = resample(data_256, fe, 256);
 %% create vector
 size_250 = size(spindle_250,1);
 %% generate vector
-data_250_matlab = [data_250_matlab;0];
-spindle_250 = [spindle_250;-3];
+data_250_matlab = [data_250_matlab];
+spindle_250 = [spindle_250];
 %% begin standardization
 signal = data_250_matlab;
 tot_time = length(data_250_matlab)/fe;
@@ -85,4 +86,4 @@ end
 
 datasetupdate = single([lp_standard, envelope_homemade_simulink, r, spindle_250]);
 
-writematrix(datasetupdate, path+"dataset_classification_"+phase + "_big_250_matlab_standardized_envelope_pf.txt");
+writematrix(datasetupdate, path+"dataset_classification_"+phase + "_"+size_data+"_250_matlab_standardized_envelope_pf.txt");
