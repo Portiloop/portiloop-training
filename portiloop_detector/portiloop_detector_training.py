@@ -1107,7 +1107,7 @@ def get_config_dict(index):
     #                'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1,
     #                'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
     #                "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
-    config_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v2_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
+    config_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v3_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
         'cuda:0', 'nb_epoch_max': 500,
                    'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
                    'nb_batch_per_epoch': 1000,
@@ -1170,7 +1170,7 @@ if __name__ == "__main__":
     run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False)
 else:
     ABLATION = 0
-    PHASE = 'full'
+    PHASE = 'p2'
 
     threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
     THRESHOLD = threshold_list[PHASE]
