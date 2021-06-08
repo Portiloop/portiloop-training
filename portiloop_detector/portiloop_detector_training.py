@@ -740,15 +740,15 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     if PHASE == 'full':
         p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
         p2_subject = pd.read_csv(Path(path_dataset) / subject_list_p2, header=None, delim_whitespace=True).to_numpy()
-        train_subject_p1, test_subject_p1 = train_test_split(p1_subject, train_size=0.95, random_state=0)
+        train_subject_p1, test_subject_p1 = train_test_split(p1_subject, train_size=0.95, random_state=1)
         train_subject_p1, validation_subject_p1 = train_test_split(train_subject_p1, train_size=0.9, random_state=0)
-        train_subject_p2, test_subject_p2 = train_test_split(p2_subject, train_size=0.95, random_state=0)
+        train_subject_p2, test_subject_p2 = train_test_split(p2_subject, train_size=0.95, random_state=1)
         train_subject_p2, validation_subject_p2 = train_test_split(train_subject_p2, train_size=0.9, random_state=0)
         train_subject = np.array([s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
         test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
         validation_subject = np.array([s for s in all_subject if s[0] in validation_subject_p1[:, 0] or s[0] in validation_subject_p2[:, 0]]).squeeze()
     else:
-        train_subject, test_subject = train_test_split(all_subject, train_size=0.95, random_state=0)
+        train_subject, test_subject = train_test_split(all_subject, train_size=0.95, random_state=1)
         train_subject, validation_subject = train_test_split(train_subject, train_size=0.9, random_state=0)  # with K fold cross validation, this
     # split will be done K times
 
@@ -1107,7 +1107,7 @@ def get_config_dict(index):
     #                'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1,
     #                'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
     #                "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
-    config_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v3_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
+    config_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v4_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
         'cuda:0', 'nb_epoch_max': 500,
                    'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
                    'nb_batch_per_epoch': 1000,
