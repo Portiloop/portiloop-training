@@ -13,7 +13,7 @@ EPSILON_NOISE = 0.25  # a completely random model will be selected this portion 
 EPSILON_EXP_NOISE = 0.1  # a random experiment is selected within all sampled experiments this portion of the time
 NETWORK_EARLY_STOPPING = 20
 
-seq_len_range_t = [50, 50, 0]  # min, max, step
+seq_len_range_t = [50, 50, 1]  # min, max, step
 kernel_conv_range_t = [3, 11, 2]  # min, max, step
 kernel_pool_range_t = [3, 11, 2]  # min, max, step
 stride_conv_range_t = [1, 1, 1]  # min, max, step
