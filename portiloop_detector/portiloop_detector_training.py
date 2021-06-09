@@ -645,8 +645,7 @@ class LabelDistributionSmoothing:
         self.bins = None
         self.lds_distribution = None
         if weights is None:
-            self.weights, self.distribution, self.lds_distribution, self.bins = generate_label_distribution_and_lds(dataset, kernel_size, kernel_std,
-                                                                                                                    nb_bins, weighting_mode)
+            self.weights, self.distribution, self.lds_distribution, self.bins = generate_label_distribution_and_lds(dataset, kernel_size, kernel_std, nb_bins, weighting_mode)
             logging.debug(f"self.distribution: {self.weights}")
             logging.debug(f"self.lds_distribution: {self.weights}")
         else:
@@ -677,19 +676,14 @@ class SurpriseReweighting:
     """
     Custom reweighting Yann
     """
-
-    def __init__(self, dataset=None, weights=None, nb_bins=100, alpha=1e-3):
-        """
-        weighting_mode can be 'inv' or 'inv_sqrt'
-        """
-        assert dataset is not None or weights is not None, "Either a dataset or weights must be provided"
-
+    def __init__(self, weights=None, nb_bins=100, alpha=1e-3):
         if weights is None:
             self.weights = [1.0, ] * nb_bins
             self.weights = torch.tensor(self.weights)
             self.weights = self.weights / torch.sum(self.weights)
         else:
             self.weights = weights
+        self.weights = self.weights.detach()
         self.nb_bins = len(self.weights)
         self.bin_width = 1.0 / self.nb_bins
         self.alpha = alpha
@@ -699,34 +693,37 @@ class SurpriseReweighting:
     def update_and_get_weighted_loss(self, batch_labels, unweighted_loss):
         device = batch_labels.device
         if self.weights.device != device:
+            logging.debug(f"Moving SR weights to {device}")
             self.weights = self.weights.to(device)
         last_bin = 1.0 - self.bin_width
         batch_idxs = torch.minimum(batch_labels, torch.ones_like(batch_labels) * last_bin) / self.bin_width  # FIXME : double check
         batch_idxs = batch_idxs.floor().long()
+        self.weights = self.weights.detach()  # ensure no gradients
         weights = copy.deepcopy(self.weights[batch_idxs])
         res = unweighted_loss * weights
         with torch.no_grad():
             abs_loss = torch.abs(unweighted_loss)
+
             # compute the mean loss per idx
-            bincount = torch.bincount(batch_idxs, minlength=self.nb_bins)
-            num = torch.zeros(self.nb_bins).to(device)
+
+            num = torch.zeros(self.nb_bins, device=device)
             num = num.index_add(0, batch_idxs, abs_loss)
+            bincount = torch.bincount(batch_idxs, minlength=self.nb_bins)
             div = bincount.float()
-
-            # unique_idx = torch.unique(batch_idxs)
-
-            div[bincount == 0] = 1.0
-            mean_loss_per_idx = num / div
-            sum_other_weights = torch.sum(self.weights[bincount == 0])
-            mean_loss_per_idx_normalized = mean_loss_per_idx / torch.sum(mean_loss_per_idx)
-            mean_loss_per_idx_normalized[bincount != 0] -= sum_other_weights / len(mean_loss_per_idx_normalized[bincount != 0])
-            mean_loss_per_idx_normalized[bincount == 0] = self.weights[bincount == 0]
+            idx_unchanged = bincount == 0
+            idx_changed = bincount != 0
+            div[idx_unchanged] = 1.0
+            mean_loss_per_idx_normalized = num / div
+            sum_changed_weights = torch.sum(self.weights[idx_changed])
+            sum_mean_loss = torch.sum(mean_loss_per_idx_normalized[idx_changed])
+            mean_loss_per_idx_normalized[idx_changed] = mean_loss_per_idx_normalized[idx_changed] * sum_changed_weights / sum_mean_loss
             # logging.debug(f"old self.weights: {self.weights}")
-            self.weights[bincount != 0] = (1.0 - self.alpha) * self.weights[bincount != 0] + self.alpha * mean_loss_per_idx_normalized[bincount != 0]
+            self.weights[idx_changed] = (1.0 - self.alpha) * self.weights[idx_changed] + self.alpha * mean_loss_per_idx_normalized[idx_changed]
+            self.weights /= torch.sum(self.weights)  # force sum to 1
             # logging.debug(f"unique_idx: {unique_idx}")
             # logging.debug(f"new self.weights: {self.weights}")
-            logging.debug(f"new torch.sum(self.weights): {torch.sum(self.weights)}")
-        return res * self.nb_bins
+            # logging.debug(f"new torch.sum(self.weights): {torch.sum(self.weights)}")
+        return torch.sqrt(res * self.nb_bins)
 
     def __str__(self):
         return f"LDS nb_bins: {self.nb_bins}\nweights: {self.weights}"
