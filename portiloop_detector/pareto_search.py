@@ -38,7 +38,7 @@ MAX_META_ITERATIONS = 1000  # maximum number of experiments
 
 META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
-PARETO_ID = 14
+PARETO_ID = 15
 RUN_NAME = f"pareto_search_{PARETO_ID}"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 200  # number of models sampled per iteration, only the best predicted one is selected
@@ -76,7 +76,7 @@ def nb_parameters(config_dict):
 class SurrogateModel(nn.Module):
     def __init__(self):
         super(SurrogateModel, self).__init__()
-        nb_features = 17
+        nb_features = 11
         coeff = 20
         self.fc1 = nn.Linear(in_features=nb_features,  # nb hyperparameters
                              out_features=nb_features * coeff)  # in SMBO paper : 25 * hyperparameters... Seems huge
@@ -149,21 +149,21 @@ def dominates_pareto(experiment, pareto):
 
 
 def transform_config_dict_to_input(config_dict):
-    x = [float(config_dict["seq_len"]),  # idk why, but needed
-         config_dict["nb_channel"],
+    x = [#float(config_dict["seq_len"]),  # idk why, but needed
+         float(config_dict["nb_channel"]),
          config_dict["hidden_size"],
          int(config_dict["seq_stride_s"] * config_dict["fe"]),
          config_dict["nb_rnn_layers"],
          int(config_dict["window_size_s"] * config_dict["fe"]),
          config_dict["nb_conv_layers"],
-         config_dict["stride_pool"],
-         config_dict["stride_conv"],
+         #config_dict["stride_pool"],
+         #config_dict["stride_conv"],
          config_dict["kernel_conv"],
          config_dict["kernel_pool"],
-         config_dict["dilation_conv"],
-         config_dict["dilation_pool"],
+         #config_dict["dilation_conv"],
+         #config_dict["dilation_pool"],
          int(config_dict['RNN']),
-         int(config_dict['envelope_input']),
+         #int(config_dict['envelope_input']),
          config_dict["lr_adam"],
          config_dict["batch_size"]]
     x = torch.tensor(x)
