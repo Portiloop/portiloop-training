@@ -170,9 +170,13 @@ class RandomSampler(Sampler):
 class ValidationSampler(Sampler):
     """
     __iter__ stops after an arbitrary number of iterations = batch_size_list * nb_batch
+    divider (int >= 1, default: 1): divides the size of the dataset (and of the batch) by striding further than 1
     """
 
-    def __init__(self, data_source, seq_stride, nb_segment, len_segment):
+    def __init__(self, data_source, seq_stride, nb_segment, len_segment, divider=1):
+        divider = int(divider)
+        assert divider >= 1
+        self.divider = divider
         self.seq_stride = seq_stride
         self.data = data_source
         self.nb_segment = nb_segment
@@ -180,19 +184,18 @@ class ValidationSampler(Sampler):
 
     def __iter__(self):
         seed()
-        nb_batch = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
-        cur_batch = 0
-        cnt = 0
-        while cur_batch < nb_batch:
+        batches_per_segment = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
+        cursor_batch = 0
+        while cursor_batch < batches_per_segment:
             for i in range(self.nb_segment):
-                for j in range(self.seq_stride):
-                    cur_idx = i * self.len_segment + j + cur_batch * self.seq_stride
-                    cnt += 1
+                for j in range(0, self.seq_stride, self.divider):
+                    cur_idx = i * self.len_segment + j + cursor_batch * self.seq_stride
                     yield cur_idx
-            cur_batch += 1
+            cursor_batch += 1
 
     def __len__(self):
-        return len(self.data)
+        assert False
+        #return len(self.data)
         # return len(self.data_source)
 
 
@@ -731,7 +734,7 @@ class SurpriseReweighting:
 
 # run:
 
-def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_idx):
+def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_idx, divider):
     all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
     if PHASE == 'full':
         p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
@@ -792,7 +795,8 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
         samp_validation = ValidationSampler(ds_validation,
                                             seq_stride=seq_stride,
                                             len_segment=len_segment_s,
-                                            nb_segment=nb_segment_validation)
+                                            nb_segment=nb_segment_validation,
+                                            divider=divider)
         train_loader = DataLoader(ds_train,
                                   batch_size=batch_size,
                                   sampler=samp_train,
@@ -800,7 +804,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                   num_workers=0,
                                   pin_memory=True)
 
-        batch_size_validation = seq_stride * nb_segment_validation
+        batch_size_validation = (seq_stride//divider) * nb_segment_validation
         validation_loader = DataLoader(ds_validation,
                                        batch_size=batch_size_validation,
                                        sampler=samp_validation,
@@ -862,6 +866,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     classification = config_dict["classification"]
     reg_balancing = config_dict["reg_balancing"]
     split_idx = config_dict["split_idx"]
+    validation_divider = config_dict["validation_divider"]
 
     assert reg_balancing in {'none', 'lds', 'sr'}, f"wrong key: {reg_balancing}"
     assert classification or distribution_mode == 1, "distribution_mode must be 1 (no class balancing) in regression mode"
@@ -909,7 +914,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
     train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
-                                                                                          batch_size, nb_batch_per_epoch, classification, split_idx)
+                                                                                          batch_size, nb_batch_per_epoch, classification, split_idx, validation_divider)
     if balancer_type == 1:
         lds = LabelDistributionSmoothing(c=1.0, dataset=train_loader.dataset, weights=None, kernel_size=5, kernel_std=0.01, nb_bins=100,
                                          weighting_mode='inv_sqrt')
