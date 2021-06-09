@@ -375,9 +375,7 @@ class Worker:
                 self.__finished_exp_lock.release()
             else:
                 self.__exp_to_run_lock.release()
-            logging.debug("Before sleeping")
             time.sleep(LOOP_SLEEP_TIME)
-            logging.debug("After sleeping")
 
 
 def main(args):
