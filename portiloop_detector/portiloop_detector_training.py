@@ -1184,7 +1184,7 @@ if __name__ == "__main__":
     run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False)
 else:
     ABLATION = 0
-    PHASE = 'p2'
+    PHASE = 'full'
 
     threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
     THRESHOLD = threshold_list[PHASE]
