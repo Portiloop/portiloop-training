@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.model_selection import train_test_split, KFold
+from sklearn.model_selection import train_test_split
 from torch.nn import functional as F
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
@@ -731,32 +731,22 @@ class SurpriseReweighting:
 
 # run:
 
-def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, fold_idx, k_fold):
+def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification):
     all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
-    kf = KFold(n_splits=k_fold, random_state=None, shuffle=False)
-
     if PHASE == 'full':
         p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
         p2_subject = pd.read_csv(Path(path_dataset) / subject_list_p2, header=None, delim_whitespace=True).to_numpy()
-        train_subject_p1, test_subject_p1 = train_test_split(p1_subject, train_size=0.85, random_state=1)
-        train_idx, test_idx = list(kf.split(train_subject_p1))[fold_idx]
-        train_subject_p1, validation_subject_p1 = train_subject_p1[train_idx], train_subject_p1[test_idx]
-        # train_subject_p1, validation_subject_p1 = train_test_split(train_subject_p1, test_size=1/k_fold, shuffle=False)
-        train_subject_p2, test_subject_p2 = train_test_split(p2_subject, train_size=0.85, random_state=1)
-        train_idx, test_idx = list(kf.split(train_subject_p2))[fold_idx]
-        train_subject_p2, validation_subject_p2 = train_subject_p2[train_idx], train_subject_p2[test_idx]
-
-        # train_subject_p2, validation_subject_p2 = train_test_split(train_subject_p2, train_size=0.9, random_state=0)
+        train_subject_p1, test_subject_p1 = train_test_split(p1_subject, train_size=0.95, random_state=1)
+        train_subject_p1, validation_subject_p1 = train_test_split(train_subject_p1, train_size=0.9, random_state=0)
+        train_subject_p2, test_subject_p2 = train_test_split(p2_subject, train_size=0.95, random_state=1)
+        train_subject_p2, validation_subject_p2 = train_test_split(train_subject_p2, train_size=0.9, random_state=0)
         train_subject = np.array([s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
         test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
         validation_subject = np.array(
             [s for s in all_subject if s[0] in validation_subject_p1[:, 0] or s[0] in validation_subject_p2[:, 0]]).squeeze()
     else:
-        train_subject, test_subject = train_test_split(all_subject, train_size=0.85, random_state=1)
-        train_idx, test_idx = list(kf.split(train_subject))[fold_idx]
-        train_subject, validation_subject = train_subject[train_idx], train_subject[test_idx]
-
-        # train_subject, validation_subject = train_test_split(train_subject, train_size=0.9, random_state=0)  # with K fold cross validation, this
+        train_subject, test_subject = train_test_split(all_subject, train_size=0.95, random_state=1)
+        train_subject, validation_subject = train_test_split(train_subject, train_size=0.9, random_state=0)  # with K fold cross validation, this
     # split will be done K times
 
     logging.debug(f"Subjects in training : {train_subject[:, 0]}")
@@ -844,7 +834,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     return train_loader, validation_loader, batch_size_validation, test_loader, batch_size_test, test_subject
 
 
-def run(config_dict, wandb_project, save_model, unique_name, fold_idx, k_fold):
+def run(config_dict, wandb_project, save_model, unique_name):
     global precision_validation_factor
     global recall_validation_factor
     _t_start = time.time()
@@ -914,8 +904,9 @@ def run(config_dict, wandb_project, save_model, unique_name, fold_idx, k_fold):
     if config_dict["envelope_input"]:
         has_envelope = 2
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
+
     train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
-                                                                                          batch_size, nb_batch_per_epoch, classification, fold_idx, k_fold)
+                                                                                          batch_size, nb_batch_per_epoch, classification)
     if balancer_type == 1:
         lds = LabelDistributionSmoothing(c=1.0, dataset=train_loader.dataset, weights=None, kernel_size=5, kernel_std=0.01, nb_bins=100,
                                          weighting_mode='inv_sqrt')
@@ -1127,7 +1118,7 @@ def get_config_dict(index):
                    'window_size_s': 0.250, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 5,
                    'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400}
     # put LSTM and Softmax for the occasion and add padding, not exactly the same frequency (spindleNet = 200 Hz)
-    config_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v7_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
+    config_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v6_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
         'cuda:0', 'nb_epoch_max': 500,
                    'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
                    'nb_batch_per_epoch': 1000,
@@ -1151,8 +1142,6 @@ if __name__ == "__main__":
     parser.add_argument('--output_file', type=str, default=None)
     parser.add_argument('--phase', type=str, default='full')
     parser.add_argument('--ablation', type=int, default=0)
-    parser.add_argument('--fold_idx', type=int, default=0)
-    parser.add_argument('--k_fold', type=int, default=1)
     args = parser.parse_args()
     if args.output_file is not None:
         logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
@@ -1169,8 +1158,7 @@ if __name__ == "__main__":
     threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
     THRESHOLD = threshold_list[PHASE]
     # WANDB_PROJECT_RUN = f"tests_yann"
-    fold_idx = args.fold_idx
-    k_fold = args.k_fold
+
     filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
     filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
     subject_list = f"subject_sequence_{PHASE}_big.txt"
@@ -1181,7 +1169,6 @@ if __name__ == "__main__":
     exp_index = args.experiment_index
 
     config_dict = get_config_dict(exp_index)
-    config_dict['experiment_name']+=f"_{fold_idx}_{k_fold}"
     seed()  # reset the seed
     # config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11,
     # 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,
@@ -1191,7 +1178,7 @@ if __name__ == "__main__":
     # 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001,
     # 'estimator_size_memory': 1628774400}
 
-    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False, k_fold=k_fold, fold_idx=fold_idx)
+    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False)
 else:
     ABLATION = 0
     PHASE = 'p2'
