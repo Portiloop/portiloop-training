@@ -750,7 +750,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
         train_subject, test_subject = train_test_split(all_subject, train_size=0.8, random_state=split_idx)
         validation_subject = test_subject
         # test_subject, validation_subject = train_test_split(test_subject, train_size=0.5, random_state=split_idx)
-
+    test_subject = None
     logging.debug(f"Subjects in training : {train_subject[:, 0]}")
     logging.debug(f"Subjects in validation : {validation_subject[:, 0]}")
     # logging.debug(f"Subjects in test : {test_subject[:, 0]}")
