@@ -1,16 +1,16 @@
 path = "../dataset/";
-phase = 'p1';
-size_data = 'small';
+phase = 'full';
+size_data = 'big';
 spindle_250 = load(path+"spindles_annotations_classification_"+phase+"_"+size_data+"_at_250hz.txt");
 data_256 = load(path+"dataset_"+phase+"_"+size_data+"_at_256_to_resample.txt");
 %% resample
 fe = 250;
 data_250_matlab = resample(data_256, fe, 256);
-%% create vector
-size_250 = size(spindle_250,1);
 %% generate vector
 data_250_matlab = [data_250_matlab];
 spindle_250 = [spindle_250];
+%% create vector
+size_250 = size(spindle_250,1);
 %% begin standardization
 signal = data_250_matlab;
 tot_time = length(data_250_matlab)/fe;
@@ -77,8 +77,7 @@ size_signal = size(signal,1);
 %% compute
 r = zeros(size_signal,1);
 delay = 0;
-length = size_signal;
-for i=L:length
+for i=L:size_signal
     r(i) = compute_ratio(i+delay, signal, L, f28, f916);
 end
 
