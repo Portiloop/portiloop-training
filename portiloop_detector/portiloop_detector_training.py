@@ -804,7 +804,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                   num_workers=0,
                                   pin_memory=True)
 
-        batch_size_validation = (seq_stride//divider) * nb_segment_validation
+        batch_size_validation = max(seq_stride // divider, 1) * nb_segment_validation
         validation_loader = DataLoader(ds_validation,
                                        batch_size=batch_size_validation,
                                        sampler=samp_validation,
