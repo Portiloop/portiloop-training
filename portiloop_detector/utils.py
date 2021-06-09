@@ -4,7 +4,7 @@ from math import floor
 from random import choices, uniform, gauss
 
 MIN_NB_PARAMETERS = 1000  # everything below this number of parameters will be discarded
-MAX_NB_PARAMETERS = 150000  # everything over this number of parameters will be discarded
+MAX_NB_PARAMETERS = 80000  # everything over this number of parameters will be discarded
 
 NB_BATCH_PER_EPOCH = 1000
 MAX_EPOCHS_PER_EXPERIMENT = 150  # experiments are evaluated after this number of epoch by the meta learner
