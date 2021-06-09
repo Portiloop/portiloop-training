@@ -76,7 +76,7 @@ def nb_parameters(config_dict):
 class SurrogateModel(nn.Module):
     def __init__(self):
         super(SurrogateModel, self).__init__()
-        nb_features = 11
+        nb_features = 10
         coeff = 20
         self.fc1 = nn.Linear(in_features=nb_features,  # nb hyperparameters
                              out_features=nb_features * coeff)  # in SMBO paper : 25 * hyperparameters... Seems huge
@@ -162,7 +162,7 @@ def transform_config_dict_to_input(config_dict):
          config_dict["kernel_pool"],
          #config_dict["dilation_conv"],
          #config_dict["dilation_pool"],
-         int(config_dict['RNN']),
+         #int(config_dict['RNN']),
          #int(config_dict['envelope_input']),
          config_dict["lr_adam"],
          config_dict["batch_size"]]
