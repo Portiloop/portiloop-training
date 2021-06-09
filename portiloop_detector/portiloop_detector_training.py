@@ -737,20 +737,23 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
         p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
         p2_subject = pd.read_csv(Path(path_dataset) / subject_list_p2, header=None, delim_whitespace=True).to_numpy()
         train_subject_p1, test_subject_p1 = train_test_split(p1_subject, train_size=0.8, random_state=split_idx)
-        test_subject_p1, validation_subject_p1 = train_test_split(test_subject_p1, train_size=0.5, random_state=split_idx)
+        validation_subject_p1 = test_subject_p1
+        # test_subject_p1, validation_subject_p1 = train_test_split(test_subject_p1, train_size=0.5, random_state=split_idx)
         train_subject_p2, test_subject_p2 = train_test_split(p2_subject, train_size=0.8, random_state=split_idx)
-        test_subject_p2, validation_subject_p2 = train_test_split(test_subject_p2, train_size=0.5, random_state=split_idx)
+        validation_subject_p2 = test_subject_p2
+        # test_subject_p2, validation_subject_p2 = train_test_split(test_subject_p2, train_size=0.5, random_state=split_idx)
         train_subject = np.array([s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
-        test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
+        # test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
         validation_subject = np.array(
             [s for s in all_subject if s[0] in validation_subject_p1[:, 0] or s[0] in validation_subject_p2[:, 0]]).squeeze()
     else:
         train_subject, test_subject = train_test_split(all_subject, train_size=0.8, random_state=split_idx)
-        test_subject, validation_subject = train_test_split(test_subject, train_size=0.5, random_state=split_idx)
+        validation_subject = test_subject
+        # test_subject, validation_subject = train_test_split(test_subject, train_size=0.5, random_state=split_idx)
 
     logging.debug(f"Subjects in training : {train_subject[:, 0]}")
     logging.debug(f"Subjects in validation : {validation_subject[:, 0]}")
-    logging.debug(f"Subjects in test : {test_subject[:, 0]}")
+    # logging.debug(f"Subjects in test : {test_subject[:, 0]}")
 
     len_segment_s = LEN_SEGMENT * fe
     train_loader = None
