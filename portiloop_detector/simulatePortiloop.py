@@ -43,8 +43,7 @@ def simulate(c_dict):
                                                                               distribution_mode=None, batch_size=None, nb_batch_per_epoch=None,
                                                                               classification=classification, split_i=split_idx,
                                                                               divider=nb_parallel_runs)
-    # with open(path_experiment / "testloader.pkl", 'wb') as file:
-    #     pickle.dump(test_loader, file)
+
     checkpoint = torch.load(path_experiment / experiment_name)
     logging.debug("Use trained model")
     net.load_state_dict(checkpoint['model_state_dict'])
@@ -54,6 +53,12 @@ def simulate(c_dict):
 
     labels_test = np.transpose(np.split(labels_test.cpu().detach().numpy(), len(labels_test) / batch_size_test))
     output_test = np.transpose(np.split(output_test.cpu().detach().numpy(), len(output_test) / batch_size_test))
+    nb_segment_test = len(np.hstack([range(int(s[1]), int(s[2])) for s in test_subject]))
+
+    output_segments = []
+    for s in range(nb_segment_test):
+        output_segments.append(zip(*(output_test[s*nb_parallel_runs + i] for i in range(nb_parallel_runs))))
+        output_segments[-1] = np.hstack(np.array([list(a) for a in output_segments[-1]]))
 
 
 if __name__ == "__main__":
