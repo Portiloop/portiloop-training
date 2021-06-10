@@ -67,7 +67,7 @@ def simulate(c_dict):
     labels_portiloop = np.hstack(np.array(labels_segments))
 
     w = 3
-    output_portiloop = np.convolve(output_portiloop, np.ones(w), 'full') / w
+    output_portiloop = np.convolve(output_portiloop, np.ones(w), 'full')[:len(output_portiloop)] / w
     output_portiloop[output_portiloop > 0.5] = 1
 
 
