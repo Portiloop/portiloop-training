@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from portiloop_detector.experiments import path_experiment
-from portiloop_detector.portiloop_detector_training import PortiloopNetwork, generate_dataloader, run_inference
+from portiloop_detector.portiloop_detector_training import PortiloopNetwork, generate_dataloader, run_inference, get_metrics
 
 FPGA_NN_EXEC_TIME = 10  # equivalent to 40 ms
 ERROR_FPGA_EXEC_TIME = 3  # to be sure there is no overlap
@@ -69,6 +69,18 @@ def simulate(c_dict):
     w = 3
     output_portiloop = np.convolve(output_portiloop, np.ones(w), 'full')[:len(output_portiloop)] / w
     output_portiloop[output_portiloop > 0.5] = 1
+
+    output_portiloop = output_portiloop.astype(np.float)
+    labels_portiloop = labels_portiloop.astype(np.float)
+    tp = (labels_portiloop * output_portiloop)
+    tn = ((1 - labels_portiloop) * (1 - output_portiloop))
+    fp = ((1 - labels_portiloop) * output_portiloop)
+    fn = (labels_portiloop * (1 - output_portiloop))
+    f1_test, precision_test, recall_test = get_metrics(tp, fp, fn)
+    logging.debug(f"f1_test = {f1_test}")
+    logging.debug(f"precision_test = {precision_test}")
+    logging.debug(f"recall_test = {recall_test}")
+
 
 
 if __name__ == "__main__":
