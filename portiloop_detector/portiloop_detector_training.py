@@ -195,7 +195,7 @@ class ValidationSampler(Sampler):
 
     def __len__(self):
         assert False
-        #return len(self.data)
+        # return len(self.data)
         # return len(self.data_source)
 
 
@@ -226,8 +226,8 @@ class ConvPoolModule(nn.Module):
                                  dilation=dilation_pool)
         self.dropout = nn.Dropout(dropout_p)
 
-    def forward(self, input):
-        x, max_value = input
+    def forward(self, input_f):
+        x, max_value = input_f
         x = F.relu(self.conv(x))
         x = self.pool(x)
         max_temp = torch.max(abs(x))
@@ -253,27 +253,27 @@ class FcModule(nn.Module):
 
 
 class PortiloopNetwork(nn.Module):
-    def __init__(self, config_dict):
+    def __init__(self, c_dict):
         super(PortiloopNetwork, self).__init__()
 
-        RNN = config_dict["RNN"]
-        stride_pool = config_dict["stride_pool"]
-        stride_conv = config_dict["stride_conv"]
-        kernel_conv = config_dict["kernel_conv"]
-        kernel_pool = config_dict["kernel_pool"]
-        nb_channel = config_dict["nb_channel"]
-        hidden_size = config_dict["hidden_size"]
-        window_size_s = config_dict["window_size_s"]
-        dropout_p = config_dict["dropout"]
-        dilation_conv = config_dict["dilation_conv"]
-        dilation_pool = config_dict["dilation_pool"]
-        fe = config_dict["fe"]
-        nb_conv_layers = config_dict["nb_conv_layers"]
-        nb_rnn_layers = config_dict["nb_rnn_layers"]
-        first_layer_dropout = config_dict["first_layer_dropout"]
-        self.envelope_input = config_dict["envelope_input"]
-        self.power_features_input = config_dict["power_features_input"]
-        self.classification = config_dict["classification"]
+        RNN = c_dict["RNN"]
+        stride_pool = c_dict["stride_pool"]
+        stride_conv = c_dict["stride_conv"]
+        kernel_conv = c_dict["kernel_conv"]
+        kernel_pool = c_dict["kernel_pool"]
+        nb_channel = c_dict["nb_channel"]
+        hidden_size = c_dict["hidden_size"]
+        window_size_s = c_dict["window_size_s"]
+        dropout_p = c_dict["dropout"]
+        dilation_conv = c_dict["dilation_conv"]
+        dilation_pool = c_dict["dilation_pool"]
+        fe = c_dict["fe"]
+        nb_conv_layers = c_dict["nb_conv_layers"]
+        nb_rnn_layers = c_dict["nb_rnn_layers"]
+        first_layer_dropout = c_dict["first_layer_dropout"]
+        self.envelope_input = c_dict["envelope_input"]
+        self.power_features_input = c_dict["power_features_input"]
+        self.classification = c_dict["classification"]
 
         conv_padding = 0  # int(kernel_conv // 2)
         pool_padding = 0  # int(kernel_pool // 2)
@@ -425,12 +425,12 @@ class PortiloopNetwork(nn.Module):
 
 
 class LoggerWandb:
-    def __init__(self, experiment_name, config_dict, project_name):
+    def __init__(self, experiment_name, c_dict, project_name):
         self.best_model = None
         self.experiment_name = experiment_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
         self.wandb_run = wandb.init(project=project_name, entity="portiloop", id=experiment_name, resume="allow",
-                                    config=config_dict, reinit=True)
+                                    config=c_dict, reinit=True)
 
     def log(self,
             accuracy_train,
@@ -648,7 +648,8 @@ class LabelDistributionSmoothing:
         self.bins = None
         self.lds_distribution = None
         if weights is None:
-            self.weights, self.distribution, self.lds_distribution, self.bins = generate_label_distribution_and_lds(dataset, kernel_size, kernel_std, nb_bins, weighting_mode)
+            self.weights, self.distribution, self.lds_distribution, self.bins = generate_label_distribution_and_lds(dataset, kernel_size, kernel_std,
+                                                                                                                    nb_bins, weighting_mode)
             logging.debug(f"self.distribution: {self.weights}")
             logging.debug(f"self.lds_distribution: {self.weights}")
         else:
@@ -672,13 +673,14 @@ class LabelDistributionSmoothing:
         return res
 
     def __str__(self):
-        return f"LDS nb_bins: {self.nb_bins}\nbins: {self.bins}\ndistribution: {self.distribution}\nlds_distribution: {self.lds_distribution}\nweights: {self.weights}"
+        return f"LDS nb_bins: {self.nb_bins}\nbins: {self.bins}\ndistribution: {self.distribution}\nlds_distribution: {self.lds_distribution}\nweights: {self.weights} "
 
 
 class SurpriseReweighting:
     """
     Custom reweighting Yann
     """
+
     def __init__(self, weights=None, nb_bins=100, alpha=1e-3):
         if weights is None:
             self.weights = [1.0, ] * nb_bins
@@ -734,29 +736,25 @@ class SurpriseReweighting:
 
 # run:
 
-def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_idx, divider):
+def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i, divider):
     all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
     if PHASE == 'full':
         p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
         p2_subject = pd.read_csv(Path(path_dataset) / subject_list_p2, header=None, delim_whitespace=True).to_numpy()
-        train_subject_p1, test_subject_p1 = train_test_split(p1_subject, train_size=0.8, random_state=split_idx)
-        validation_subject_p1 = test_subject_p1
-        # test_subject_p1, validation_subject_p1 = train_test_split(test_subject_p1, train_size=0.5, random_state=split_idx)
-        train_subject_p2, test_subject_p2 = train_test_split(p2_subject, train_size=0.8, random_state=split_idx)
-        validation_subject_p2 = test_subject_p2
-        # test_subject_p2, validation_subject_p2 = train_test_split(test_subject_p2, train_size=0.5, random_state=split_idx)
+        train_subject_p1, test_subject_p1 = train_test_split(p1_subject, train_size=0.8, random_state=split_i)
+        test_subject_p1, validation_subject_p1 = train_test_split(test_subject_p1, train_size=0.5, random_state=split_i)
+        train_subject_p2, test_subject_p2 = train_test_split(p2_subject, train_size=0.8, random_state=split_i)
+        test_subject_p2, validation_subject_p2 = train_test_split(test_subject_p2, train_size=0.5, random_state=split_i)
         train_subject = np.array([s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
-        # test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
+        test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
         validation_subject = np.array(
             [s for s in all_subject if s[0] in validation_subject_p1[:, 0] or s[0] in validation_subject_p2[:, 0]]).squeeze()
     else:
-        train_subject, test_subject = train_test_split(all_subject, train_size=0.8, random_state=split_idx)
-        validation_subject = test_subject
-        # test_subject, validation_subject = train_test_split(test_subject, train_size=0.5, random_state=split_idx)
-    test_subject = None
+        train_subject, test_subject = train_test_split(all_subject, train_size=0.8, random_state=split_i)
+        test_subject, validation_subject = train_test_split(test_subject, train_size=0.5, random_state=split_i)
     logging.debug(f"Subjects in training : {train_subject[:, 0]}")
     logging.debug(f"Subjects in validation : {validation_subject[:, 0]}")
-    # logging.debug(f"Subjects in test : {test_subject[:, 0]}")
+    logging.debug(f"Subjects in test : {test_subject[:, 0]}")
 
     len_segment_s = LEN_SEGMENT * fe
     train_loader = None
@@ -793,7 +791,6 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                    batch_size=batch_size,
                                    nb_batch=nb_batch_per_epoch,
                                    distribution_mode=distribution_mode)
-
 
         samp_validation = ValidationSampler(ds_validation,
                                             seq_stride=seq_stride,
@@ -916,12 +913,13 @@ def run(config_dict, wandb_project, save_model, unique_name):
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
     train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
-                                                                                          batch_size, nb_batch_per_epoch, classification, split_idx, validation_divider)
+                                                                                          batch_size, nb_batch_per_epoch, classification, split_idx,
+                                                                                          validation_divider)
     if balancer_type == 1:
         lds = LabelDistributionSmoothing(c=1.0, dataset=train_loader.dataset, weights=None, kernel_size=5, kernel_std=0.01, nb_bins=100,
                                          weighting_mode='inv_sqrt')
     elif balancer_type == 2:
-        sr = SurpriseReweighting(dataset=train_loader.dataset, weights=None, nb_bins=100, alpha=1e-3)
+        sr = SurpriseReweighting(weights=None, nb_bins=100, alpha=1e-3)
 
     best_model_accuracy = 0
     best_epoch = 0
@@ -1104,17 +1102,14 @@ def run(config_dict, wandb_project, save_model, unique_name):
     return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
 
 
-def get_config_dict(index, split_idx):
+def get_config_dict(index, split_i):
     # config_dict = {'experiment_name': f'pareto_search_10_619_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 1000,
-    #                'max_duration': 257400, 'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
-    #                'nb_batch_per_epoch': 5000,
-    #                'first_layer_dropout': False,
-    #                'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
-    #                'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001, 'nb_rnn_layers': 1,
-    #                'RNN': True, 'envelope_input': True,
-    #                'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1,
-    #                'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400,
-    #                "batch_size": batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
+    # 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,
+    # 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
+    # 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001, 'nb_rnn_layers': 1,
+    # 'RNN': True, 'envelope_input': True, 'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7,
+    # 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400, "batch_size":
+    # batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
     config_dict = {'experiment_name': f'spindleNet_{index}', 'device_train': 'cuda:0', 'device_val':
         'cuda:0', 'nb_epoch_max': 500,
                    'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
@@ -1142,7 +1137,7 @@ def get_config_dict(index, split_idx):
                    "batch_size": 256, "lr_adam": 0.0009,
                    'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
                    'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400,
-                   'split_idx': split_idx}
+                   'split_idx': split_i, 'validation_divider': 1}
 
     return config_dict
 
