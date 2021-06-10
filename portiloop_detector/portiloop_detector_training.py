@@ -173,7 +173,7 @@ class ValidationSampler(Sampler):
     divider (int >= 1, default: 1): divides the size of the dataset (and of the batch) by striding further than 1
     """
 
-    def __init__(self, data_source, seq_stride, nb_segment, len_segment, divider=1):
+    def __init__(self, data_source, seq_stride, nb_segment, len_segment, divider):
         divider = int(divider)
         assert divider >= 1
         self.divider = divider
@@ -811,6 +811,9 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                        pin_memory=True,
                                        shuffle=False)
     else:
+        nb_segment_test = len(np.hstack([range(int(s[1]), int(s[2])) for s in test_subject]))
+        batch_size_test = len(list(range(0, seq_stride, divider))) * nb_segment_test
+
         ds_test = SignalDataset(filename=filename,
                                 path=path_dataset,
                                 window_size=window_size,
@@ -820,14 +823,11 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                 list_subject=test_subject,
                                 len_segment=len_segment_s)
 
-        nb_segment_test = len(np.hstack([range(int(s[1]), int(s[2])) for s in test_subject]))
-
         samp_test = ValidationSampler(ds_test,
                                       seq_stride=seq_stride,
                                       len_segment=len_segment_s,
-                                      nb_segment=nb_segment_test)
-
-        batch_size_test = seq_stride * nb_segment_test
+                                      nb_segment=nb_segment_test,
+                                      divider=divider)
 
         test_loader = DataLoader(ds_test,
                                  batch_size=batch_size_test,

@@ -1,6 +1,7 @@
 # script that will test the network like if it was on the device
 import logging
 
+import numpy as np
 import torch
 from torch import nn
 
@@ -50,6 +51,9 @@ def simulate(c_dict):
 
     output_test, labels_test, loss_test, accuracy_test, tp, tn, fp, fn = run_inference(test_loader, criterion, net, device_val, hidden_size,
                                                                                        nb_rnn_layers, classification, batch_size_test, max_value=0)
+
+    labels_test = np.transpose(np.split(labels_test.cpu().detach().numpy(), len(labels_test) / batch_size_test))
+    output_test = np.transpose(np.split(output_test.cpu().detach().numpy(), len(output_test) / batch_size_test))
 
 
 if __name__ == "__main__":
