@@ -933,6 +933,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     best_model_recall_validation = 0
     best_model_loss_validation = 1
 
+    best_model_on_loss_accuracy = 0
     best_model_on_loss_precision_validation = 0
     best_model_on_loss_f1_score_validation = 0
     best_model_on_loss_recall_validation = 0
