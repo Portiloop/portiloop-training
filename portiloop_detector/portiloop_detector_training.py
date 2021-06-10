@@ -765,7 +765,11 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     batch_size_validation = None
     batch_size_test = None
     filename = filename_classification_dataset if classification else filename_dataset
+
     if seq_len is not None:
+        nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
+        batch_size_validation = len(list(range(0, seq_stride, divider))) * nb_segment_validation
+
         ds_train = SignalDataset(filename=filename,
                                  path=path_dataset,
                                  window_size=window_size,
@@ -790,7 +794,6 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                    nb_batch=nb_batch_per_epoch,
                                    distribution_mode=distribution_mode)
 
-        nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
 
         samp_validation = ValidationSampler(ds_validation,
                                             seq_stride=seq_stride,
@@ -804,7 +807,6 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                   num_workers=0,
                                   pin_memory=True)
 
-        batch_size_validation = max(seq_stride // divider, 1) * nb_segment_validation
         validation_loader = DataLoader(ds_validation,
                                        batch_size=batch_size_validation,
                                        sampler=samp_validation,

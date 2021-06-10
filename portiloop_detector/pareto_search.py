@@ -6,6 +6,7 @@ import os
 import pickle as pkl
 # all imports
 import random
+from argparse import ArgumentParser
 from copy import deepcopy
 from pathlib import Path
 
@@ -534,4 +535,16 @@ def iterative_training_local():
 # Main:
 
 if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument('--output_file', type=str, default=None)
+    args = parser.parse_args()
+    if args.output_file is not None:
+        logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
+        logging.debug('This message should go to the log file')
+        logging.info('So should this')
+        logging.warning('And this, too')
+        logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
+    else:
+        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
+
     iterative_training_local()
