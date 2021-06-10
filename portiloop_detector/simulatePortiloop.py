@@ -57,8 +57,18 @@ def simulate(c_dict):
 
     output_segments = []
     for s in range(nb_segment_test):
-        output_segments.append(zip(*(output_test[s*nb_parallel_runs + i] for i in range(nb_parallel_runs))))
+        output_segments.append(zip(*(output_test[s * nb_parallel_runs + i] for i in range(nb_parallel_runs))))
         output_segments[-1] = np.hstack(np.array([list(a) for a in output_segments[-1]]))
+    output_portiloop = np.hstack(np.array(output_segments))
+    labels_segments = []
+    for s in range(nb_segment_test):
+        labels_segments.append(zip(*(labels_test[s * nb_parallel_runs + i] for i in range(nb_parallel_runs))))
+        labels_segments[-1] = np.hstack(np.array([list(a) for a in labels_segments[-1]]))
+    labels_portiloop = np.hstack(np.array(labels_segments))
+
+    w = 3
+    output_portiloop = np.convolve(output_portiloop, np.ones(w), 'full') / w
+    output_portiloop[output_portiloop > 0.5] = 1
 
 
 if __name__ == "__main__":
