@@ -87,8 +87,8 @@ if __name__ == "__main__":
         config_dict["experiment_name"] = ""
         res.append(run_test(config_dict))
     res = np.array(res)
-    std_f1_test, std_precision_test, std_recall_test = np.std(res, axis=1)
-    mean_f1_test, mean_precision_test, mean_recall_test = np.mean(res, axis=1)
+    std_f1_test, std_precision_test, std_recall_test = np.std(res, axis=0)
+    mean_f1_test, mean_precision_test, mean_recall_test = np.mean(res, axis=0)
     print(config_dict["experiment_name"])
     print(f"Recall: {mean_recall_test} + {std_recall_test}")
     print(f"Precision: {mean_precision_test} + {std_precision_test}")
