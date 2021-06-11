@@ -381,7 +381,7 @@ class PortiloopNetwork(nn.Module):
         cn1 = None
         if self.RNN:
             x1 = x1.view(batch_size, sequence_len, -1)
-            x1, hn1, cn1 = self.gru_input1(x1, h1, c1)
+            x1, (hn1, cn1) = self.gru_input1(x1, (h1, c1))
             max_temp = torch.max(abs(x1))
             if max_temp > max_value:
                 logging.debug(f"max_value = {max_temp}")
@@ -401,7 +401,7 @@ class PortiloopNetwork(nn.Module):
             x2 = torch.flatten(x2, start_dim=1, end_dim=-1)
             if self.RNN:
                 x2 = x2.view(batch_size, sequence_len, -1)
-                x2, hn2, cn2 = self.gru_input2(x2, h2, c2)
+                x2, (hn2, cn2) = self.gru_input2(x2, (h2, c2))
                 max_temp = torch.max(abs(x2))
                 if max_temp > max_value:
                     logging.debug(f"max_value = {max_temp}")
