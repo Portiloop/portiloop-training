@@ -364,7 +364,7 @@ class PortiloopNetwork(nn.Module):
         self.fc = nn.Linear(in_features=fc_features,  # enveloppe and signal + power features ratio
                             out_features=out_features)  # probability of being a spindle
 
-    def forward(self, x1, x2, x3, h1, h2, max_value=np.inf):
+    def forward(self, x1, x2, x3, h1, h2, c1, c2, max_value=np.inf):
         (batch_size, sequence_len, features) = x1.shape
 
         if ABLATION == 1:
@@ -401,7 +401,7 @@ class PortiloopNetwork(nn.Module):
             x2 = torch.flatten(x2, start_dim=1, end_dim=-1)
             if self.RNN:
                 x2 = x2.view(batch_size, sequence_len, -1)
-                x2, hn2, cn2 = self.gru_input2(x2, h2, cn2)
+                x2, hn2, cn2 = self.gru_input2(x2, h2, c2)
                 max_temp = torch.max(abs(x2))
                 if max_temp > max_value:
                     logging.debug(f"max_value = {max_temp}")
@@ -423,7 +423,7 @@ class PortiloopNetwork(nn.Module):
             max_value = max_temp
         x = torch.sigmoid(x)
 
-        return x, hn1, cn1, hn2, cn2, max_value
+        return x, hn1, hn2, cn1, cn2, max_value
 
 
 class LoggerWandb:
@@ -521,6 +521,8 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
     output_total = torch.tensor([], device=device)
     h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
     h2 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
+    c1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
+    c2 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
     with torch.no_grad():
         for batch_data in dataloader:
             batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
@@ -531,7 +533,7 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
             if classification:
                 batch_labels = (batch_labels > THRESHOLD)
                 batch_labels = batch_labels.float()
-            output, h1, h2, max_value = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2, max_value)
+            output, h1, h2, c1, c2, max_value = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2, c1, c2, max_value)
             # logging.debug(f"label = {batch_labels}")
             # logging.debug(f"output = {output}")
             output = output.view(-1)
@@ -960,6 +962,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
     loss_early_stopping = None
     h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
+    c1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
+    c2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     for epoch in range(first_epoch, first_epoch + nb_epoch_max):
 
         logging.debug(f"epoch: {epoch}")
@@ -981,7 +985,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
                     batch_labels = (batch_labels > THRESHOLD)
                     batch_labels = batch_labels.float()
 
-                output, _, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
+                output, _, _, _, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero, c1_zero, c2_zero)
 
                 output = output.view(-1)
 
