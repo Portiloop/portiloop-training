@@ -59,7 +59,7 @@ class SignalDataset(Dataset):
         self.past_signal_len = self.seq_len * self.idx_stride
 
         # list of indices that can be sampled:
-        self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
+        self.indices = [idx for idx in range(len(self.data[0]) - (self.window_size-1))  # all possible idxs in the dataset
                         if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
                                 or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
         total_spindles = np.sum(self.data[3] > THRESHOLD)
