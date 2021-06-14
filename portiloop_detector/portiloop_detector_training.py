@@ -84,7 +84,7 @@ class SignalDataset(Dataset):
         return signal_seq, envelope_seq, ratio_pf, label
 
     def is_spindle(self, idx):
-        assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
+        assert 0 <= idx < len(self), f"Index out of range ({idx}/{len(self)})."
         idx = self.indices[idx]
         return True if (self.data[3][idx + self.window_size - 1] > THRESHOLD) else False
 
