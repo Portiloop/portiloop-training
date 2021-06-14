@@ -12,7 +12,7 @@ from portiloop_detector_training import PortiloopNetwork, generate_dataloader, r
 path_experiment = Path(__file__).absolute().parent.parent / 'experiments'
 
 
-def run_test(c_dict):
+def run_test(c_dict, split_i):
     logging.debug(f"config_dict: {c_dict}")
     experiment_name = c_dict['experiment_name']
     window_size_s = c_dict["window_size_s"]
@@ -36,7 +36,7 @@ def run_test(c_dict):
 
     _, _, _, test_loader, batch_size_test, test_subject = generate_dataloader(window_size=window_size, fe=fe, seq_len=None, seq_stride=seq_stride,
                                                                               distribution_mode=None, batch_size=None, nb_batch_per_epoch=None,
-                                                                              classification=classification)
+                                                                              classification=classification, split_i=split_i, divider=1)
     # with open(path_experiment / "testloader.pkl", 'wb') as file:
     #     pickle.dump(test_loader, file)
     checkpoint = torch.load(path_experiment / experiment_name)
@@ -79,12 +79,14 @@ if __name__ == "__main__":
         logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
     else:
         logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
-    res = []
     config_dict = dict()
+    exp_name = [f"pareto_search_15_35_{i}" for i in [10, 21, 12, 23, 4, 25, 26, 27, 28, 29]]
+    max_split = 10
+    res = []
     for split_idx in range(max_split):
         config_dict = get_config_dict(exp_index, split_idx)
-        config_dict["experiment_name"] = ""
-        res.append(run_test(config_dict))
+        config_dict["experiment_name"] = exp_name[split_idx]
+        res.append(run_test(config_dict, split_idx))
     res = np.array(res)
     std_f1_test, std_precision_test, std_recall_test = np.std(res, axis=0)
     mean_f1_test, mean_precision_test, mean_recall_test = np.mean(res, axis=0)
