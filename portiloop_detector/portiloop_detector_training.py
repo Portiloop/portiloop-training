@@ -1138,7 +1138,7 @@ def get_config_dict(index, split_i):
               'stride_pool': 1,
               'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 18, 'time_in_past': 8.5,
               'estimator_size_memory': 188006400}
-    c_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v9_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
+    c_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v10_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
         'cuda:0', 'nb_epoch_max': 500,
               'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
               'nb_batch_per_epoch': 1000,
@@ -1146,7 +1146,7 @@ def get_config_dict(index, split_i):
               'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
               'reg_balancing': 'none',
               'nb_conv_layers': 4,
-              'seq_len': 50, 'nb_channel': 26, 'hidden_size': 7, 'seq_stride_s': 0.15, 'nb_rnn_layers': 2, 'RNN': True,
+              'seq_len': 50, 'nb_channel': 26, 'hidden_size': 7, 'seq_stride_s': 0.044, 'nb_rnn_layers': 2, 'RNN': True,
               'envelope_input': True,
               "batch_size": 256, "lr_adam": 0.0009,
               'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
