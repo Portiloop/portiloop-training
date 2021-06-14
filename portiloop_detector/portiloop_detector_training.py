@@ -1151,7 +1151,7 @@ def get_config_dict(index, split_i):
               "batch_size": 256, "lr_adam": 0.0009,
               'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
               'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400,
-              'split_idx': 0, 'validation_divider': 1}
+              'split_idx': split_i, 'validation_divider': 1}
 
     return c_dict
 
