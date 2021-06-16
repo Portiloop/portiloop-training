@@ -1125,19 +1125,6 @@ def get_config_dict(index, split_i):
               'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400}
     # put LSTM and Softmax for the occasion and add padding, not exactly the same frequency (spindleNet = 200 Hz)
 
-    c_dict = {'experiment_name': f'pareto_search_15_35_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 150,
-              'max_duration':
-                  257400,
-              'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 1000,
-              'first_layer_dropout': False,
-              'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
-              'reg_balancing': 'none',
-              'split_idx': split_i, 'validation_divider': 1, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 31, 'hidden_size': 7,
-              'seq_stride_s': 0.17,
-              'nb_rnn_layers': 1, 'RNN': True, 'envelope_input': False, 'lr_adam': 0.0005, 'batch_size': 256, 'window_size_s': 0.218,
-              'stride_pool': 1,
-              'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 18, 'time_in_past': 8.5,
-              'estimator_size_memory': 188006400}
     c_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v11_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
         'cuda:0', 'nb_epoch_max': 500,
               'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
@@ -1152,6 +1139,19 @@ def get_config_dict(index, split_i):
               'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
               'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400,
               'split_idx': split_i, 'validation_divider': 1}
+    c_dict = {'experiment_name': f'pareto_search_15_35_v2_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 150,
+              'max_duration':
+                  257400,
+              'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 1000,
+              'first_layer_dropout': False,
+              'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
+              'reg_balancing': 'none',
+              'split_idx': split_i, 'validation_divider': 1, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 31, 'hidden_size': 7,
+              'seq_stride_s': 0.024,
+              'nb_rnn_layers': 1, 'RNN': True, 'envelope_input': False, 'lr_adam': 0.0005, 'batch_size': 256, 'window_size_s': 0.218,
+              'stride_pool': 1,
+              'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 18, 'time_in_past': 8.5,
+              'estimator_size_memory': 188006400}
 
     return c_dict
 
