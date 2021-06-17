@@ -1141,7 +1141,7 @@ def get_config_dict(index, split_i):
               'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
               'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400,
               'split_idx': split_i, 'validation_network_stride': 1}
-    c_dict = {'experiment_name': f'pareto_search_15_35_v3_{index}', 'device_train': 'cpu', 'device_val': 'cpu', 'nb_epoch_max': 150,
+    c_dict = {'experiment_name': f'pareto_search_15_35_v3_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 150,
               'max_duration':
                   257400,
               'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 1000,
