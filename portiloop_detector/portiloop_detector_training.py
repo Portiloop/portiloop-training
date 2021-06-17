@@ -170,13 +170,13 @@ class RandomSampler(Sampler):
 class ValidationSampler(Sampler):
     """
     __iter__ stops after an arbitrary number of iterations = batch_size_list * nb_batch
-    divider (int >= 1, default: 1): divides the size of the dataset (and of the batch) by striding further than 1
+    network_stride (int >= 1, default: 1): divides the size of the dataset (and of the batch) by striding further than 1
     """
 
-    def __init__(self, data_source, seq_stride, nb_segment, len_segment, divider):
-        divider = int(divider)
-        assert divider >= 1
-        self.divider = divider
+    def __init__(self, data_source, seq_stride, nb_segment, len_segment, network_stride):
+        network_stride = int(network_stride)
+        assert network_stride >= 1
+        self.network_stride = network_stride
         self.seq_stride = seq_stride
         self.data = data_source
         self.nb_segment = nb_segment
@@ -188,7 +188,7 @@ class ValidationSampler(Sampler):
         cursor_batch = 0
         while cursor_batch < batches_per_segment:
             for i in range(self.nb_segment):
-                for j in range(0, self.seq_stride, self.divider):
+                for j in range(0, (self.seq_stride//self.network_stride)*self.network_stride, self.network_stride):
                     cur_idx = i * self.len_segment + j + cursor_batch * self.seq_stride
                     yield cur_idx
             cursor_batch += 1
@@ -736,25 +736,27 @@ class SurpriseReweighting:
 
 # run:
 
-def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i, divider):
+def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i,
+                        network_stride):
     all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
+    test_subject = None
     if PHASE == 'full':
         p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
         p2_subject = pd.read_csv(Path(path_dataset) / subject_list_p2, header=None, delim_whitespace=True).to_numpy()
-        train_subject_p1, test_subject_p1 = train_test_split(p1_subject, train_size=0.8, random_state=split_i)
-        test_subject_p1, validation_subject_p1 = train_test_split(test_subject_p1, train_size=0.5, random_state=split_i)
-        train_subject_p2, test_subject_p2 = train_test_split(p2_subject, train_size=0.8, random_state=split_i)
-        test_subject_p2, validation_subject_p2 = train_test_split(test_subject_p2, train_size=0.5, random_state=split_i)
+        train_subject_p1, validation_subject_p1 = train_test_split(p1_subject, train_size=0.8, random_state=split_i)
+        # test_subject_p1, validation_subject_p1 = train_test_split(validation_subject_p1, train_size=0.5, random_state=split_i)
+        train_subject_p2, validation_subject_p2 = train_test_split(p2_subject, train_size=0.8, random_state=split_i)
+        # test_subject_p2, validation_subject_p2 = train_test_split(validation_subject_p2, train_size=0.5, random_state=split_i)
         train_subject = np.array([s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
-        test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
+        # test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
         validation_subject = np.array(
             [s for s in all_subject if s[0] in validation_subject_p1[:, 0] or s[0] in validation_subject_p2[:, 0]]).squeeze()
     else:
-        train_subject, test_subject = train_test_split(all_subject, train_size=0.8, random_state=split_i)
-        test_subject, validation_subject = train_test_split(test_subject, train_size=0.5, random_state=split_i)
+        train_subject, validation_subject = train_test_split(all_subject, train_size=0.8, random_state=split_i)
+        # test_subject, validation_subject = train_test_split(validation_subject, train_size=0.5, random_state=split_i)
     logging.debug(f"Subjects in training : {train_subject[:, 0]}")
     logging.debug(f"Subjects in validation : {validation_subject[:, 0]}")
-    logging.debug(f"Subjects in test : {test_subject[:, 0]}")
+    # logging.debug(f"Subjects in test : {test_subject[:, 0]}")
 
     len_segment_s = LEN_SEGMENT * fe
     train_loader = None
@@ -766,7 +768,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
 
     if seq_len is not None:
         nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
-        batch_size_validation = len(list(range(0, seq_stride, divider))) * nb_segment_validation
+        batch_size_validation = len(list(range(0, (seq_stride//network_stride)*network_stride, network_stride))) * nb_segment_validation
 
         ds_train = SignalDataset(filename=filename,
                                  path=path_dataset,
@@ -796,7 +798,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                             seq_stride=seq_stride,
                                             len_segment=len_segment_s,
                                             nb_segment=nb_segment_validation,
-                                            divider=divider)
+                                            network_stride=network_stride)
         train_loader = DataLoader(ds_train,
                                   batch_size=batch_size,
                                   sampler=samp_train,
@@ -812,7 +814,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                        shuffle=False)
     else:
         nb_segment_test = len(np.hstack([range(int(s[1]), int(s[2])) for s in test_subject]))
-        batch_size_test = len(list(range(0, seq_stride, divider))) * nb_segment_test
+        batch_size_test = len(list(range(0, (seq_stride//network_stride)*network_stride, network_stride))) * nb_segment_test
 
         ds_test = SignalDataset(filename=filename,
                                 path=path_dataset,
@@ -827,7 +829,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                       seq_stride=seq_stride,
                                       len_segment=len_segment_s,
                                       nb_segment=nb_segment_test,
-                                      divider=divider)
+                                      network_stride=network_stride)
 
         test_loader = DataLoader(ds_test,
                                  batch_size=batch_size_test,
@@ -865,7 +867,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     classification = config_dict["classification"]
     reg_balancing = config_dict["reg_balancing"]
     split_idx = config_dict["split_idx"]
-    validation_divider = config_dict["validation_divider"]
+    validation_network_stride = config_dict["validation_network_stride"]
 
     assert reg_balancing in {'none', 'lds', 'sr'}, f"wrong key: {reg_balancing}"
     assert classification or distribution_mode == 1, "distribution_mode must be 1 (no class balancing) in regression mode"
@@ -914,7 +916,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
 
     train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                                                                           batch_size, nb_batch_per_epoch, classification, split_idx,
-                                                                                          validation_divider)
+                                                                                          validation_network_stride)
     if balancer_type == 1:
         lds = LabelDistributionSmoothing(c=1.0, dataset=train_loader.dataset, weights=None, kernel_size=5, kernel_std=0.01, nb_bins=100,
                                          weighting_mode='inv_sqrt')
@@ -1138,16 +1140,16 @@ def get_config_dict(index, split_i):
               "batch_size": 256, "lr_adam": 0.0009,
               'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
               'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400,
-              'split_idx': split_i, 'validation_divider': 1}
-    c_dict = {'experiment_name': f'pareto_search_15_35_v2_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 150,
+              'split_idx': split_i, 'validation_network_stride': 1}
+    c_dict = {'experiment_name': f'pareto_search_15_35_v3_{index}', 'device_train': 'cpu', 'device_val': 'cpu', 'nb_epoch_max': 150,
               'max_duration':
                   257400,
               'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 1000,
               'first_layer_dropout': False,
               'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
               'reg_balancing': 'none',
-              'split_idx': split_i, 'validation_divider': 1, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 31, 'hidden_size': 7,
-              'seq_stride_s': 0.024,
+              'split_idx': split_i, 'validation_network_stride': 1, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 31, 'hidden_size': 7,
+              'seq_stride_s': 0.170,
               'nb_rnn_layers': 1, 'RNN': True, 'envelope_input': False, 'lr_adam': 0.0005, 'batch_size': 256, 'window_size_s': 0.218,
               'stride_pool': 1,
               'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 18, 'time_in_past': 8.5,
