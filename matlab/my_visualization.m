@@ -1,4 +1,7 @@
-%dataset = load(path+"0908_portiloop_dataset_250_standardized_envelope_pf_labeled.txt");
+path = "../dataset/";
+phase = 'p1';
+size_data = 'big';
+dataset = load(path+"dataset_classification_"+phase+"_"+size_data+"_250_matlab_standardized_envelope_pf.txt");
 signal = dataset(:,1);
 spindles_gs = dataset(:,4) == 1;
 
@@ -11,10 +14,10 @@ time_vect = linspace(0,size_signal/fe, size_signal);
 figure
 % subplot(2, 1, 1)
 hold on
-decallage = (145*6+15)*fe;
+decallage = (145*63+15)*fe;
 i = 0;
-plot_data = signal(decallage:decallage + 150*fe);
-plot_spindles = spindles_gs(decallage:decallage + 150*fe);
+plot_data = signal(decallage:decallage + 115*fe);
+plot_spindles = spindles_gs(decallage:decallage + 115*fe);
 while i < length(plot_data)-1
     i = i+1;
     idx = i;
@@ -27,4 +30,4 @@ while i < length(plot_data)-1
     end
     plot(time_vect(idx:i+1), plot_data(idx:i+1), 'Color', c);
 end
-axis([100, 110, -10, 10]);
+axis([0, 10, -10, 10]);
