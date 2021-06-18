@@ -31,8 +31,6 @@ envelope_input_range_t = [0, 0, 1]
 lr_adam_range_t = [0.0003, 0.0009, 0.0002]
 batch_size_range_t = [64, 256, 64]
 
-MAXIMIZE_F1_SCORE = True
-
 PROFILE_META = False
 
 

@@ -19,7 +19,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 import wandb
-from utils import out_dim, MAXIMIZE_F1_SCORE
+from utils import out_dim
 
 from scipy.ndimage import gaussian_filter1d, convolve1d
 
@@ -486,8 +486,11 @@ class LoggerWandb:
     def __del__(self):
         self.wandb_run.finish()
 
-    def restore(self):
-        self.wandb_run.restore(self.experiment_name, root=path_dataset)
+    def restore(self, classif):
+        if classif:
+            self.wandb_run.restore(self.experiment_name, root=path_dataset)
+        else:
+            self.wandb_run.restore(self.experiment_name + "_on_loss", root=path_dataset)
 
 
 def f1_loss(output, batch_labels):
@@ -899,7 +902,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
 
     first_epoch = 0
     try:
-        logger.restore()
+        logger.restore(classification)
         checkpoint = torch.load(path_dataset / experiment_name)
         logging.debug("Use checkpoint model")
         net.load_state_dict(checkpoint['model_state_dict'])
@@ -1029,8 +1032,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
         recall_validation_factor = recall_validation
         precision_validation_factor = precision_validation
         updated_model = False
-        if (not MAXIMIZE_F1_SCORE and loss_validation < best_model_loss_validation) or (
-                MAXIMIZE_F1_SCORE and f1_validation > best_model_f1_score_validation):
+        if f1_validation > best_model_f1_score_validation:
             best_model = copy.deepcopy(net)
             best_epoch = epoch
             # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
