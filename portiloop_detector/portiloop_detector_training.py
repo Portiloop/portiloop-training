@@ -903,7 +903,9 @@ def run(config_dict, wandb_project, save_model, unique_name):
     first_epoch = 0
     try:
         logger.restore(classification)
-        checkpoint = torch.load(path_dataset / experiment_name)
+        file_exp = experiment_name
+        file_exp += "" if classification else "_on_loss"
+        checkpoint = torch.load(path_dataset / file_exp)
         logging.debug("Use checkpoint model")
         net.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
