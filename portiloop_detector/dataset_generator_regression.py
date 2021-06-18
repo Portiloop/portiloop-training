@@ -24,7 +24,13 @@ def generate(phase):
     phase_list = pd.read_csv(subject_file[phase], delim_whitespace=True)
     phase_subject_list = list(dict.fromkeys(phase_list["subjectID"]))
     annotation_files = glob.glob("*MODA_GS.txt")
-    annotation_files = [files for files in annotation_files if files[0:-12] in phase_subject_list]
+    if phase in subject_file.keys():
+        phase_list = pd.read_csv(subject_file[phase], delim_whitespace=True)
+        phase_subject_list = list(dict.fromkeys(phase_list["subjectID"]))
+        annotation_files = [files for files in annotation_files if files[0:-12] in phase_subject_list]
+    else:
+        annotation_files = [files for files in annotation_files]
+
     signal_files = [(subject[0:-12] + " PSG.edf") for subject in annotation_files]
     fe = 256
     new_fe = 250
