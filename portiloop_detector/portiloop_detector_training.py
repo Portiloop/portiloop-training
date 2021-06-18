@@ -744,19 +744,24 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
         p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
         p2_subject = pd.read_csv(Path(path_dataset) / subject_list_p2, header=None, delim_whitespace=True).to_numpy()
         train_subject_p1, validation_subject_p1 = train_test_split(p1_subject, train_size=0.8, random_state=split_i)
-        # test_subject_p1, validation_subject_p1 = train_test_split(validation_subject_p1, train_size=0.5, random_state=split_i)
+        if not NO_TEST_SET:
+            test_subject_p1, validation_subject_p1 = train_test_split(validation_subject_p1, train_size=0.5, random_state=split_i)
         train_subject_p2, validation_subject_p2 = train_test_split(p2_subject, train_size=0.8, random_state=split_i)
-        # test_subject_p2, validation_subject_p2 = train_test_split(validation_subject_p2, train_size=0.5, random_state=split_i)
+        if not NO_TEST_SET:
+            test_subject_p2, validation_subject_p2 = train_test_split(validation_subject_p2, train_size=0.5, random_state=split_i)
         train_subject = np.array([s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
-        # test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
+        if not NO_TEST_SET:
+            test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
         validation_subject = np.array(
             [s for s in all_subject if s[0] in validation_subject_p1[:, 0] or s[0] in validation_subject_p2[:, 0]]).squeeze()
     else:
         train_subject, validation_subject = train_test_split(all_subject, train_size=0.8, random_state=split_i)
-        # test_subject, validation_subject = train_test_split(validation_subject, train_size=0.5, random_state=split_i)
+        if not NO_TEST_SET:
+            test_subject, validation_subject = train_test_split(validation_subject, train_size=0.5, random_state=split_i)
     logging.debug(f"Subjects in training : {train_subject[:, 0]}")
     logging.debug(f"Subjects in validation : {validation_subject[:, 0]}")
-    # logging.debug(f"Subjects in test : {test_subject[:, 0]}")
+    if not NO_TEST_SET:
+        logging.debug(f"Subjects in test : {test_subject[:, 0]}")
 
     len_segment_s = LEN_SEGMENT * fe
     train_loader = None
@@ -1167,6 +1172,7 @@ if __name__ == "__main__":
     parser.add_argument('--ablation', type=int, default=0)
     parser.add_argument('--max_split', type=int, default=10)
     parser.add_argument('--classification', type=bool, default=True)
+    parser.add_argument('--no_test_set', type=bool, default=False)
     args = parser.parse_args()
     if args.output_file is not None:
         logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
@@ -1194,6 +1200,7 @@ if __name__ == "__main__":
     exp_index = args.experiment_index
     split_idx = exp_index % max_split
     classification = args.classification
+    NO_TEST_SET = args.no_test_set
 
     config_dict = get_config_dict(exp_index, split_idx)
     config_dict['distribution_mode'] = 0 if classification else 1
@@ -1211,6 +1218,7 @@ if __name__ == "__main__":
 else:
     ABLATION = 0
     PHASE = 'full'
+    NO_TEST_SET = False
 
     threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
     THRESHOLD = threshold_list[PHASE]
