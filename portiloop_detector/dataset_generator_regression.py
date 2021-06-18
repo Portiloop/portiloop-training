@@ -21,8 +21,6 @@ def generate(phase):
     t_start = time()
     path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
     os.chdir(path_dataset)
-    phase_list = pd.read_csv(subject_file[phase], delim_whitespace=True)
-    phase_subject_list = list(dict.fromkeys(phase_list["subjectID"]))
     annotation_files = glob.glob("*MODA_GS.txt")
     if phase in subject_file.keys():
         phase_list = pd.read_csv(subject_file[phase], delim_whitespace=True)
