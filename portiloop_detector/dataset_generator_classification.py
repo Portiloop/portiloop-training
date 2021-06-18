@@ -94,8 +94,6 @@ def generate(phase):
             endIdx = int(endSeq * new_fe) + post_sequence_length
             lenSignal = (post_sequence_length+pre_sequence_length + 115)*new_fe
             signal_seq_list[i][index] = signal_list[i][int(startIdx * fe / new_fe):int(endIdx * fe / new_fe)]
-            while len(signal_seq_list[i][index]) < pre_sequence_length*2 + lenSignal*fe:
-
             spindle_seq_list[i][index] = np.zeros((lenSignal,), dtype=float)
             spindle_seq_list[i][index][:pre_sequence_length] = -1
             spindle_seq_list[i][index][-post_sequence_length:] = -2
