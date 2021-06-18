@@ -1206,6 +1206,7 @@ if __name__ == "__main__":
     config_dict['distribution_mode'] = 0 if classification else 1
     config_dict['classification'] = classification
     config_dict['experiment_name'] += "_regression" if not classification else ""
+    config_dict['experiment_name'] += "_no_test" if NO_TEST_SET else ""
     seed()  # reset the seed
     # config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11,
     # 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,
