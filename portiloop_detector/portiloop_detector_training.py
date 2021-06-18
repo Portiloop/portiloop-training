@@ -188,7 +188,7 @@ class ValidationSampler(Sampler):
         cursor_batch = 0
         while cursor_batch < batches_per_segment:
             for i in range(self.nb_segment):
-                for j in range(0, (self.seq_stride//self.network_stride)*self.network_stride, self.network_stride):
+                for j in range(0, (self.seq_stride // self.network_stride) * self.network_stride, self.network_stride):
                     cur_idx = i * self.len_segment + j + cursor_batch * self.seq_stride
                     yield cur_idx
             cursor_batch += 1
@@ -776,7 +776,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
 
     if seq_len is not None:
         nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
-        batch_size_validation = len(list(range(0, (seq_stride//network_stride)*network_stride, network_stride))) * nb_segment_validation
+        batch_size_validation = len(list(range(0, (seq_stride // network_stride) * network_stride, network_stride))) * nb_segment_validation
 
         ds_train = SignalDataset(filename=filename,
                                  path=path_dataset,
@@ -822,7 +822,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                        shuffle=False)
     else:
         nb_segment_test = len(np.hstack([range(int(s[1]), int(s[2])) for s in test_subject]))
-        batch_size_test = len(list(range(0, (seq_stride//network_stride)*network_stride, network_stride))) * nb_segment_test
+        batch_size_test = len(list(range(0, (seq_stride // network_stride) * network_stride, network_stride))) * nb_segment_test
 
         ds_test = SignalDataset(filename=filename,
                                 path=path_dataset,
@@ -899,6 +899,18 @@ def run(config_dict, wandb_project, save_model, unique_name):
     criterion = nn.MSELoss(reduction='none') if not classification else nn.BCELoss(reduction='none')
     # criterion = nn.MSELoss() if not classification else nn.BCELoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
+    best_loss_early_stopping = 1
+    best_epoch_early_stopping = 0
+    best_model_precision_validation = 0
+    best_model_f1_score_validation = 0
+    best_model_recall_validation = 0
+    best_model_loss_validation = 1
+
+    best_model_on_loss_accuracy = 0
+    best_model_on_loss_precision_validation = 0
+    best_model_on_loss_f1_score_validation = 0
+    best_model_on_loss_recall_validation = 0
+    best_model_on_loss_loss_validation = 1
 
     first_epoch = 0
     try:
@@ -912,6 +924,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
         first_epoch = checkpoint['epoch'] + 1
         recall_validation_factor = checkpoint['recall_validation_factor']
         precision_validation_factor = checkpoint['precision_validation_factor']
+        best_model_on_loss_loss_validation = checkpoint['best_model_on_loss_loss_validation']
+        best_model_f1_score_validation = checkpoint['best_model_f1_score_validation']
     except (ValueError, FileNotFoundError):
         #    net = PortiloopNetwork(config_dict).to(device=device_train)
         logging.debug("Create new model")
@@ -936,18 +950,6 @@ def run(config_dict, wandb_project, save_model, unique_name):
     best_model_accuracy = 0
     best_epoch = 0
     best_model = None
-    best_loss_early_stopping = 1
-    best_epoch_early_stopping = 0
-    best_model_precision_validation = 0
-    best_model_f1_score_validation = 0
-    best_model_recall_validation = 0
-    best_model_loss_validation = 1
-
-    best_model_on_loss_accuracy = 0
-    best_model_on_loss_precision_validation = 0
-    best_model_on_loss_f1_score_validation = 0
-    best_model_on_loss_recall_validation = 0
-    best_model_on_loss_loss_validation = 1
 
     accuracy_train = None
     loss_train = None
@@ -1045,6 +1047,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'recall_validation_factor': recall_validation_factor,
                     'precision_validation_factor': precision_validation_factor,
+                    'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
+                    'best_model_f1_score_validation': best_model_f1_score_validation,
                 }, path_dataset / experiment_name, _use_new_zipfile_serialization=False)
                 updated_model = True
             best_model_f1_score_validation = f1_validation
@@ -1063,6 +1067,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'recall_validation_factor': recall_validation_factor,
                     'precision_validation_factor': precision_validation_factor,
+                    'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
+                    'best_model_f1_score_validation': best_model_f1_score_validation,
                 }, path_dataset / (experiment_name + "_on_loss"), _use_new_zipfile_serialization=False)
                 updated_model = True
             best_model_on_loss_f1_score_validation = f1_validation
