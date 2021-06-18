@@ -1149,7 +1149,7 @@ def get_config_dict(index, split_i):
     c_dict = {'experiment_name': f'pareto_search_15_35_v4_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 150,
               'max_duration':
                   257400,
-              'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 1000,
+              'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 1000,
               'first_layer_dropout': False,
               'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
               'reg_balancing': 'none',
