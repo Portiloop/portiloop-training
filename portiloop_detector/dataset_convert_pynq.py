@@ -9,7 +9,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from experiments import path_experiment
-from portiloop_detector_training import path_dataset, subject_list, LEN_SEGMENT, SignalDataset, filename_dataset
+from portiloop_detector_training import path_dataset, subject_list, LEN_SEGMENT, SignalDataset, filename_regression_dataset
 
 fe = 250
 
@@ -25,7 +25,7 @@ def convert_test_set():
     logging.debug(f"Subjects in test : {test_subject[:, 0]}")
     len_segment_s = LEN_SEGMENT * fe
 
-    ds_test = SignalDataset(filename=filename_dataset,
+    ds_test = SignalDataset(filename=filename_regression_dataset,
                             path=path_dataset,
                             window_size=1,
                             fe=fe,

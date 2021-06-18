@@ -764,7 +764,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     test_loader = None
     batch_size_validation = None
     batch_size_test = None
-    filename = filename_classification_dataset if classification else filename_dataset
+    filename = filename_classification_dataset if classification else filename_regression_dataset
 
     if seq_len is not None:
         nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
@@ -1166,6 +1166,7 @@ if __name__ == "__main__":
     parser.add_argument('--phase', type=str, default='full')
     parser.add_argument('--ablation', type=int, default=0)
     parser.add_argument('--max_split', type=int, default=10)
+    parser.add_argument('--classification', type=bool, default=True)
     args = parser.parse_args()
     if args.output_file is not None:
         logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
@@ -1182,7 +1183,7 @@ if __name__ == "__main__":
     THRESHOLD = threshold_list[PHASE]
     # WANDB_PROJECT_RUN = f"tests_yann"
 
-    filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+    filename_regression_dataset = f"dataset_regression_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
     filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
     subject_list = f"subject_sequence_{PHASE}_big.txt"
     subject_list_p1 = f"subject_sequence_p1_big.txt"
@@ -1192,8 +1193,11 @@ if __name__ == "__main__":
     exp_name = args.experiment_name
     exp_index = args.experiment_index
     split_idx = exp_index % max_split
+    classification = args.classification
 
     config_dict = get_config_dict(exp_index, split_idx)
+    config_dict['distribution_mode'] = 0 if classification else 1
+    config_dict['classification'] = classification
     seed()  # reset the seed
     # config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11,
     # 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,
@@ -1212,7 +1216,7 @@ else:
     THRESHOLD = threshold_list[PHASE]
     # WANDB_PROJECT_RUN = f"tests_yann"
 
-    filename_dataset = f"dataset_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+    filename_regression_dataset = f"dataset_regression_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
     filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
     subject_list = f"subject_sequence_{PHASE}_big.txt"
     subject_list_p1 = f"subject_sequence_p1_big.txt"

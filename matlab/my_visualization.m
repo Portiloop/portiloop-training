@@ -1,5 +1,5 @@
 path = "../dataset/";
-phase = 'p1';
+phase = 'full';
 size_data = 'big';
 dataset = load(path+"dataset_classification_"+phase+"_"+size_data+"_250_matlab_standardized_envelope_pf.txt");
 signal = dataset(:,1);
