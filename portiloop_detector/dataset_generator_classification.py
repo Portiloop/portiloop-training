@@ -36,7 +36,6 @@ def generate(phase):
     new_fe = 250
     signal_list = []
     pre_sequence_length_s = 15
-    post_sequence_length_s = 15
     file_to_remove = []
     reference_list = pd.read_csv("8_MODA_primChan_180sjt.txt", delim_whitespace=True)
 
@@ -120,3 +119,6 @@ def generate(phase):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('--phase', type=str, default="full")
+    args = parser.parse_args()
+
+    generate(args.phase)
