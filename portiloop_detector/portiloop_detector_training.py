@@ -59,7 +59,7 @@ class SignalDataset(Dataset):
         self.past_signal_len = self.seq_len * self.idx_stride
 
         # list of indices that can be sampled:
-        self.indices = [idx for idx in range(len(self.data[0]) - (self.window_size-1))  # all possible idxs in the dataset
+        self.indices = [idx for idx in range(len(self.data[0]) - (self.window_size - 1))  # all possible idxs in the dataset
                         if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
                                 or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
         total_spindles = np.sum(self.data[3] > THRESHOLD)
@@ -1160,7 +1160,7 @@ def get_config_dict(index, split_i):
               'stride_pool': 1,
               'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 18, 'time_in_past': 8.5,
               'estimator_size_memory': 188006400}
-    c_dict = {'experiment_name': f'spindleNet_{index}', 'device_train': 'cuda:0', 'device_val':
+    c_dict = {'experiment_name': f'spindleNet_v2_{index}', 'device_train': 'cuda:0', 'device_val':
         'cuda:0', 'nb_epoch_max': 500,
               'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
               'nb_batch_per_epoch': 1000,
