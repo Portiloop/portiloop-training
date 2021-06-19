@@ -1173,7 +1173,7 @@ def get_config_dict(index, split_i):
               "batch_size": 500, "lr_adam": 0.0001,
               'window_size_s': 0.250, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 5,
               'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400,
-              'split_idx': split_i, 'validation_divider': 1}
+              'split_idx': split_i, 'validation_network_stride': 1}
     # put LSTM and Softmax for the occasion and add padding, not exactly the same frequency (spindleNet = 200 Hz) + eLU
 
     return c_dict
