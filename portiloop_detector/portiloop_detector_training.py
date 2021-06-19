@@ -228,7 +228,7 @@ class ConvPoolModule(nn.Module):
 
     def forward(self, input_f):
         x, max_value = input_f
-        x = F.relu(self.conv(x))
+        x = F.elu(self.conv(x))
         x = self.pool(x)
         max_temp = torch.max(abs(x))
         if max_temp > max_value:
@@ -248,7 +248,7 @@ class FcModule(nn.Module):
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, x):
-        x = F.relu(self.fc(x))
+        x = F.elu(self.fc(x))
         return self.dropout(x)
 
 
@@ -275,8 +275,8 @@ class PortiloopNetwork(nn.Module):
         self.power_features_input = c_dict["power_features_input"]
         self.classification = c_dict["classification"]
 
-        conv_padding = 0  # int(kernel_conv // 2)
-        pool_padding = 0  # int(kernel_pool // 2)
+        conv_padding = int(kernel_conv // 2)
+        pool_padding = int(kernel_pool // 2)
         window_size = int(window_size_s * fe)
         nb_out = window_size
 
@@ -310,11 +310,11 @@ class PortiloopNetwork(nn.Module):
                                                          dilation_pool=dilation_pool,
                                                          dropout_p=dropout_p) for _ in range(nb_conv_layers - 1)))
         if RNN:
-            self.gru_input1 = nn.GRU(input_size=output_cnn_size,
-                                     hidden_size=hidden_size,
-                                     num_layers=nb_rnn_layers,
-                                     dropout=0,
-                                     batch_first=True)
+            self.gru_input1 = nn.LSTM(input_size=output_cnn_size,
+                                      hidden_size=hidden_size,
+                                      num_layers=nb_rnn_layers,
+                                      dropout=0,
+                                      batch_first=True)
         #       fc_size = hidden_size
         else:
             self.first_fc_input1 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
@@ -345,11 +345,11 @@ class PortiloopNetwork(nn.Module):
                                                              dropout_p=dropout_p) for _ in range(nb_conv_layers - 1)))
 
             if RNN:
-                self.gru_input2 = nn.GRU(input_size=output_cnn_size,
-                                         hidden_size=hidden_size,
-                                         num_layers=nb_rnn_layers,
-                                         dropout=0,
-                                         batch_first=True)
+                self.gru_input2 = nn.LSTM(input_size=output_cnn_size,
+                                          hidden_size=hidden_size,
+                                          num_layers=nb_rnn_layers,
+                                          dropout=0,
+                                          batch_first=True)
             else:
                 self.first_fc_input2 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
                 self.seq_fc_input2 = nn.Sequential(
@@ -378,9 +378,10 @@ class PortiloopNetwork(nn.Module):
 
         x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
         hn1 = None
+        cn1 = None
         if self.RNN:
             x1 = x1.view(batch_size, sequence_len, -1)
-            x1, hn1 = self.gru_input1(x1, h1)
+            x1, hn1, cn1 = self.gru_input1(x1, h1, c1)
             max_temp = torch.max(abs(x1))
             if max_temp > max_value:
                 logging.debug(f"max_value = {max_temp}")
@@ -391,6 +392,7 @@ class PortiloopNetwork(nn.Module):
             x1 = self.seq_fc_input1(x1)
         x = x1
         hn2 = None
+        cn2 = None
         if self.envelope_input:
             x2 = x2.view(-1, 1, features)
             x2, max_value = self.first_layer_input2((x2, max_value))
@@ -399,7 +401,7 @@ class PortiloopNetwork(nn.Module):
             x2 = torch.flatten(x2, start_dim=1, end_dim=-1)
             if self.RNN:
                 x2 = x2.view(batch_size, sequence_len, -1)
-                x2, hn2 = self.gru_input2(x2, h2)
+                x2, hn2, cn2 = self.gru_input2(x2, h2, cn2)
                 max_temp = torch.max(abs(x2))
                 if max_temp > max_value:
                     logging.debug(f"max_value = {max_temp}")
@@ -421,7 +423,7 @@ class PortiloopNetwork(nn.Module):
             max_value = max_temp
         x = torch.sigmoid(x)
 
-        return x, hn1, hn2, max_value
+        return x, hn1, cn1, hn2, cn2, max_value
 
 
 class LoggerWandb:
@@ -1127,22 +1129,7 @@ def get_config_dict(index, split_i):
     # 'RNN': True, 'envelope_input': True, 'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7,
     # 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400, "batch_size":
     # batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
-    c_dict = {'experiment_name': f'spindleNet_{index}', 'device_train': 'cuda:0', 'device_val':
-        'cuda:0', 'nb_epoch_max': 500,
-              'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
-              'nb_batch_per_epoch': 1000,
-              'first_layer_dropout': False,
-              'power_features_input': True, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
-              'reg_balancing': 'none',
-              'nb_conv_layers': 5,
-              'seq_len': 50, 'nb_channel': 40, 'hidden_size': 100, 'seq_stride_s': 0.004, 'nb_rnn_layers': 1, 'RNN': True,
-              'envelope_input': True,
-              "batch_size": 20, "lr_adam": 0.0009,
-              'window_size_s': 0.250, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 5,
-              'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400}
-    # put LSTM and Softmax for the occasion and add padding, not exactly the same frequency (spindleNet = 200 Hz)
-
-    c_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v11_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
+    c_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v8_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
         'cuda:0', 'nb_epoch_max': 500,
               'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
               'nb_batch_per_epoch': 1000,
@@ -1169,6 +1156,21 @@ def get_config_dict(index, split_i):
               'stride_pool': 1,
               'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 18, 'time_in_past': 8.5,
               'estimator_size_memory': 188006400}
+    c_dict = {'experiment_name': f'spindleNet_{index}', 'device_train': 'cuda:0', 'device_val':
+        'cuda:0', 'nb_epoch_max': 500,
+              'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
+              'nb_batch_per_epoch': 1000,
+              'first_layer_dropout': False,
+              'power_features_input': True, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
+              'reg_balancing': 'none',
+              'nb_conv_layers': 5,
+              'seq_len': 50, 'nb_channel': 40, 'hidden_size': 100, 'seq_stride_s': 0.004, 'nb_rnn_layers': 1, 'RNN': True,
+              'envelope_input': True,
+              "batch_size": 500, "lr_adam": 0.0001,
+              'window_size_s': 0.250, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 5,
+              'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400,
+              'split_idx': split_i, 'validation_divider': 1}
+    # put LSTM and Softmax for the occasion and add padding, not exactly the same frequency (spindleNet = 200 Hz) + eLU
 
     return c_dict
 
