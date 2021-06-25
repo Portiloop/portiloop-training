@@ -1183,7 +1183,7 @@ def get_config_dict(index, split_i):
               'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
               'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400,
               'split_idx': split_i, 'validation_network_stride': 1}
-    c_dict = {'experiment_name': f'pareto_search_15_35_v5_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 150,
+    c_dict = {'experiment_name': f'pareto_search_15_35_v5_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 500,
               'max_duration':
                   257400,
               'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 1000,
@@ -1227,7 +1227,7 @@ if __name__ == "__main__":
     ABLATION = args.ablation  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
     PHASE = args.phase
     WANDB_PROJECT_RUN = f"{PHASE}-dataset"
-    threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
+    threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.2}  # full = p1 + p2
     THRESHOLD = threshold_list[PHASE]
     # WANDB_PROJECT_RUN = f"tests_yann"
 
@@ -1249,6 +1249,7 @@ if __name__ == "__main__":
     config_dict['classification'] = classification
     config_dict['experiment_name'] += "_regression" if not classification else ""
     config_dict['experiment_name'] += "_no_test" if not TEST_SET else ""
+    config_dict['nb_batch_per_epoch'] *= 2 if not classification else 1
     seed()  # reset the seed
     # config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11,
     # 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,
