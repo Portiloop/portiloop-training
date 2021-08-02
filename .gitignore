@@ -126,9 +126,6 @@ dmypy.json
 
 *.pth
 
-portiloop_detector/wandb/
-wandb/
-
 *.slxc
 portiloop_detector/slprj/
 
@@ -138,6 +135,5 @@ portiloop_detector/slprj/
 
 *.mat
 
-portiloop_detector/pareto_forest_trainer.py
-
 *.xml
+wandb

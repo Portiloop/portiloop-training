@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
-	<name>spi_ti_com</name>
+	<name>portiloop_microblaze</name>
 	<comment>Created by SDK v2016.1. bsp_arduino - iop3_mb</comment>
 	<projects>
 		<project>bsp_iop_arduino</project>
