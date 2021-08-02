@@ -32,7 +32,7 @@ lr_adam_range_t = [0.0003, 0.0009, 0.0002]
 batch_size_range_t = [64, 256, 64]
 
 PROFILE_META = False
-
+MAXIMIZE_F1_SCORE = True
 
 # dropout_range_t = ["f", 0.5, 0.5]
 # first_layer_dropout_range_t = ["b", False, False]

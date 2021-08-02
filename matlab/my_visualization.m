@@ -1,5 +1,5 @@
 path = "../dataset/";
-phase = 'full';
+phase = 'p1';
 size_data = 'big';
 dataset = load(path+"dataset_classification_"+phase+"_"+size_data+"_250_matlab_standardized_envelope_pf.txt");
 signal = dataset(:,1);
@@ -14,7 +14,7 @@ time_vect = linspace(0,size_signal/fe, size_signal);
 figure
 % subplot(2, 1, 1)
 hold on
-decallage = (145*63+15)*fe;
+decallage = (145*70+15)*fe;
 i = 0;
 plot_data = signal(decallage:decallage + 115*fe);
 plot_spindles = spindles_gs(decallage:decallage + 115*fe);
