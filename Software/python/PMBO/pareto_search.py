@@ -18,16 +18,16 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 
 import wandb
-from portiloop_detector_training import PortiloopNetwork, run
-from utils import MAX_NB_PARAMETERS, EPSILON_EXP_NOISE, sample_config_dict, MIN_NB_PARAMETERS, MAXIMIZE_F1_SCORE
 
 # all constants (no hyperparameters here!)
+from Software.python.ANN.portiloop_detector_training import PortiloopNetwork, run
+from Software.python.Utils.utils import EPSILON_EXP_NOISE, MAX_NB_PARAMETERS, MIN_NB_PARAMETERS, sample_config_dict, MAXIMIZE_F1_SCORE
 
 THRESHOLD = 0.2
 WANDB_PROJECT_PARETO = "pareto"
 
-path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
-path_pareto = Path(__file__).absolute().parent.parent / 'pareto'
+path_dataset = Path(__file__).absolute().parent.parent.parent / 'dataset'
+path_pareto = Path(__file__).absolute().parent.parent.parent / 'pareto'
 
 # path = "/content/drive/MyDrive/Data/MASS/"
 # path_dataset = Path(path)

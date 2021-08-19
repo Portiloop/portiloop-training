@@ -137,3 +137,6 @@ portiloop_detector/slprj/
 
 *.xml
 wandb
+*.autosave
+
+*.svg

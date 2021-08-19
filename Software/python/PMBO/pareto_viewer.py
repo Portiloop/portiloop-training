@@ -1,7 +1,6 @@
 from matplotlib import pyplot as plt
 
 from pareto_search import load_network_files, path_dataset, PARETO_ID
-from utils import MAX_NB_PARAMETERS
 
 finished_experiment, pareto_front = load_network_files()
 

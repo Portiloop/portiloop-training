@@ -19,11 +19,12 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 import wandb
-from utils import out_dim
 
 from scipy.ndimage import gaussian_filter1d, convolve1d
 
-path_dataset = Path(__file__).absolute().parent.parent / 'dataset'
+from Software.python.Utils.utils import out_dim
+
+path_dataset = Path(__file__).absolute().parent.parent.parent / 'dataset'
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
 
