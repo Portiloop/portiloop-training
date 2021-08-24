@@ -31,7 +31,7 @@ public:
 				mult_temp += (input[j]*weight[j+i*i_size]);
 			}
 			mult_temp += bias[i];
-			output[i] = mult_temp;
+			output[i] = sigmoid(mult_temp);
 
 		}
 	}

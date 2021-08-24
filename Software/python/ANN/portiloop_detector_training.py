@@ -366,6 +366,12 @@ class PortiloopNetwork(nn.Module):
                             out_features=out_features)  # probability of being a spindle
 
     def forward(self, x1, x2, x3, h1, h2, max_value=np.inf):
+        # x1 : input 1 : cleaned signal
+        # x2 : input 2 : envelope
+        # x3 : power features ratio
+        # h1 : gru 1 hidden size
+        # h2 : gru 2 hidden size
+        # max_value (optional) : print the maximal value reach during inference (used to verify if the FPGA implementation precision is enough)
         (batch_size, sequence_len, features) = x1.shape
 
         if ABLATION == 1:

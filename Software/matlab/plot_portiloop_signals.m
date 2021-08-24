@@ -1,9 +1,10 @@
 %% extract data
 path = "../dataset/";
 
-raw_500 = load(path + "13042021_night_lp35hz/eeg_0_data_3.txt");
+raw_default = load(path + "13042021_night_lp35hz/eeg_0_data_3.txt");
 fe = 250;
-raw = downsample(raw_500, 500/fe);
+default_fe = 500;
+raw = downsample(raw_default, default_fe/fe);
 tot_time = size(raw,1)/fe;
 size_signal = size(raw, 1);
 time_vect = linspace(0,size_signal/fe, size_signal);
@@ -124,10 +125,10 @@ end
 
 
 f = figure;
-f.Position = [10 0 1500 500];
+f.Position = [10 0 800 300];
 
 plot(time_vect, lp_standard);
-axis([80 110 -20 20]);
+axis([146 156 -10 10]);
 ylabel("Amplitude (V)");
 title("Signal filtré et standardizé");
 xlabel("Temps (s)");
@@ -135,3 +136,26 @@ set(gca,'color','white')
 
 set(gcf,'color','white')
 
+
+%% same plot with MASS data
+
+mass = load(path + "dataset_classification_p1_big_250_matlab_standardized_envelope_pf.txt");
+
+%% plot 
+signal_mass = mass(:, 1);
+
+tot_time = size(signal_mass,1)/fe;
+size_signal = size(signal_mass, 1);
+time_vect_mass = linspace(0,size_signal/fe, size_signal);
+
+f = figure;
+f.Position = [10 0 800 300];
+
+plot(time_vect_mass, signal_mass);
+axis([146 156 -10 10]);
+ylabel("Amplitude (V)");
+title("Signal filtré et standardizé");
+xlabel("Temps (s)");
+set(gca,'color','white')
+
+set(gcf,'color','white')

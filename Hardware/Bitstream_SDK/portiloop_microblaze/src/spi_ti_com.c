@@ -190,12 +190,12 @@ spi configure_reg(spi device)
 	buf_write[8] = 0x60;
 	buf_write[9] = 0x60;
 	buf_write[10] = 0x60;
-	buf_write[11] = 0x60;//remplacer les chanels par e0 pour les désactiver (pour la suite)
+	buf_write[11] = 0x60;
 	buf_write[12] = 0x60;
 	buf_write[13] = 0x60;
 	buf_write[14] = 0x60;
 	buf_write[15] = RDATAC;
-	my_spi_transfer(device, buf_write, buf_read, 16);//pas possible d'écrire tous les registres d'un coup
+	my_spi_transfer(device, buf_write, buf_read, 16);//impossible to write all the register in one time, so split the task in two
 	buf_write[0] = SDATAC;
 	buf_write[1] = WREG+0x0C;
 	buf_write[2] = 0x09;
@@ -217,18 +217,8 @@ spi configure_reg(spi device)
 
 spi setup_my_device()
 {
-	/*gpio RESET = gpio_open(7);
-	gpio_set_direction(RESET, GPIO_OUT);
-	gpio_write(RESET, 1);
-	int j = 400;
-	while (j--);
-	gpio_write(RESET, 0);*/
 	spi device = setup_spi();
 	device = configure_reg(device);
-	/*gpio CLK_SEL = gpio_open(8);
-	gpio_set_direction(CLK_SEL, GPIO_OUT);
-	gpio_write(CLK_SEL, 1);*/
-
 	return device;
 }
 
@@ -278,7 +268,7 @@ void read_register(spi device)
 
 	for(int j = 3; j < 15; ++j)
 	{
-		MAILBOX_DATA(j-3+12) = buf_read[j];
+		MAILBOX_DATA(j-3+12) = buf_read[j]; // send the register read to the jupyter notebook
 	}
 }
 
@@ -289,7 +279,7 @@ void swap_buffer(int id)
 }
 
 
-void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,int nb_eeg,int nb_12_16,int nb_lp_35)
+void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,int nb_eeg,int nb_12_16,int nb_lp_30)
 {
 	int j;
 	int value = 0;
@@ -300,14 +290,14 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 	float timestamp;
 	int last_audio = 0;
 	unsigned int total_pos = 0;
-	float moving_average_lp35 = 0;
+	float moving_average_lp35 = 0; //moving average for the low-pass filtered signal at 30 Hz
 	float moving_variance_lp35 = 0;
 	float moving_std_lp35 = 0;
 	float res_lp35;
 	float delta_lp35;
-	float moving_average_bp1216 = 0;
-	float moving_variance_bp1216 = 0;
-	float moving_std_bp1216 = 0;
+	float moving_average_bp1216 = 0; //moving average for the bandpass signal filtered between 12 and 16 Hz
+	float moving_variance_bp1216 = 0; //moving variance for the bandpass signal
+	float moving_std_bp1216 = 0; //moving standard deviation for the bandpass signal
 	float res_bp1216;
 	float delta_bp1216;
 	float moving_average_envelope = 0;
@@ -339,7 +329,7 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 	gpio DRDY = gpio_open(9);
 	gpio_set_direction(DRDY, GPIO_IN);
 
-	if (TRIGGER_STIMULATION != 0)
+	if (TRIGGER_STIMULATION != 0) //if we want to use trigger instead of sending audio, we setup a GPIO
 	{
 		gpio trigger = gpio_open(8);
 		gpio_set_direction(trigger, GPIO_OUT);
@@ -348,12 +338,12 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 	{
 		gpio trigger = NULL;
 	}
-	for(unsigned int i = 0; i < nb_12_16; ++i)
+	for(unsigned int i = 0; i < nb_12_16; ++i) //configuration of the DMA for the filters
 	{
 		dma_receiv_start(filters_12_16[i]);
 		dma_send_start(filters_12_16[i]);
 	}
-	for(unsigned int i = 0; i < nb_lp_35; ++i)
+	for(unsigned int i = 0; i < nb_lp_30; ++i)
 	{
 		dma_receiv_start(filters_lp_35[i]);
 		dma_send_start(filters_lp_35[i]);
@@ -364,28 +354,29 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 	{
 		if(pos<l)
 		{
-			while(gpio_read(DRDY) == 1);
-			for(j = 0;j<9;++j){
-				my_spi_transfer_faster(device,NULL, buf_read, 3);
-				if(j <= nb_ecg+nb_eeg && j != 0){
-					res = (buf_read[0]<<16)|(buf_read[1]<<8)|(buf_read[2]);
-					if(res >= 0x800000 && (res & 0x800000) != 0)
+			while(gpio_read(DRDY) == 1);//wait for the signal to be ready (when DRDY = 0, the signal can be read)
+			for(j = 0;j<9;++j){//read a 24 bits messages then the 24 bits values of the 8 electrodes
+				my_spi_transfer_faster(device,NULL, buf_read, 3);//transfert empty message to received the signal from the ADS1299
+				if(j <= nb_ecg+nb_eeg && j != 0){//get the signal from the electrodes we are interested in
+					res = (buf_read[0]<<16)|(buf_read[1]<<8)|(buf_read[2]); //reform the value with the 3 bytes received
+					if(res >= 0x800000 && (res & 0x800000) != 0) //the signal is in A2 complement, the value is converted to decimal
 					{
 						res -= 0x1000000;
 					}
-					active_buff[j-1][0][pos] = res;
+					active_buff[j-1][0][pos] = res; //write the raw value in a buffer shared with python code
 					nb_acq = 1;
-					if(pos%2 == 0)
+					if(pos%2 == 0) //only take one sample out of 2 because we go from 500 Hz to 250 Hz (500 Hz is for post analysis, but computation is faster with 250 Hz)
 					{
 						if(j-1 < nb_12_16)
 						{
+							//if activated, send the raw signal to the 12-16Hz bandpass filter
 							*shared_buff1 = res;
 							dma_send_transfert(filters_12_16[j-1], (u32)shared_buff1, sizeof(s32));
 							dma_receiv_transfert(filters_12_16[j-1], (u32)shared_buff2, sizeof(s32));
 							dma_send_wait(filters_12_16[j-1]);
 							dma_receiv_wait(filters_12_16[j-1]); //a implémenter pour plusieurs filtres
 							res_bp1216 = *shared_buff2;
-
+							//start standardization
 							if(total_pos == 0)
 							{
 								moving_average_bp1216 = res_bp1216;
@@ -398,6 +389,7 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 								moving_std_bp1216 = sqrt(moving_variance_bp1216);
 								res_bp1216 = (res_bp1216-moving_average_bp1216)/(moving_std_bp1216+EPSILON);
 							}
+							//get the envelope
 							res_envelope = res_bp1216*res_bp1216;
 							if(total_pos == 0)
 							{
@@ -409,21 +401,23 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 								moving_average_envelope = moving_average_envelope + ALPHA_ENVELOPE*delta_envelope;
 								res_envelope = moving_average_envelope;
 							}
-
+							//write the result in the buffer
 							active_buff[j-1][nb_acq][pos/2] = res_envelope;
 							moving_window_input2[moving_idx] = res_envelope;
 							//		moving_window_input2[moving_idx] = 0; //for debugging
 
 							nb_acq++;
 						}
-						if(j-1 < nb_lp_35)
+						if(j-1 < nb_lp_30)
 						{
+							//same with 30 Hz filter
 							*shared_buff1 = res;
 							dma_send_transfert(filters_lp_35[j-1], (u32)shared_buff1, sizeof(s32));
 							dma_receiv_transfert(filters_lp_35[j-1], (u32)shared_buff2, sizeof(s32));
 							dma_send_wait(filters_lp_35[j-1]);
 							dma_receiv_wait(filters_lp_35[j-1]);
 							res_lp35 = *shared_buff2;
+							//notch filter, coeff are choosen depeding on the geographical area (selected in pythonà
 							float denAccum;
 
 							denAccum = (res_lp35 - notch_coeff1 *
@@ -436,6 +430,7 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 
 							DigitalFilter_states[1] = DigitalFilter_states[0];
 							DigitalFilter_states[0] = denAccum;
+							//standardization
 							if(total_pos == 0)
 							{
 								moving_average_lp35 = res_lp35;
@@ -448,7 +443,7 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 								moving_std_lp35 = sqrt(moving_variance_lp35);
 								res_lp35 = (res_lp35-moving_average_lp35)/(moving_std_lp35+EPSILON);
 							}
-
+							//send the result back to python (not directly, but put it in the shared buffer)
 							active_buff[j-1][nb_acq][pos/2] = res_lp35;
 							moving_window_input1[moving_idx] = res_lp35;
 							//		moving_window_input1[moving_idx] = 0; //for debugging
@@ -461,11 +456,14 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 						}
 						moving_idx = (moving_idx+1)%WINDOW_SIZE;
 
-						timestamp = 0;
+						timestamp = 0;//result from NN when available, used for debugging
 						if(nn_res_received == 0 && dma_send_idle(NN_DMA_BASE_ADDR) && dma_receiv_idle(NN_DMA_BASE_ADDR))
 						{
+							//when NN send back result
 							nn_res_received = 1;
-							timestamp = *nn_output_buff;
+							timestamp = *nn_output_buff; //write in it timestamp
+
+							//send stimulation if possible
 							if (*nn_output_buff>THRESHOLD && wait_stim == 0 && in_spindle == 0)
 							{
 								if (send_stimulation(TRIGGER_STIMULATION) == 1)
@@ -478,22 +476,24 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 							{
 								in_spindle = WAIT_BEFORE_STIM;
 							}
-
+							//copy hidden vector for virtual parallelization
 							for(int i = 0; i < HIDDEN_VECTOR_SIZE; ++i)
 							{
 								//	*(nn_input_buff+i+NB_INPUT*WINDOW_SIZE) = *(nn_output_buff+i+1);
 								hidden_vector[idx_sample][i] = *(nn_output_buff+i+1);
 							}
+							//select the next parallel network (with it hidden vector)
 							idx_sample = (idx_sample+1)%NB_PARALLELE;
 						}
 						for(int i = 0; i < NB_PARALLELE; ++i)
 						{
-							pos_sample[i]++;
+							pos_sample[i]++; //increase waiting time for each network (start at 0, when reaching the time dilation value, the network can be used again)
 						}
 						if(nn_res_received != 0 && pos_sample[idx_sample]>=NETWORK_SAMPLING)
 						{
 							pos_sample[idx_sample] = 0;
-							timestamp = 1000 + timestamp;
+							timestamp = 1000 + timestamp; //indicate that an inference has been launched
+							//send the data to the network (input + hidden vector), must be rework for 2 input network
 							for(int i = 0; i < WINDOW_SIZE; ++i)
 							{
 								*(nn_input_buff+i) = moving_window_input1[(moving_idx+i)%WINDOW_SIZE];
@@ -517,6 +517,7 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 								}
 							}*/
 
+							// send the buffer through DMA
 							dma_send_transfert(NN_DMA_BASE_ADDR, (u32)nn_input_buff, (NN_INPUT_SIZE)*sizeof(float));
 							dma_receiv_transfert(NN_DMA_BASE_ADDR, (u32)nn_output_buff, (NN_OUTPUT_SIZE)*sizeof(float));
 							nn_res_received = 0; // waiting for the network to finish
@@ -526,7 +527,7 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 						}
 						if (wait_stim > 0)
 						{
-							--wait_stim;
+							--wait_stim;//decrease stimulation related counter
 						}
 						if (in_spindle > 0)
 						{
@@ -539,7 +540,7 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 						total_pos++;
 						if(j-1 < nb_eeg)
 						{
-							active_buff[j-1][nb_acq][pos/2] = timestamp;
+							active_buff[j-1][nb_acq][pos/2] = timestamp;//write timestamp inside python buffer
 							nb_acq++;
 						}
 
@@ -551,6 +552,7 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 		}
 		if(pos == l)
 		{
+			//when enough data has been written inside the buffer, indicate to python to read them and start using the second buffer
 			value = (value+1)%nb_buffer;
 			swap_buffer(value);
 			Xil_Out32(XPAR_IOP_ARDUINO_INTR_BASEADDR,0x1);//envoie de l'interruption
@@ -561,12 +563,12 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 			}
 		}
 	}
-	for(unsigned int i = 0; i < nb_12_16; ++i)
+	for(unsigned int i = 0; i < nb_12_16; ++i) //indicate to the FIR to stop working
 	{
 		dma_receiv_stop(filters_12_16[i]);
 		dma_send_stop(filters_12_16[i]);
 	}
-	for(unsigned int i = 0; i < nb_lp_35; ++i)
+	for(unsigned int i = 0; i < nb_lp_30; ++i)
 	{
 		dma_receiv_stop(filters_lp_35[i]);
 		dma_send_stop(filters_lp_35[i]);
@@ -683,33 +685,33 @@ int main(void)
 	u32 nb_ecg;
 	u32 nb_eeg;
 	u32 nb_12_16;
-	u32 nb_lp_35;
+	u32 nb_lp_30;
 	int id = 0;
 	int nb_acq;
 	dma_send_start(AUDIO_DMA_BASE_ADDR);
 	dma_send_start(NN_DMA_BASE_ADDR);
 	dma_receiv_start(NN_DMA_BASE_ADDR);
 
-	Xil_Out32(XPAR_IOP_ARDUINO_INTR_BASEADDR+4,0x0);//activation des interruptions
+	Xil_Out32(XPAR_IOP_ARDUINO_INTR_BASEADDR+4,0x0);//activation interruptions
 	Xil_Out32(XPAR_IOP_ARDUINO_INTR_BASEADDR,0x0);
 
 	while(1)
 	{
-		while((MAILBOX_CMD_ADDR & 0x01)==0);
+		while((MAILBOX_CMD_ADDR & 0x01)==0); //communication mailbox with python code
 		cmd = MAILBOX_CMD_ADDR;
 
 		switch(cmd){
-		case SETUP_DEVICE:
+		case SETUP_DEVICE: //received setup message
 			dev = setup_my_device();
 			MAILBOX_CMD_ADDR = 0x0;
 			break;
-		case READ_REGISTERS:
+		case READ_REGISTERS: //received read register message
 			read_register(dev);
 			MAILBOX_CMD_ADDR = 0x0;
 			break;
-		case START_ACQUIRE:
+		case START_ACQUIRE: //received start acquire message
 			id = 0;
-			nb_ecg = MAILBOX_DATA(id++);
+			nb_ecg = MAILBOX_DATA(id++);//read every information received
 			nb_eeg = MAILBOX_DATA(id++);
 			l = MAILBOX_DATA(id++);
 			nb_cycles = MAILBOX_DATA(id++);
@@ -739,7 +741,7 @@ int main(void)
 			shared_buff1 = (s32*)(MAILBOX_DATA(id++) | 0x20000000);//si ça ne fonctionne pas, faire un "real buffer" à coté
 			shared_buff2 = (s32*)(MAILBOX_DATA(id++) | 0x20000000);
 			nb_12_16 = MAILBOX_DATA(id++);
-			nb_lp_35 = MAILBOX_DATA(id++);
+			nb_lp_30 = MAILBOX_DATA(id++);
 			audio_buff = (s32*)(MAILBOX_DATA(id++)); //ne fonctionne pas si | 0x20000000
 			size_audio_buff = MAILBOX_DATA(id++);
 			nn_input_buff = (float*)(MAILBOX_DATA(id++) | 0x20000000);
@@ -755,7 +757,7 @@ int main(void)
 					{
 						nb_acq++;
 					}
-					if(i < nb_lp_35)
+					if(i < nb_lp_30)
 					{
 						nb_acq++;
 					}
@@ -771,7 +773,7 @@ int main(void)
 						buffList[j][i][nb_acq] = (float *)(MAILBOX_DATA(id++)| 0x20000000);
 						nb_acq++;
 					}
-					if(i < nb_lp_35)
+					if(i < nb_lp_30)
 					{
 						buffList[j][i][nb_acq] = (float *)(MAILBOX_DATA(id++)| 0x20000000);
 						nb_acq++;
@@ -785,7 +787,7 @@ int main(void)
 			}
 			active_buff = buffList[0];
 
-			start_acquire(l, nb_cycles,dev, nb_buffer, nb_ecg, nb_eeg, nb_12_16, nb_lp_35);
+			start_acquire(l, nb_cycles,dev, nb_buffer, nb_ecg, nb_eeg, nb_12_16, nb_lp_30);
 			MAILBOX_CMD_ADDR = 0x0;
 			break;
 

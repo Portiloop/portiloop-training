@@ -12,9 +12,10 @@
     "Package": "-clg400",
     "Speed": "-1"
   },
-  "HlsSolution": {
-    
-  },
+  "HlsSolution": {"Config": [
+      "config_export -format=ip_catalog",
+      "config_export -rtl=verilog"
+    ]},
   "Args": {
     "input": {
       "index": "0",
@@ -81,7 +82,7 @@
     "ClockPeriod": "2",
     "IsCombLogic": "0",
     "II": "x",
-    "Latency": "5381524",
+    "Latency": "5381630",
     "Uncertainty": "0.25"
   },
   "Xdc": {"OocClocks": ["create_clock -name ap_clk -period 2.000 [get_ports ap_clk]"]},
@@ -98,12 +99,12 @@
   },
   "Files": {
     "CSource": [
-      "..\/..\/src\/oneInputNN\/myConvLayer.cpp",
-      "..\/..\/src\/oneInputNN\/myFc.cpp",
-      "..\/..\/src\/oneInputNN\/myGru.cpp",
-      "..\/..\/src\/oneInputNN\/myMaxPool.cpp",
+      "..\/..\/src\/oneInputNN\/oneInputNN.cpp",
       "..\/..\/src\/oneInputNN\/myUtils.cpp",
-      "..\/..\/src\/oneInputNN\/oneInputNN.cpp"
+      "..\/..\/src\/oneInputNN\/myMaxPool.cpp",
+      "..\/..\/src\/oneInputNN\/myGru.cpp",
+      "..\/..\/src\/oneInputNN\/myFc.cpp",
+      "..\/..\/src\/oneInputNN\/myConvLayer.cpp"
     ],
     "Vhdl": [
       "impl\/vhdl\/exp_25_7_s.vhd",
@@ -119,11 +120,10 @@
       "impl\/vhdl\/oneInputNN_add_27OgC.vhd",
       "impl\/vhdl\/oneInputNN_add_27Rg6.vhd",
       "impl\/vhdl\/oneInputNN_add_28Lf8.vhd",
-      "impl\/vhdl\/oneInputNN_add_32bil.vhd",
+      "impl\/vhdl\/oneInputNN_add_32bgk.vhd",
       "impl\/vhdl\/oneInputNN_add_32WhU.vhd",
       "impl\/vhdl\/oneInputNN_add_35UhA.vhd",
       "impl\/vhdl\/oneInputNN_add_43jbC.vhd",
-      "impl\/vhdl\/oneInputNN_add_46bdk.vhd",
       "impl\/vhdl\/oneInputNN_add_48sc4.vhd",
       "impl\/vhdl\/oneInputNN_add_50wdI.vhd",
       "impl\/vhdl\/oneInputNN_add_57udo.vhd",
@@ -134,12 +134,11 @@
       "impl\/vhdl\/oneInputNN_fc_wei1iI.vhd",
       "impl\/vhdl\/oneInputNN_fpext_7jG.vhd",
       "impl\/vhdl\/oneInputNN_last.vhd",
-      "impl\/vhdl\/oneInputNN_lshr_2bfk.vhd",
-      "impl\/vhdl\/oneInputNN_lshr_3bgk.vhd",
+      "impl\/vhdl\/oneInputNN_lshr_2bdk.vhd",
+      "impl\/vhdl\/oneInputNN_lshr_3bek.vhd",
       "impl\/vhdl\/oneInputNN_mac_mufYi.vhd",
       "impl\/vhdl\/oneInputNN_mul_20Hfu.vhd",
       "impl\/vhdl\/oneInputNN_mul_21Gfk.vhd",
-      "impl\/vhdl\/oneInputNN_mul_25bck.vhd",
       "impl\/vhdl\/oneInputNN_mul_25ibs.vhd",
       "impl\/vhdl\/oneInputNN_mul_25IfE.vhd",
       "impl\/vhdl\/oneInputNN_mul_25JfO.vhd",
@@ -148,18 +147,18 @@
       "impl\/vhdl\/oneInputNN_mul_42rcU.vhd",
       "impl\/vhdl\/oneInputNN_mul_48tde.vhd",
       "impl\/vhdl\/oneInputNN_mul_50vdy.vhd",
+      "impl\/vhdl\/oneInputNN_sdiv_3bbk.vhd",
       "impl\/vhdl\/oneInputNN_sdiv_5VhK.vhd",
       "impl\/vhdl\/oneInputNN_sdiv_30iy.vhd",
       "impl\/vhdl\/oneInputNN_shl_25bak.vhd",
-      "impl\/vhdl\/oneInputNN_shl_32bhl.vhd",
+      "impl\/vhdl\/oneInputNN_shl_32bfk.vhd",
       "impl\/vhdl\/oneInputNN_shl_34Shg.vhd",
-      "impl\/vhdl\/oneInputNN_sub_25bbk.vhd",
       "impl\/vhdl\/oneInputNN_sub_25Ee0.vhd",
       "impl\/vhdl\/oneInputNN_sub_26Yie.vhd",
       "impl\/vhdl\/oneInputNN_sub_27PgM.vhd",
       "impl\/vhdl\/oneInputNN_sub_27QgW.vhd",
       "impl\/vhdl\/oneInputNN_sub_28Mgi.vhd",
-      "impl\/vhdl\/oneInputNN_sub_32bek.vhd",
+      "impl\/vhdl\/oneInputNN_sub_32bck.vhd",
       "impl\/vhdl\/oneInputNN_sub_43Xh4.vhd",
       "impl\/vhdl\/oneInputNN_sub_548jQ.vhd",
       "impl\/vhdl\/oneInputNN_temp_o5jm.vhd",
@@ -205,11 +204,10 @@
       "impl\/verilog\/oneInputNN_add_27OgC.v",
       "impl\/verilog\/oneInputNN_add_27Rg6.v",
       "impl\/verilog\/oneInputNN_add_28Lf8.v",
-      "impl\/verilog\/oneInputNN_add_32bil.v",
+      "impl\/verilog\/oneInputNN_add_32bgk.v",
       "impl\/verilog\/oneInputNN_add_32WhU.v",
       "impl\/verilog\/oneInputNN_add_35UhA.v",
       "impl\/verilog\/oneInputNN_add_43jbC.v",
-      "impl\/verilog\/oneInputNN_add_46bdk.v",
       "impl\/verilog\/oneInputNN_add_48sc4.v",
       "impl\/verilog\/oneInputNN_add_50wdI.v",
       "impl\/verilog\/oneInputNN_add_57udo.v",
@@ -222,12 +220,11 @@
       "impl\/verilog\/oneInputNN_fpext_7jG.v",
       "impl\/verilog\/oneInputNN_last.v",
       "impl\/verilog\/oneInputNN_last_rom.dat",
-      "impl\/verilog\/oneInputNN_lshr_2bfk.v",
-      "impl\/verilog\/oneInputNN_lshr_3bgk.v",
+      "impl\/verilog\/oneInputNN_lshr_2bdk.v",
+      "impl\/verilog\/oneInputNN_lshr_3bek.v",
       "impl\/verilog\/oneInputNN_mac_mufYi.v",
       "impl\/verilog\/oneInputNN_mul_20Hfu.v",
       "impl\/verilog\/oneInputNN_mul_21Gfk.v",
-      "impl\/verilog\/oneInputNN_mul_25bck.v",
       "impl\/verilog\/oneInputNN_mul_25ibs.v",
       "impl\/verilog\/oneInputNN_mul_25IfE.v",
       "impl\/verilog\/oneInputNN_mul_25JfO.v",
@@ -236,18 +233,18 @@
       "impl\/verilog\/oneInputNN_mul_42rcU.v",
       "impl\/verilog\/oneInputNN_mul_48tde.v",
       "impl\/verilog\/oneInputNN_mul_50vdy.v",
+      "impl\/verilog\/oneInputNN_sdiv_3bbk.v",
       "impl\/verilog\/oneInputNN_sdiv_5VhK.v",
       "impl\/verilog\/oneInputNN_sdiv_30iy.v",
       "impl\/verilog\/oneInputNN_shl_25bak.v",
-      "impl\/verilog\/oneInputNN_shl_32bhl.v",
+      "impl\/verilog\/oneInputNN_shl_32bfk.v",
       "impl\/verilog\/oneInputNN_shl_34Shg.v",
-      "impl\/verilog\/oneInputNN_sub_25bbk.v",
       "impl\/verilog\/oneInputNN_sub_25Ee0.v",
       "impl\/verilog\/oneInputNN_sub_26Yie.v",
       "impl\/verilog\/oneInputNN_sub_27PgM.v",
       "impl\/verilog\/oneInputNN_sub_27QgW.v",
       "impl\/verilog\/oneInputNN_sub_28Mgi.v",
-      "impl\/verilog\/oneInputNN_sub_32bek.v",
+      "impl\/verilog\/oneInputNN_sub_32bck.v",
       "impl\/verilog\/oneInputNN_sub_43Xh4.v",
       "impl\/verilog\/oneInputNN_sub_548jQ.v",
       "impl\/verilog\/oneInputNN_temp_o5jm.v",
@@ -410,35 +407,39 @@
       "Instances": [
         {
           "ModuleName": "run_3",
-          "InstanceName": "grp_run_3_fu_425",
+          "InstanceName": "grp_run_3_fu_431",
           "Instances": [{
               "ModuleName": "exp_25_7_s",
               "InstanceName": "grp_exp_25_7_s_fu_529"
             }]
         },
         {
+          "ModuleName": "exp_25_7_s",
+          "InstanceName": "grp_exp_25_7_s_fu_460"
+        },
+        {
           "ModuleName": "run_5",
-          "InstanceName": "grp_run_5_fu_454"
+          "InstanceName": "grp_run_5_fu_475"
         },
         {
           "ModuleName": "run_6",
-          "InstanceName": "grp_run_6_fu_464"
+          "InstanceName": "grp_run_6_fu_485"
         },
         {
           "ModuleName": "run_4",
-          "InstanceName": "grp_run_4_fu_474"
+          "InstanceName": "grp_run_4_fu_495"
         },
         {
           "ModuleName": "run",
-          "InstanceName": "grp_run_fu_484"
+          "InstanceName": "grp_run_fu_505"
         },
         {
           "ModuleName": "run_1",
-          "InstanceName": "grp_run_1_fu_490"
+          "InstanceName": "grp_run_1_fu_511"
         },
         {
           "ModuleName": "run_2",
-          "InstanceName": "grp_run_2_fu_496"
+          "InstanceName": "grp_run_2_fu_517"
         }
       ]
     },
@@ -639,7 +640,7 @@
         "Area": {
           "BRAM_18K": "10",
           "DSP48E": "2",
-          "FF": "1115",
+          "FF": "1114",
           "LUT": "574",
           "URAM": "0"
         }
@@ -733,7 +734,7 @@
           "BRAM_18K": "10",
           "DSP48E": "2",
           "FF": "1082",
-          "LUT": "562",
+          "LUT": "563",
           "URAM": "0"
         }
       },
@@ -866,19 +867,19 @@
         "Area": {
           "BRAM_18K": "37",
           "DSP48E": "31",
-          "FF": "26818",
+          "FF": "26820",
           "LUT": "15769",
           "URAM": "0"
         }
       },
       "oneInputNN": {
         "Latency": {
-          "LatencyBest": "5381524",
-          "LatencyAvg": "5383939",
-          "LatencyWorst": "5391058",
-          "PipelineIIMin": "5381525",
-          "PipelineIIMax": "5391059",
-          "PipelineII": "5381525 ~ 5391059",
+          "LatencyBest": "5381630",
+          "LatencyAvg": "5384045",
+          "LatencyWorst": "5391164",
+          "PipelineIIMin": "5381631",
+          "PipelineIIMax": "5391165",
+          "PipelineII": "5381631 ~ 5391165",
           "PipelineDepth": "",
           "PipelineType": "none"
         },
@@ -925,10 +926,10 @@
           }
         ],
         "Area": {
-          "BRAM_18K": "65",
-          "DSP48E": "38",
-          "FF": "41443",
-          "LUT": "24681",
+          "BRAM_18K": "76",
+          "DSP48E": "55",
+          "FF": "49632",
+          "LUT": "29126",
           "URAM": "0"
         }
       }
@@ -944,7 +945,7 @@
   },
   "GenData": {
     "DataVersion": "0.2",
-    "Time": "2021-08-02 12:12:46 -0400",
+    "Time": "2021-08-24 13:42:11 -0400",
     "ToolName": "vivado_hls",
     "ToolVersion": "2019.1"
   }

@@ -5,21 +5,22 @@
 ############################################################
 open_project oneInputNN
 set_top oneInputNN
-add_files src/oneInputNN/oneInputNN.h
-add_files src/oneInputNN/oneInputNN.cpp
-add_files src/oneInputNN/myUtils.h
-add_files src/oneInputNN/myUtils.cpp
-add_files src/oneInputNN/myMaxPool.h
-add_files src/oneInputNN/myMaxPool.cpp
-add_files src/oneInputNN/myGru.h
-add_files src/oneInputNN/myGru.cpp
-add_files src/oneInputNN/myFc.h
-add_files src/oneInputNN/myFc.cpp
-add_files src/oneInputNN/myConvLayer.h
 add_files src/oneInputNN/myConvLayer.cpp
+add_files src/oneInputNN/myConvLayer.h
+add_files src/oneInputNN/myFc.cpp
+add_files src/oneInputNN/myFc.h
+add_files src/oneInputNN/myGru.cpp
+add_files src/oneInputNN/myGru.h
+add_files src/oneInputNN/myMaxPool.cpp
+add_files src/oneInputNN/myMaxPool.h
+add_files src/oneInputNN/myUtils.cpp
+add_files src/oneInputNN/myUtils.h
+add_files src/oneInputNN/oneInputNN.cpp
+add_files src/oneInputNN/oneInputNN.h
 open_solution "solution1"
-set_part {xc7z020clg400-1}
+set_part {xc7z020-clg400-1}
 create_clock -period 2 -name default
+config_export -format ip_catalog -rtl verilog
 #source "./oneInputNN/solution1/directives.tcl"
 #csim_design
 csynth_design
