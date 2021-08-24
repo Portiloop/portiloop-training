@@ -446,7 +446,7 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 							//send the result back to python (not directly, but put it in the shared buffer)
 							active_buff[j-1][nb_acq][pos/2] = res_lp35;
 							moving_window_input1[moving_idx] = res_lp35;
-							//		moving_window_input1[moving_idx] = 0; //for debugging
+						//	moving_window_input1[moving_idx] = 1; //for debugging
 							/*		if(active_buff[j-1][nb_acq][pos/2] > 1.5) //threshold detector
 							{
 								last_audio = 0;
@@ -461,7 +461,7 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 						{
 							//when NN send back result
 							nn_res_received = 1;
-							timestamp = *nn_output_buff; //write in it timestamp
+							timestamp = *(nn_output_buff); //write in it timestamp
 
 							//send stimulation if possible
 							if (*nn_output_buff>THRESHOLD && wait_stim == 0 && in_spindle == 0)
@@ -508,6 +508,7 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 							for(int i = 0; i < HIDDEN_VECTOR_SIZE; ++i)
 							{
 								*(nn_input_buff+i+WINDOW_SIZE*NB_INPUT) = hidden_vector[idx_sample][i];
+//								timestamp = hidden_vector[idx_sample][0];
 							}
 							/*if (NB_INPUT>1)
 							{
@@ -533,10 +534,6 @@ void start_acquire(int l, int nb_cycles, spi device, int nb_buffer, int nb_ecg,i
 						{
 							--in_spindle;
 						}
-						/*	if(res != 0)
-						{
-							timestamp = 2; //meaning something has been measured, should be the audio
-						}*/
 						total_pos++;
 						if(j-1 < nb_eeg)
 						{

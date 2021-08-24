@@ -18,9 +18,10 @@ add_files src/oneInputNN/myUtils.h
 add_files src/oneInputNN/oneInputNN.cpp
 add_files src/oneInputNN/oneInputNN.h
 open_solution "solution1"
-set_part {xc7z020-clg400-1}
-create_clock -period 2 -name default
-config_export -format ip_catalog -rtl verilog
+set_part {xc7z020clg400-1}
+create_clock -period 5 -name default
+config_export -format ip_catalog -rtl verilog -vivado_optimization_level 2 -vivado_phys_opt place -vivado_report_level 0
+config_sdx -optimization_level none -target none
 #source "./oneInputNN/solution1/directives.tcl"
 #csim_design
 csynth_design
