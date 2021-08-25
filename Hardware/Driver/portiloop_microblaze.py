@@ -7,27 +7,28 @@ import time
 import os
 import csv
 
-ARDUINO_TI_ADC_PROGRAM_mb_control = "portiloop_microblaze.bin"
-SETUP_DEVICE = 0x1
+ARDUINO_PORTILOOP_MICROBLAZE = "portiloop_microblaze.bin" #file compiled with xilinx SDK, contain microblaze C code
+SETUP_DEVICE = 0x1 #command to communicate with microblaze
 READ_REGISTERS = 0x3
 START_ACQUIRE = 0x5
 
-WINDOW_SIZE = 58
-HIDDEN_VECTOR_SIZE = 7*2*2
-TOT_INPUT_NN = 2*WINDOW_SIZE + HIDDEN_VECTOR_SIZE
-TOT_OUTPUT_NN = 1 + HIDDEN_VECTOR_SIZE
+NB_INPUT = 1 #should be fixed to 1 for now, until modification in microblaze
+WINDOW_SIZE = 54
+HIDDEN_VECTOR_SIZE = 7*1*NB_INPUT
+TOT_INPUT_NN = NB_INPUT*WINDOW_SIZE + NB_INPUT*HIDDEN_VECTOR_SIZE
+TOT_OUTPUT_NN = 1 + NB_INPUT*HIDDEN_VECTOR_SIZE
 
-class Arduino_TI_ADC_mb_control(object):
+class Arduino_Portiloop_Microblaze(object):
     def __init__(self, ol, filename, nb_eeg = 1, nb_ecg = 0, nb_buffer = 2, filter_12_16 = 1, filter_lp_35 = 0, notch_filter_mode = 0):
         # notch_filter_mode : 0 = 60 Hz notch filter, 1 = 50 Hz notch filter
-        self.microblaze = Arduino(ol.iop_arduino.mb_info, ARDUINO_TI_ADC_PROGRAM_mb_control)
+        self.microblaze = Arduino(ol.iop_arduino.mb_info, ARDUINO_PORTILOOP_MICROBLAZE)
         self.buf_manager = Xlnk()
-        self.microblaze.write_blocking_command(SETUP_DEVICE)
-        if(nb_eeg > 1): #should be change later to add new electrodes
+        self.microblaze.write_blocking_command(SETUP_DEVICE) #start by setting up the ADS1299
+        if(nb_eeg > 1): #should be change later to add new electrodes, modification must be made in xilinx SDK too
             nb_eeg = 1
         self.nb_eeg = nb_eeg
         self.nb_ecg = nb_ecg
-        self.filename = filename
+        self.filename = filename #filename where every buffer will be written in
         self.nb_buffer = nb_buffer
         self.nb_lp_35 = filter_lp_35 #if 1 : filter the first electrode only
         self.nb_12_16 = filter_12_16 #if 2 : filter the first two electrodes
@@ -37,9 +38,9 @@ class Arduino_TI_ADC_mb_control(object):
             self.nb_lp_35 = self.nb_eeg
         if not os.path.exists("../Data/" + filename):
             os.makedirs("../Data/" + filename)
-        self.audio= ol.my_audio.adau1761_0
+        self.audio= ol.my_audio.adau1761_0 #configure audio device
         self.audio.select_microphone()
-        self.audio.load("sine.wav")
+        self.audio.load("sine.wav") #select the audio file to play
         self.notch_filter_mode = notch_filter_mode
 
 
@@ -56,11 +57,6 @@ class Arduino_TI_ADC_mb_control(object):
         val = 0
         tot_time = 0
         tmax = 0
-     #   x_value = 0.0
-      #  fieldnames = ["x", "raw" ,"filtered_lp_35"]
-       # with open('data.csv', 'w') as csv_file:
-        #    csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-         #   csv_writer.writeheader()
 
         while(1):
             yield from self.microblaze.interrupt.wait() # Wait for interrupt
@@ -70,22 +66,21 @@ class Arduino_TI_ADC_mb_control(object):
             timestamp = []
             filtered_12_16 = []
             filtered_lp_35 = []
+            #read data from the shared buffer
             for j in range(self.nb_eeg+ self.nb_ecg):
                 data_ele.append(self.data_buffer[val][j][0])
                 data_ele[j] = data_ele[j]*(4.5/24)/(2**23-1)
                 nb_acq = 1
                 if j < self.nb_12_16:
                     filtered_12_16.append(self.data_buffer[val][j][nb_acq])
-                  #  filtered_12_16[j] = filtered_12_16[j]#*(4.5/24)/(2**23-1)
                     nb_acq += 1
                 if j < self.nb_lp_35:
                     filtered_lp_35.append(self.data_buffer[val][j][nb_acq])
-                   # filtered_lp_35[j] = filtered_lp_35[j]#*(4.5/24)/(2**23-1)
                     nb_acq += 1
                 if j < self.nb_eeg:
                     timestamp.append(self.data_buffer[val][j][nb_acq])
                     nb_acq += 1
-
+            #put them in files
             for i in range(self.length):
                 for k in range(self.nb_eeg):
                     self.data_file[k].write(str(data_ele[k][i]) + "\n")
@@ -104,20 +99,7 @@ class Arduino_TI_ADC_mb_control(object):
             tot_time = tot_time + t
             if tmax < t:
                 tmax = t
-
-#            with open('data.csv', 'a') as csv_file:
- #               csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-  #              for i in range(self.length//2):
-#
- #                   info = {
-  #                      "filtered_lp_35": filtered_lp_35[0][i],
-   #                     "x": x_value,
-    #                    "raw": data_ele[0][2*i],
-     #               }
-#
- #                   csv_writer.writerow(info)
-  #                  x_value += 1/250
-
+            #when the file is full, close in and use the next one
             if packet == self.nb_packet:
                 for i in range(self.nb_eeg):
                     self.data_file[i].close()
@@ -135,7 +117,7 @@ class Arduino_TI_ADC_mb_control(object):
                 tmax = 0
                 cycle = cycle+1
                 packet = 0
-                if(cycle == self.nb_cycles):
+                if(cycle == self.nb_cycles):#when acquisition is over
                     break;
                 for i in range(self.nb_eeg):
                     self.data_file[i] = open("../Data/"+self.filename+"/eeg_"+ str(i) + "_data_" + str(cycle) + ".txt", "w", encoding="utf-8")
@@ -173,6 +155,7 @@ class Arduino_TI_ADC_mb_control(object):
         self.filtered_12_16_file = []
         self.filtered_lp_35_file = []
         self.ecg_file = []
+        #create the files
         for i in range(self.nb_eeg):
             self.data_file.append(open("../Data/"+self.filename+"/eeg_"+ str(i) + "_data_0.txt", "w", encoding="utf-8"))
             self.timestamp_file.append(open("../Data/"+self.filename+"/eeg_"+ str(i) + "_timestamp_0.txt", "w", encoding="utf-8"))
@@ -182,9 +165,9 @@ class Arduino_TI_ADC_mb_control(object):
                 self.filtered_lp_35_file.append(open("../Data/"+self.filename+"/eeg_" + str(i) + "_filtered_lp_35_0.txt", "w", encoding="utf-8"))
         for i in range(self.nb_ecg):
             self.ecg_file.append(open("../Data/"+self.filename+"/ecg_"+ str(i) + "_0.txt", "w", encoding="utf-8"))
+        #create every buffer used and shared with microblaze
         self.shared_buff1 = self.buf_manager.cma_array(1, dtype = np.int32)
         self.shared_buff2 = self.buf_manager.cma_array(1, dtype = np.int32)
-        #rajouter le son ici
         self.audio_buff = self.buf_manager.cma_array(self.audio.buffer.shape, dtype = np.int32)
         self.audio_buff[:] = self.audio.buffer
         self.nn_input_buff = self.buf_manager.cma_array(TOT_INPUT_NN, dtype = np.float32)
@@ -214,9 +197,9 @@ class Arduino_TI_ADC_mb_control(object):
 
         self.audio.playinit()
         self.microblaze.interrupt.clear()
-        self.microblaze.write_mailbox(0,data)
+        self.microblaze.write_mailbox(0,data) #send the data to microblaze
         self.microblaze.write_non_blocking_command(START_ACQUIRE)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_event_loop()#launch the interupt function
         loop.run_until_complete(asyncio.ensure_future(
             self.interrupt_handler_async()
         ))
