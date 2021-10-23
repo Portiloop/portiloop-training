@@ -543,10 +543,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.output_file is not None:
         logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
-        logging.debug('This message should go to the log file')
-        logging.info('So should this')
-        logging.warning('And this, too')
-        logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
     else:
         logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
 

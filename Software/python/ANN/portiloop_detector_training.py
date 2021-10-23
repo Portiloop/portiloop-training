@@ -1,3 +1,7 @@
+"""
+Main script for training an ANN.
+"""
+
 # all imports
 
 import copy
@@ -30,11 +34,11 @@ precision_validation_factor = 0.5
 
 # hyperparameters
 
-batch_size_list = [64, 64, 64, 128, 128, 128, 256, 256, 256]
-lr_adam_list = [0.0003, 0.0005, 0.0009]
-hidden_size_list = [2, 5, 10, 15, 20]
+# batch_size_list = [64, 64, 64, 128, 128, 128, 256, 256, 256]
+# lr_adam_list = [0.0003, 0.0005, 0.0009]
+# hidden_size_list = [2, 5, 10, 15, 20]
 
-LEN_SEGMENT = 115
+LEN_SEGMENT = 115  # in seconds
 
 
 # all classes and functions:
@@ -1225,10 +1229,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.output_file is not None:
         logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
-        logging.debug('This message should go to the log file')
-        logging.info('So should this')
-        logging.warning('And this, too')
-        logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
     else:
         logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
     ABLATION = args.ablation  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2

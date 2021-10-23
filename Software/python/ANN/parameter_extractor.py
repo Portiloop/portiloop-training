@@ -1,3 +1,7 @@
+"""
+This script extracts the weights of a trained ANN in pytorch so as to implement the ANN in FPGA.
+"""
+
 import portiloop_detector_training as portiloop
 
 
