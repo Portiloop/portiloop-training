@@ -14,11 +14,10 @@ from pareto_network_server_utils import Server, RECV_TIMEOUT_META_FROM_SERVER, S
     PORT_WORKER, SOCKET_TIMEOUT_CONNECT_WORKER, ACK_TIMEOUT_WORKER_TO_SERVER, IP_SERVER, ACK_TIMEOUT_META_TO_SERVER, select_and_send_or_close_socket, poll_and_recv_or_close_socket, get_connected_socket, LOOP_SLEEP_TIME_META, LOOP_SLEEP_TIME_WORKER, LOOP_SLEEP_TIME, SEND_ALIVE
 from pareto_search import LoggerWandbPareto, RUN_NAME, SurrogateModel, META_MODEL_DEVICE, train_surrogate, update_pareto, nb_parameters, MAX_NB_PARAMETERS, NB_SAMPLED_MODELS_PER_ITERATION, exp_max_pareto_efficiency, run, \
     load_network_files, dump_network_files, transform_config_dict_to_input, WANDB_PROJECT_PARETO, PARETO_ID
-from utils import same_config_dict, sample_config_dict, MIN_NB_PARAMETERS, MAXIMIZE_F1_SCORE, PROFILE_META
+from portiloop.Software.python.Utils.utils import same_config_dict, sample_config_dict, MIN_NB_PARAMETERS, MAXIMIZE_F1_SCORE, PROFILE_META
 
 
 # META LEARNER: ==========================================
-
 
 class MetaLearner:
     """
@@ -404,10 +403,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.output_file is not None:
         logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
-        logging.debug('This message should go to the log file')
-        logging.info('So should this')
-        logging.warning('And this, too')
-        logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
     else:
         logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.DEBUG)
     main(args)
