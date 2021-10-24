@@ -13,11 +13,11 @@ Your training curves can be visualized in the Portiloop [wandb project](https://
 pip install -e .
 ```
 - download the datasets and the experiments zip files
-- unzip the datasets file and paste its content under `Portiloop>Software>dataset`
-- unzip the experiments file and paste its content under `Portiloop>Software>experiments`
+- unzip the `datasets.zip` file and paste its content under `Portiloop>Software>dataset`
+- unzip the `experiments.zip` file and paste its content under `Portiloop>Software>experiments`
 
 ### Inference / Portiloop simulation:
-The `simulate_Portiloop_1_input_classification.ipynb` notebook enables stimulating the Portiloop system with and perform inference.
+The `simulate_Portiloop_1_input_classification.ipynb` [notebook](https://github.com/nicolasvalenchon/Portiloop/blob/main/notebooks/simulate_Portiloop_1_input_classification.ipynb) enables stimulating the Portiloop system with and perform inference.
 This notebook can be executed with `jupyter notebook`.
 
 ### Training:
