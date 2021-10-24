@@ -24,7 +24,7 @@ from Software.python.ANN.portiloop_detector_training import PortiloopNetwork, ru
 from Software.python.Utils.utils import EPSILON_EXP_NOISE, MAX_NB_PARAMETERS, MIN_NB_PARAMETERS, sample_config_dict, MAXIMIZE_F1_SCORE
 
 THRESHOLD = 0.2
-WANDB_PROJECT_PARETO = "pareto"
+WANDB_PROJECT_PARETO = "pareto-public"
 
 path_dataset = Path(__file__).absolute().parent.parent.parent / 'dataset'
 path_pareto = Path(__file__).absolute().parent.parent.parent / 'pareto'
@@ -39,7 +39,7 @@ MAX_META_ITERATIONS = 1000  # maximum number of experiments
 
 META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 
-PARETO_ID = 15
+PARETO_ID = "tests"
 RUN_NAME = f"pareto_search_{PARETO_ID}"
 
 NB_SAMPLED_MODELS_PER_ITERATION = 200  # number of models sampled per iteration, only the best predicted one is selected

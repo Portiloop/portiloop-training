@@ -1233,7 +1233,7 @@ if __name__ == "__main__":
         logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
     ABLATION = args.ablation  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
     PHASE = args.phase
-    WANDB_PROJECT_RUN = f"{PHASE}-dataset"
+    WANDB_PROJECT_RUN = f"{PHASE}-dataset-public"
     threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.2}  # full = p1 + p2
     THRESHOLD = threshold_list[PHASE]
     # WANDB_PROJECT_RUN = f"tests_yann"
