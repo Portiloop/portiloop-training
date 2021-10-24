@@ -68,7 +68,7 @@ class SignalDataset(Dataset):
                         if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
                                 or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
         total_spindles = np.sum(self.data[3] > THRESHOLD)
-        logging.debug(f"nb total of spindles in this dataset : {total_spindles}")
+        logging.debug(f"total number of spindles in this dataset : {total_spindles}")
 
     def __len__(self):
         return len(self.indices)
