@@ -1,4 +1,15 @@
-# Networking ===========================================================================
+"""
+Main script for PMBO
+
+Possible arguments:
+--server -> launches the server
+--worker -> launches a worker
+--meta -> launches the meta learner
+--output_file -> name of the log file (string)
+--ip_server -> ip of the server machine (string)
+
+"""
+
 import logging
 import socket
 import time
@@ -382,10 +393,10 @@ def main(args):
         logging.debug("INFO: now running: server")
         Server()
     elif args.worker:
-        Worker(server_ip=IP_SERVER)
+        Worker(server_ip=args.ip_server)
         logging.debug("INFO: now running: worker")
     elif args.meta:
-        MetaLearner(server_ip=IP_SERVER)
+        MetaLearner(server_ip=args.ip_server)
         logging.debug("INFO: now running: meta")
     else:
         logging.debug("ERROR: wrong argument")
@@ -400,6 +411,7 @@ if __name__ == "__main__":
     parser.add_argument('--meta', action='store_true')
     parser.add_argument('--worker', action='store_true')
     parser.add_argument('--output_file', type=str, default=None)
+    parser.add_argument('--ip_server', type=str, default=IP_SERVER)
     args = parser.parse_args()
     if args.output_file is not None:
         logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
