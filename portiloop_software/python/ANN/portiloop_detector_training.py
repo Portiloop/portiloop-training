@@ -26,7 +26,7 @@ import wandb
 
 from scipy.ndimage import gaussian_filter1d, convolve1d
 
-from Software.python.Utils.utils import out_dim
+from portiloop_software.python.Utils.utils import out_dim
 
 path_dataset = Path(__file__).absolute().parent.parent.parent / 'dataset'
 recall_validation_factor = 0.5
