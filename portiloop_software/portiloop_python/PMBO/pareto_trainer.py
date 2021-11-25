@@ -3,7 +3,7 @@ from random import shuffle
 
 import torch
 
-from portiloop_software.python.Utils.utils import sample_config_dict
+from portiloop_software.portiloop_python.Utils.utils import sample_config_dict
 from pareto_search import SurrogateModel, META_MODEL_DEVICE, train_surrogate, load_network_files, transform_config_dict_to_input
 
 finished_experiment, _ = load_network_files()
