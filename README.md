@@ -11,8 +11,8 @@
 pip install -e .
 ```
 - download the [datasets.zip](https://github.com/nicolasvalenchon/Portiloop/releases/download/v0.0.1/dataset.zip) and the [experiments.zip](https://github.com/nicolasvalenchon/Portiloop/releases/download/v0.0.1/experiments.zip) files
-- unzip the `datasets.zip` file and paste its content under `Portiloop>Software>dataset`
-- unzip the `experiments.zip` file and paste its content under `Portiloop>Software>experiments`
+- unzip the `datasets.zip` file and paste its content under `Portiloop>portiloop_software>dataset`
+- unzip the `experiments.zip` file and paste its content under `Portiloop>portiloop_software>experiments`
 
 ### Offline inference / simulation:
 The `simulate_Portiloop_1_input_classification.ipynb` [notebook](https://github.com/nicolasvalenchon/Portiloop/blob/main/notebooks/simulate_Portiloop_1_input_classification.ipynb) enables stimulating the Portiloop system and perform inference.
