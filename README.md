@@ -14,9 +14,14 @@ pip install -e .
 - unzip the `datasets.zip` file and paste its content under `Portiloop>portiloop_software>dataset`
 - unzip the `experiments.zip` file and paste its content under `Portiloop>portiloop_software>experiments`
 
-### Offline inference / simulation:
+### Simulation:
 The `simulate_Portiloop_1_input_classification.ipynb` [notebook](https://github.com/nicolasvalenchon/Portiloop/blob/main/notebooks/simulate_Portiloop_1_input_classification.ipynb) enables stimulating the Portiloop system and perform inference.
 This notebook can be executed with `jupyter notebook`.
+
+### Offline inference:
+We enable easily using out trained artificial neural network on your own data to detect sleep spindles (note that the data must be collected in the same experimental setting as MODA for this to work, see [our paper](https://arxiv.org/abs/2107.13473)).
+
+This is easily done by writing your signal in a simple text file, on the model of example_data_not_annotated.txt. Your file can then be directly used for inference in our offline_inference notebook.
 
 ### Training:
 Functions used for training are defined in python under the `Software` folder.
