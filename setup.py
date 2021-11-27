@@ -20,7 +20,7 @@ install_requires = [
 
 setup(name='portiloop',
       packages=[package for package in find_packages()],
-      version='0.0.1',
+      version='0.0.2',
       license='MIT',
       description='Sleep spindle detector',
       long_description=long_description,
