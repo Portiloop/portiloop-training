@@ -109,7 +109,7 @@ def generate(phase):
     if fe == new_fe:
         np.savetxt(f"dataset_{phase}_{size_dataset}.txt", np.transpose((signal, spindle)), fmt='%e,%f')
     else:
-    #    np.savetxt(f"dataset_{phase}_{size_dataset}_at_{fe}_to_resample.txt", np.transpose(signal), fmt='%e')
+        np.savetxt(f"dataset_{phase}_{size_dataset}_at_{fe}_to_resample.txt", np.transpose(signal), fmt='%e')
         np.savetxt(f"spindles_annotations_classification_{phase}_{size_dataset}_at_{new_fe}hz.txt", np.transpose(spindle), fmt='%f')
 
     np.savetxt(f"subject_sequence_{phase}_{size_dataset}.txt", subject_seq_list, fmt="%s")
