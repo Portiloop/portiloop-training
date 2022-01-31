@@ -1003,7 +1003,10 @@ def run(config_dict, wandb_project, save_model, unique_name):
         logger.restore(classification)
         file_exp = experiment_name
         file_exp += "" if classification else "_on_loss"
-        checkpoint = torch.load(path_dataset / file_exp)
+        if not device_val.startswith("cuda"):
+            checkpoint = torch.load(path_dataset / file_exp, map_location=torch.device('cpu'))
+        else:
+            checkpoint = torch.load(path_dataset / file_exp)
         logging.debug("Use checkpoint model")
         net.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -1315,7 +1318,7 @@ def get_config_dict(index, split_i):
               'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
               'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400,
               'split_idx': split_i, 'validation_network_stride': 1}
-    c_dict = {'experiment_name': f'pareto_search_15_35_v6_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 500,
+    c_dict = {'experiment_name': f'pareto_search_15_35_v6_{index}', 'device_train': 'cpu', 'device_val': 'cpu', 'nb_epoch_max': 500,
               'max_duration':
                   257400,
               'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 1000,
@@ -1362,6 +1365,7 @@ def get_final_model_config_dict(index=0, split_i=0):
 
 if __name__ == "__main__":
     parser = ArgumentParser()
+    parser.add_argument('--path', type=str, default=None)
     parser.add_argument('--experiment_name', type=str)
     parser.add_argument('--experiment_index', type=int)
     parser.add_argument('--output_file', type=str, default=None)
@@ -1381,6 +1385,8 @@ if __name__ == "__main__":
         logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
     else:
         logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
+    if args.path is not None:
+        path_dataset = Path(args.path)
     ABLATION = args.ablation  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
     PHASE = args.phase
     WANDB_PROJECT_RUN = f"{PHASE}-dataset-public"
