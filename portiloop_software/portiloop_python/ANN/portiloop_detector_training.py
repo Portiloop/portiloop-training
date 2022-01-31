@@ -23,10 +23,6 @@ from portiloop_software.portiloop_python.Utils.utils import out_dim
 from portiloop_software.portiloop_python.ANN.dataset import LabelDistributionSmoothing, generate_dataloader, generate_dataloader_unlabelled_offline
 from portiloop_software.portiloop_python.ANN.nn_utils import LoggerWandb, SurpriseReweighting, get_metrics
 
-path_dataset = Path(__file__).absolute().parent.parent.parent / 'dataset'
-recall_validation_factor = 0.5
-precision_validation_factor = 0.5
-
 # hyperparameters
 
 # batch_size_list = [64, 64, 64, 128, 128, 128, 256, 256, 256]
@@ -356,70 +352,9 @@ def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rn
     true_idx_total = true_idx_total.int()
     return output_total, true_idx_total
 
-
-# Regression balancing:
-
-
-def generate_label_distribution_and_lds(dataset, kernel_size=5, kernel_std=2.0, nb_bins=100, reweight='inv_sqrt'):
-    """
-    Returns:
-        distribution: the distribution of labels in the dataset
-        lds: the same distribution, smoothed with a gaussian kernel
-    """
-
-    weights = torch.tensor([0.3252, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0069, 0.0163,
-                            0.0000, 0.0366, 0.0000, 0.0179, 0.0000, 0.0076, 0.0444, 0.0176, 0.0025,
-                            0.0056, 0.0000, 0.0416, 0.0039, 0.0000, 0.0000, 0.0000, 0.0171, 0.0000,
-                            0.0000, 0.0042, 0.0114, 0.0209, 0.0023, 0.0036, 0.0106, 0.0241, 0.0034,
-                            0.0000, 0.0056, 0.0000, 0.0029, 0.0241, 0.0076, 0.0027, 0.0012, 0.0000,
-                            0.0166, 0.0028, 0.0000, 0.0000, 0.0000, 0.0197, 0.0000, 0.0000, 0.0021,
-                            0.0054, 0.0191, 0.0014, 0.0023, 0.0074, 0.0000, 0.0186, 0.0000, 0.0088,
-                            0.0000, 0.0032, 0.0135, 0.0069, 0.0029, 0.0016, 0.0164, 0.0068, 0.0022,
-                            0.0000, 0.0000, 0.0000, 0.0191, 0.0000, 0.0000, 0.0017, 0.0082, 0.0181,
-                            0.0019, 0.0038, 0.0064, 0.0000, 0.0133, 0.0000, 0.0069, 0.0000, 0.0025,
-                            0.0186, 0.0076, 0.0031, 0.0016, 0.0218, 0.0105, 0.0049, 0.0000, 0.0000,
-                            0.0246], dtype=torch.float64)
-
-    lds = None
-    dist = None
-    bins = None
-    return weights, dist, lds, bins
-
-    # TODO: remove before ?????
-
-    dataset_len = len(dataset)
-    logging.debug(
-        f"Length of the dataset passed to generate_label_distribution_and_lds: {dataset_len}")
-    logging.debug(f"kernel_size: {kernel_size}")
-    logging.debug(f"kernel_std: {kernel_std}")
-    logging.debug(f"Generating empirical distribution...")
-
-    tab = np.array([dataset[i][3].item() for i in range(dataset_len)])
-    tab = np.around(tab, decimals=5)
-    elts = np.unique(tab)
-    logging.debug(f"all labels: {elts}")
-    dist, bins = np.histogram(
-        tab, bins=nb_bins, density=False, range=(0.0, 1.0))
-
-    # dist, bins = np.histogram([dataset[i][3].item() for i in range(dataset_len)], bins=nb_bins, density=False, range=(0.0, 1.0))
-
-    logging.debug(f"dist: {dist}")
-
-    # kernel = get_lds_kernel(kernel_size, kernel_std)
-    # lds = convolve1d(dist, weights=kernel, mode='constant')
-
-    lds = gaussian_filter1d(input=dist, sigma=kernel_std, axis=- 1,
-                            order=0, output=None, mode='reflect', cval=0.0, truncate=4.0)
-
-    weights = np.sqrt(lds) if reweight == 'inv_sqrt' else lds
-    # scaling = len(weights) / np.sum(weights)  # not the same implementation as in the original repo
-    scaling = 1.0 / np.sum(weights)
-    weights = weights * scaling
-
-    return weights, dist, lds, bins
-
-
 # run:
+
+
 def run(config_dict, wandb_project, save_model, unique_name):
     global precision_validation_factor
     global recall_validation_factor
@@ -866,10 +801,17 @@ def get_final_model_config_dict(index=0, split_i=0):
 
 
 if __name__ == "__main__":
+
+    recall_validation_factor = 0.5
+    precision_validation_factor = 0.5
+
+    # Parser definition
     parser = ArgumentParser()
     parser.add_argument('--path', type=str, default=None)
-    parser.add_argument('--experiment_name', type=str)
-    parser.add_argument('--experiment_index', type=int)
+    parser.add_argument('--experiment_name', type=str,
+                        help='Experiment name for Wandb')
+    parser.add_argument('--experiment_index', type=int,
+                        help='Experiment index for Wandb')
     parser.add_argument('--output_file', type=str, default=None)
     parser.add_argument('--phase', type=str, default='full')
     parser.add_argument('--ablation', type=int, default=0)
@@ -887,26 +829,26 @@ if __name__ == "__main__":
         '--regression', dest='classification', action='store_false')
     parser.set_defaults(classification=True)
     args = parser.parse_args()
+
     if args.output_file is not None:
         logging.basicConfig(format='%(levelname)s: %(message)s',
                             filename=args.output_file, level=logging.DEBUG)
     else:
         logging.basicConfig(
             format='%(levelname)s: %(message)s', level=logging.DEBUG)
-    if args.path is not None:
+
+    if args.path is None:
+        path_dataset = Path(__file__).absolute(
+        ).parent.parent.parent / 'dataset'
+    else:
         path_dataset = Path(args.path)
+
     ABLATION = args.ablation  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
     PHASE = args.phase
     WANDB_PROJECT_RUN = f"{PHASE}-dataset-public"
     threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.2}  # full = p1 + p2
     THRESHOLD = threshold_list[PHASE]
     # WANDB_PROJECT_RUN = f"tests_yann"
-
-    filename_regression_dataset = f"dataset_regression_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
-    filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
-    subject_list = f"subject_sequence_{PHASE}_big.txt"
-    subject_list_p1 = f"subject_sequence_p1_big.txt"
-    subject_list_p2 = f"subject_sequence_p2_big.txt"
 
     max_split = args.max_split
     exp_name = args.experiment_name

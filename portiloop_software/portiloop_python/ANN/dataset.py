@@ -2,11 +2,20 @@ from pathlib import Path
 from random import randint, seed
 import numpy as np
 import pandas as pd
+import logging
 
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 import torch
 from sklearn.model_selection import train_test_split
+
+
+# Global Variable for names of file
+filename_regression_dataset = f"dataset_regression_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+subject_list = f"subject_sequence_{PHASE}_big.txt"
+subject_list_p1 = f"subject_sequence_p1_big.txt"
+subject_list_p2 = f"subject_sequence_p2_big.txt"
 
 
 class SignalDataset(Dataset):
@@ -51,8 +60,10 @@ class SignalDataset(Dataset):
         assert self.data[3][idx + self.window_size -
                             1] >= 0, f"Bad index: {idx}."
 
-        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride)                                      :idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
-        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride)                                          :idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
+        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride)
+                                             :idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
+        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride)
+                                                 :idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
 
         ratio_pf = torch.tensor(
             self.data[2][idx + self.window_size - 1], dtype=torch.float)
@@ -212,6 +223,65 @@ class ValidationSampler(Sampler):
         # return len(self.data_source)
 
 
+def generate_label_distribution_and_lds(dataset, kernel_size=5, kernel_std=2.0, nb_bins=100, reweight='inv_sqrt'):
+    """
+    Returns:
+        distribution: the distribution of labels in the dataset
+        lds: the same distribution, smoothed with a gaussian kernel
+    """
+
+    weights = torch.tensor([0.3252, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0069, 0.0163,
+                            0.0000, 0.0366, 0.0000, 0.0179, 0.0000, 0.0076, 0.0444, 0.0176, 0.0025,
+                            0.0056, 0.0000, 0.0416, 0.0039, 0.0000, 0.0000, 0.0000, 0.0171, 0.0000,
+                            0.0000, 0.0042, 0.0114, 0.0209, 0.0023, 0.0036, 0.0106, 0.0241, 0.0034,
+                            0.0000, 0.0056, 0.0000, 0.0029, 0.0241, 0.0076, 0.0027, 0.0012, 0.0000,
+                            0.0166, 0.0028, 0.0000, 0.0000, 0.0000, 0.0197, 0.0000, 0.0000, 0.0021,
+                            0.0054, 0.0191, 0.0014, 0.0023, 0.0074, 0.0000, 0.0186, 0.0000, 0.0088,
+                            0.0000, 0.0032, 0.0135, 0.0069, 0.0029, 0.0016, 0.0164, 0.0068, 0.0022,
+                            0.0000, 0.0000, 0.0000, 0.0191, 0.0000, 0.0000, 0.0017, 0.0082, 0.0181,
+                            0.0019, 0.0038, 0.0064, 0.0000, 0.0133, 0.0000, 0.0069, 0.0000, 0.0025,
+                            0.0186, 0.0076, 0.0031, 0.0016, 0.0218, 0.0105, 0.0049, 0.0000, 0.0000,
+                            0.0246], dtype=torch.float64)
+
+    lds = None
+    dist = None
+    bins = None
+    return weights, dist, lds, bins
+
+    # TODO: remove before ?????
+
+    dataset_len = len(dataset)
+    logging.debug(
+        f"Length of the dataset passed to generate_label_distribution_and_lds: {dataset_len}")
+    logging.debug(f"kernel_size: {kernel_size}")
+    logging.debug(f"kernel_std: {kernel_std}")
+    logging.debug(f"Generating empirical distribution...")
+
+    tab = np.array([dataset[i][3].item() for i in range(dataset_len)])
+    tab = np.around(tab, decimals=5)
+    elts = np.unique(tab)
+    logging.debug(f"all labels: {elts}")
+    dist, bins = np.histogram(
+        tab, bins=nb_bins, density=False, range=(0.0, 1.0))
+
+    # dist, bins = np.histogram([dataset[i][3].item() for i in range(dataset_len)], bins=nb_bins, density=False, range=(0.0, 1.0))
+
+    logging.debug(f"dist: {dist}")
+
+    # kernel = get_lds_kernel(kernel_size, kernel_std)
+    # lds = convolve1d(dist, weights=kernel, mode='constant')
+
+    lds = gaussian_filter1d(input=dist, sigma=kernel_std, axis=- 1,
+                            order=0, output=None, mode='reflect', cval=0.0, truncate=4.0)
+
+    weights = np.sqrt(lds) if reweight == 'inv_sqrt' else lds
+    # scaling = len(weights) / np.sum(weights)  # not the same implementation as in the original repo
+    scaling = 1.0 / np.sum(weights)
+    weights = weights * scaling
+
+    return weights, dist, lds, bins
+
+
 class LabelDistributionSmoothing:
     def __init__(self, c=1.0, dataset=None, weights=None, kernel_size=5, kernel_std=2.0, nb_bins=100, weighting_mode="inv_sqrt"):
         """
@@ -255,29 +325,29 @@ class LabelDistributionSmoothing:
         return f"LDS nb_bins: {self.nb_bins}\nbins: {self.bins}\ndistribution: {self.distribution}\nlds_distribution: {self.lds_distribution}\nweights: {self.weights} "
 
 
-def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i,
+def generate_dataloader(path_dataset, phase, test, window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i,
                         network_stride):
     all_subject = pd.read_csv(
         Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
     test_subject = None
-    if PHASE == 'full':
+    if phase == 'full':
         p1_subject = pd.read_csv(Path(
             path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
         p2_subject = pd.read_csv(Path(
             path_dataset) / subject_list_p2, header=None, delim_whitespace=True).to_numpy()
         train_subject_p1, validation_subject_p1 = train_test_split(
             p1_subject, train_size=0.8, random_state=split_i)
-        if TEST_SET:
+        if test:
             test_subject_p1, validation_subject_p1 = train_test_split(
                 validation_subject_p1, train_size=0.5, random_state=split_i)
         train_subject_p2, validation_subject_p2 = train_test_split(
             p2_subject, train_size=0.8, random_state=split_i)
-        if TEST_SET:
+        if test:
             test_subject_p2, validation_subject_p2 = train_test_split(
                 validation_subject_p2, train_size=0.5, random_state=split_i)
         train_subject = np.array(
             [s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
-        if TEST_SET:
+        if test:
             test_subject = np.array(
                 [s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
         validation_subject = np.array(
@@ -285,12 +355,12 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
     else:
         train_subject, validation_subject = train_test_split(
             all_subject, train_size=0.8, random_state=split_i)
-        if TEST_SET:
+        if test:
             test_subject, validation_subject = train_test_split(
                 validation_subject, train_size=0.5, random_state=split_i)
     logging.debug(f"Subjects in training : {train_subject[:, 0]}")
     logging.debug(f"Subjects in validation : {validation_subject[:, 0]}")
-    if TEST_SET:
+    if test:
         logging.debug(f"Subjects in test : {test_subject[:, 0]}")
 
     len_segment = LEN_SEGMENT * fe
