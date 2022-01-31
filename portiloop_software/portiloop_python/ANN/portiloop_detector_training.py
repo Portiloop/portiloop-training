@@ -17,16 +17,15 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.model_selection import train_test_split
 from torch.nn import functional as F
-from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.sampler import Sampler
+
 
 import wandb
 
-from scipy.ndimage import gaussian_filter1d, convolve1d
+from scipy.ndimage import gaussian_filter1d
 
 from portiloop_software.portiloop_python.Utils.utils import out_dim
+from portiloop_software.portiloop_python.ANN.dataset import LabelDistributionSmoothing, generate_dataloader, generate_dataloader_unlabelled_offline
 
 path_dataset = Path(__file__).absolute().parent.parent.parent / 'dataset'
 recall_validation_factor = 0.5
@@ -42,194 +41,6 @@ LEN_SEGMENT = 115  # in seconds
 
 
 # all classes and functions:
-
-class SignalDataset(Dataset):
-    def __init__(self, filename, path, window_size, fe, seq_len, seq_stride, list_subject, len_segment):
-        self.fe = fe
-        self.window_size = window_size
-        self.path_file = Path(path) / filename
-
-        self.data = pd.read_csv(self.path_file, header=None).to_numpy()
-        assert list_subject is not None
-        used_sequence = np.hstack([range(int(s[1]), int(s[2])) for s in list_subject])
-        split_data = np.array(np.split(self.data, int(len(self.data) / (len_segment + 30 * fe))))  # 115+30 = nb seconds per sequence in the dataset
-        split_data = split_data[used_sequence]
-        self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
-
-        assert self.window_size <= len(self.data[0]), "Dataset smaller than window size."
-        self.full_signal = torch.tensor(self.data[0], dtype=torch.float)
-        self.full_envelope = torch.tensor(self.data[1], dtype=torch.float)
-        self.seq_len = seq_len  # 1 means single sample / no sequence ?
-        self.idx_stride = seq_stride
-        self.past_signal_len = self.seq_len * self.idx_stride
-
-        # list of indices that can be sampled:
-        self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
-                        if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
-                                or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
-        total_spindles = np.sum(self.data[3] > THRESHOLD)
-        logging.debug(f"total number of spindles in this dataset : {total_spindles}")
-
-    def __len__(self):
-        return len(self.indices)
-
-    def __getitem__(self, idx):
-        assert 0 <= idx < len(self), f"Index out of range ({idx}/{len(self)})."
-        idx = self.indices[idx]
-        assert self.data[3][idx + self.window_size - 1] >= 0, f"Bad index: {idx}."
-
-        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
-        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
-
-        ratio_pf = torch.tensor(self.data[2][idx + self.window_size - 1], dtype=torch.float)
-        label = torch.tensor(self.data[3][idx + self.window_size - 1], dtype=torch.float)
-
-        return signal_seq, envelope_seq, ratio_pf, label
-
-    def is_spindle(self, idx):
-        assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
-        idx = self.indices[idx]
-        return True if (self.data[3][idx + self.window_size - 1] > THRESHOLD) else False
-
-
-class UnlabelledSignalDatasetSingleSegment(Dataset):
-    """
-    Caution: this dataset does not sample sequences, but single windows
-    """
-    def __init__(self, unlabelled_segment, window_size):
-        self.window_size = window_size
-        self.full_signal = torch.tensor(unlabelled_segment, dtype=torch.float).squeeze()
-        assert len(self.full_signal.shape) == 1, f"Segment has more than one dimension: {self.full_signal.shape}"
-        assert self.window_size <= len(self.full_signal), "Segment smaller than window size."
-        self.seq_len = 1  # 1 means single sample / no sequence ?
-        self.idx_stride = 1
-        self.past_signal_len = self.seq_len * self.idx_stride
-
-        # list of indices that can be sampled:
-        self.indices = [idx for idx in range(len(self.full_signal) - self.window_size)  # all possible idxs in the dataset
-                        if (not idx < self.past_signal_len)]  # far enough from the beginning to build a sequence up to here
-
-    def __len__(self):
-        return len(self.indices)
-
-    def __getitem__(self, idx):
-        assert 0 <= idx < len(self), f"Index out of range ({idx}/{len(self)})."
-        idx = self.indices[idx]
-        signal_seq = self.full_signal[idx:idx + self.window_size].unfold(0, self.window_size, 1)
-        true_idx = idx + self.window_size
-        return signal_seq, true_idx
-
-
-def get_class_idxs(dataset, distribution_mode):
-    """
-    Directly outputs idx_true and idx_false arrays
-    """
-    length_dataset = len(dataset)
-
-    nb_true = 0
-    nb_false = 0
-
-    idx_true = []
-    idx_false = []
-
-    for i in range(length_dataset):
-        is_spindle = dataset.is_spindle(i)
-        if is_spindle or distribution_mode == 1:
-            nb_true += 1
-            idx_true.append(i)
-        else:
-            nb_false += 1
-            idx_false.append(i)
-
-    assert len(dataset) == nb_true + nb_false, f"Bad length dataset"
-
-    return np.array(idx_true), np.array(idx_false)
-
-
-# Sampler avec liste et sans rand liste
-
-class RandomSampler(Sampler):
-    """
-    Samples elements randomly and evenly between the two classes.
-    The sampling happens WITH replacement.
-    __iter__ stops after an arbitrary number of iterations = batch_size_list * nb_batch
-    Arguments:
-      idx_true: np.array
-      idx_false: np.array
-      batch_size (int)
-      nb_batch (int, optional): number of iteration before end of __iter__(), this defaults to len(data_source)
-    """
-
-    def __init__(self, idx_true, idx_false, batch_size, distribution_mode, nb_batch):
-        self.idx_true = idx_true
-        self.idx_false = idx_false
-        self.nb_true = self.idx_true.size
-        self.nb_false = self.idx_false.size
-        self.length = nb_batch * batch_size
-        self.distribution_mode = distribution_mode
-
-    def __iter__(self):
-        global precision_validation_factor
-        global recall_validation_factor
-        cur_iter = 0
-        seed()
-        # epsilon = 1e-7 proba = float(0.5 + 0.5 * (precision_validation_factor - recall_validation_factor) / (precision_validation_factor +
-        # recall_validation_factor + epsilon))
-        proba = 0.5
-        if self.distribution_mode == 1:
-            proba = 1
-        logging.debug(f"proba: {proba}")
-
-        while cur_iter < self.length:
-            cur_iter += 1
-            sample_class = np.random.choice([0, 1], p=[1 - proba, proba])
-            if sample_class:  # sample true
-                idx_file = randint(0, self.nb_true - 1)
-                idx_res = self.idx_true[idx_file]
-            else:  # sample false
-                idx_file = randint(0, self.nb_false - 1)
-                idx_res = self.idx_false[idx_file]
-
-            yield idx_res
-
-    def __len__(self):
-        return self.length
-
-
-# Sampler validation
-
-class ValidationSampler(Sampler):
-    """
-    network_stride (int >= 1, default: 1): divides the size of the dataset (and of the batch) by striding further than 1
-    """
-
-    def __init__(self, data_source, seq_stride, nb_segment, len_segment, network_stride):
-        network_stride = int(network_stride)
-        assert network_stride >= 1
-        self.network_stride = network_stride
-        self.seq_stride = seq_stride
-        self.data = data_source
-        self.nb_segment = nb_segment
-        self.len_segment = len_segment
-
-    def __iter__(self):
-        seed()
-        batches_per_segment = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
-        cursor_batch = 0
-        while cursor_batch < batches_per_segment:
-            for i in range(self.nb_segment):
-                for j in range(0, (self.seq_stride // self.network_stride) * self.network_stride, self.network_stride):
-                    cur_idx = i * self.len_segment + j + cursor_batch * self.seq_stride
-                    # print(f"i:{i}, j:{j}, self.len_segment:{self.len_segment}, cursor_batch:{cursor_batch}, self.seq_stride:{self.seq_stride}, cur_idx:{cur_idx}")
-                    yield cur_idx
-            cursor_batch += 1
-
-    def __len__(self):
-        assert False
-        # return len(self.data)
-        # return len(self.data_source)
-
-
 class ConvPoolModule(nn.Module):
     def __init__(self,
                  in_channels,
@@ -312,8 +123,10 @@ class PortiloopNetwork(nn.Module):
         nb_out = window_size
 
         for _ in range(nb_conv_layers):
-            nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
-            nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
+            nb_out = out_dim(nb_out, conv_padding,
+                             dilation_conv, kernel_conv, stride_conv)
+            nb_out = out_dim(nb_out, pool_padding,
+                             dilation_pool, kernel_pool, stride_pool)
 
         output_cnn_size = int(nb_channel * nb_out)
 
@@ -348,7 +161,8 @@ class PortiloopNetwork(nn.Module):
                                      batch_first=True)
         #       fc_size = hidden_size
         else:
-            self.first_fc_input1 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
+            self.first_fc_input1 = FcModule(
+                in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
             self.seq_fc_input1 = nn.Sequential(
                 *(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
         if self.envelope_input:
@@ -382,7 +196,8 @@ class PortiloopNetwork(nn.Module):
                                          dropout=0,
                                          batch_first=True)
             else:
-                self.first_fc_input2 = FcModule(in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
+                self.first_fc_input2 = FcModule(
+                    in_features=output_cnn_size, out_features=hidden_size, dropout_p=dropout_p)
                 self.seq_fc_input2 = nn.Sequential(
                     *(FcModule(in_features=hidden_size, out_features=hidden_size, dropout_p=dropout_p) for _ in range(nb_rnn_layers - 1)))
         fc_features = 0
@@ -517,8 +332,10 @@ class LoggerWandb:
         self.wandb_run.summary["best_model_on_loss_loss_validation"] = best_model_on_loss_loss_validation
         self.wandb_run.summary["best_model_on_loss_accuracy_validation"] = best_model_on_loss_accuracy_validation
         if updated_model:
-            self.wandb_run.save(os.path.join(path_dataset, self.experiment_name), policy="live", base_path=path_dataset)
-            self.wandb_run.save(os.path.join(path_dataset, self.experiment_name + "_on_loss"), policy="live", base_path=path_dataset)
+            self.wandb_run.save(os.path.join(
+                path_dataset, self.experiment_name), policy="live", base_path=path_dataset)
+            self.wandb_run.save(os.path.join(
+                path_dataset, self.experiment_name + "_on_loss"), policy="live", base_path=path_dataset)
 
     def __del__(self):
         self.wandb_run.finish()
@@ -527,7 +344,8 @@ class LoggerWandb:
         if classif:
             self.wandb_run.restore(self.experiment_name, root=path_dataset)
         else:
-            self.wandb_run.restore(self.experiment_name + "_on_loss", root=path_dataset)
+            self.wandb_run.restore(
+                self.experiment_name + "_on_loss", root=path_dataset)
 
 
 def f1_loss(output, batch_labels):
@@ -554,19 +372,25 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
     n = 0
     batch_labels_total = torch.tensor([], device=device)
     output_total = torch.tensor([], device=device)
-    h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
-    h2 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
+    h1 = torch.zeros((nb_rnn_layers, batch_size_validation,
+                     hidden_size), device=device)
+    h2 = torch.zeros((nb_rnn_layers, batch_size_validation,
+                     hidden_size), device=device)
     with torch.no_grad():
         for batch_data in dataloader:
             batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
-            batch_samples_input1 = batch_samples_input1.to(device=device).float()
-            batch_samples_input2 = batch_samples_input2.to(device=device).float()
-            batch_samples_input3 = batch_samples_input3.to(device=device).float()
+            batch_samples_input1 = batch_samples_input1.to(
+                device=device).float()
+            batch_samples_input2 = batch_samples_input2.to(
+                device=device).float()
+            batch_samples_input3 = batch_samples_input3.to(
+                device=device).float()
             batch_labels = batch_labels.to(device=device).float()
             if classification:
                 batch_labels = (batch_labels > THRESHOLD)
                 batch_labels = batch_labels.float()
-            output, h1, h2, max_value = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2, max_value)
+            output, h1, h2, max_value = net_copy(
+                batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2, max_value)
             # logging.debug(f"label = {batch_labels}")
             # logging.debug(f"output = {output}")
             output = output.view(-1)
@@ -594,20 +418,25 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
     fn = (batch_labels_total * (1 - output_total))
     return output_total, batch_labels_total, loss, acc, tp, tn, fp, fn
 
+
 def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation):
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
     net_copy = net_copy.eval()
     true_idx_total = torch.tensor([], device=device)
     output_total = torch.tensor([], device=device)
-    h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
-    h2 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
+    h1 = torch.zeros((nb_rnn_layers, batch_size_validation,
+                     hidden_size), device=device)
+    h2 = torch.zeros((nb_rnn_layers, batch_size_validation,
+                     hidden_size), device=device)
     max_value = np.inf
     with torch.no_grad():
         for batch_data in dataloader:
             batch_samples_input1, batch_true_idx = batch_data
-            batch_samples_input1 = batch_samples_input1.to(device=device).float()
-            output, h1, h2, max_value = net_copy(batch_samples_input1, None, None, h1, h2, max_value)
+            batch_samples_input1 = batch_samples_input1.to(
+                device=device).float()
+            output, h1, h2, max_value = net_copy(
+                batch_samples_input1, None, None, h1, h2, max_value)
             output = output.view(-1)
             # if not classification:
             #     output = output  # (output > THRESHOLD)
@@ -618,6 +447,7 @@ def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rn
     output_total = output_total.float()
     true_idx_total = true_idx_total.int()
     return output_total, true_idx_total
+
 
 def get_metrics(tp, fp, fn):
     tp_sum = tp.sum().to(torch.float32).item()
@@ -639,7 +469,8 @@ def get_metrics(tp, fp, fn):
 def get_lds_kernel(ks, sigma):
     half_ks = (ks - 1) // 2
     base_kernel = [0.] * half_ks + [1.] + [0.] * half_ks
-    kernel_window = gaussian_filter1d(base_kernel, sigma=sigma) / max(gaussian_filter1d(base_kernel, sigma=sigma))
+    kernel_window = gaussian_filter1d(
+        base_kernel, sigma=sigma) / max(gaussian_filter1d(base_kernel, sigma=sigma))
     return kernel_window
 
 
@@ -671,7 +502,8 @@ def generate_label_distribution_and_lds(dataset, kernel_size=5, kernel_std=2.0, 
     # TODO: remove before
 
     dataset_len = len(dataset)
-    logging.debug(f"Length of the dataset passed to generate_label_distribution_and_lds: {dataset_len}")
+    logging.debug(
+        f"Length of the dataset passed to generate_label_distribution_and_lds: {dataset_len}")
     logging.debug(f"kernel_size: {kernel_size}")
     logging.debug(f"kernel_std: {kernel_std}")
     logging.debug(f"Generating empirical distribution...")
@@ -680,7 +512,8 @@ def generate_label_distribution_and_lds(dataset, kernel_size=5, kernel_std=2.0, 
     tab = np.around(tab, decimals=5)
     elts = np.unique(tab)
     logging.debug(f"all labels: {elts}")
-    dist, bins = np.histogram(tab, bins=nb_bins, density=False, range=(0.0, 1.0))
+    dist, bins = np.histogram(
+        tab, bins=nb_bins, density=False, range=(0.0, 1.0))
 
     # dist, bins = np.histogram([dataset[i][3].item() for i in range(dataset_len)], bins=nb_bins, density=False, range=(0.0, 1.0))
 
@@ -689,7 +522,8 @@ def generate_label_distribution_and_lds(dataset, kernel_size=5, kernel_std=2.0, 
     # kernel = get_lds_kernel(kernel_size, kernel_std)
     # lds = convolve1d(dist, weights=kernel, mode='constant')
 
-    lds = gaussian_filter1d(input=dist, sigma=kernel_std, axis=- 1, order=0, output=None, mode='reflect', cval=0.0, truncate=4.0)
+    lds = gaussian_filter1d(input=dist, sigma=kernel_std, axis=- 1,
+                            order=0, output=None, mode='reflect', cval=0.0, truncate=4.0)
 
     weights = np.sqrt(lds) if reweight == 'inv_sqrt' else lds
     # scaling = len(weights) / np.sum(weights)  # not the same implementation as in the original repo
@@ -697,47 +531,6 @@ def generate_label_distribution_and_lds(dataset, kernel_size=5, kernel_std=2.0, 
     weights = weights * scaling
 
     return weights, dist, lds, bins
-
-
-class LabelDistributionSmoothing:
-    def __init__(self, c=1.0, dataset=None, weights=None, kernel_size=5, kernel_std=2.0, nb_bins=100, weighting_mode="inv_sqrt"):
-        """
-        If provided, lds_distribution must be a numpy.array representing a density over [0.0, 1.0] (e.g. first element of a numpy.histogram)
-        When lds_distribution is provided, it overrides everything else
-        c is the scaling constant for lds weights
-        weighting_mode can be 'inv' or 'inv_sqrt'
-        """
-        assert dataset is not None or weights is not None, "Either a dataset or weights must be provided"
-        self.distribution = None
-        self.bins = None
-        self.lds_distribution = None
-        if weights is None:
-            self.weights, self.distribution, self.lds_distribution, self.bins = generate_label_distribution_and_lds(dataset, kernel_size, kernel_std,
-                                                                                                                    nb_bins, weighting_mode)
-            logging.debug(f"self.distribution: {self.weights}")
-            logging.debug(f"self.lds_distribution: {self.weights}")
-        else:
-            self.weights = weights
-        self.nb_bins = len(self.weights)
-        self.bin_width = 1.0 / self.nb_bins
-        self.c = c
-        logging.debug(f"The LDS distribution has {self.nb_bins} bins of width {self.bin_width}")
-        self.weights = torch.tensor(self.weights)
-
-        logging.debug(f"self.weights: {self.weights}")
-
-    def lds_weights_batch(self, batch_labels):
-        device = batch_labels.device
-        if self.weights.device != device:
-            self.weights = self.weights.to(device)
-        last_bin = 1.0 - self.bin_width
-        batch_idxs = torch.minimum(batch_labels, torch.ones_like(batch_labels) * last_bin) / self.bin_width  # FIXME : double check
-        batch_idxs = batch_idxs.floor().long()
-        res = 1.0 / self.weights[batch_idxs]
-        return res
-
-    def __str__(self):
-        return f"LDS nb_bins: {self.nb_bins}\nbins: {self.bins}\ndistribution: {self.distribution}\nlds_distribution: {self.lds_distribution}\nweights: {self.weights} "
 
 
 class SurpriseReweighting:
@@ -756,7 +549,8 @@ class SurpriseReweighting:
         self.nb_bins = len(self.weights)
         self.bin_width = 1.0 / self.nb_bins
         self.alpha = alpha
-        logging.debug(f"The SR distribution has {self.nb_bins} bins of width {self.bin_width}")
+        logging.debug(
+            f"The SR distribution has {self.nb_bins} bins of width {self.bin_width}")
         logging.debug(f"Initial self.weights: {self.weights}")
 
     def update_and_get_weighted_loss(self, batch_labels, unweighted_loss):
@@ -765,7 +559,8 @@ class SurpriseReweighting:
             logging.debug(f"Moving SR weights to {device}")
             self.weights = self.weights.to(device)
         last_bin = 1.0 - self.bin_width
-        batch_idxs = torch.minimum(batch_labels, torch.ones_like(batch_labels) * last_bin) / self.bin_width  # FIXME : double check
+        batch_idxs = torch.minimum(batch_labels, torch.ones_like(
+            batch_labels) * last_bin) / self.bin_width  # FIXME : double check
         batch_idxs = batch_idxs.floor().long()
         self.weights = self.weights.detach()  # ensure no gradients
         weights = copy.deepcopy(self.weights[batch_idxs])
@@ -784,10 +579,13 @@ class SurpriseReweighting:
             div[idx_unchanged] = 1.0
             mean_loss_per_idx_normalized = num / div
             sum_changed_weights = torch.sum(self.weights[idx_changed])
-            sum_mean_loss = torch.sum(mean_loss_per_idx_normalized[idx_changed])
-            mean_loss_per_idx_normalized[idx_changed] = mean_loss_per_idx_normalized[idx_changed] * sum_changed_weights / sum_mean_loss
+            sum_mean_loss = torch.sum(
+                mean_loss_per_idx_normalized[idx_changed])
+            mean_loss_per_idx_normalized[idx_changed] = mean_loss_per_idx_normalized[idx_changed] * \
+                sum_changed_weights / sum_mean_loss
             # logging.debug(f"old self.weights: {self.weights}")
-            self.weights[idx_changed] = (1.0 - self.alpha) * self.weights[idx_changed] + self.alpha * mean_loss_per_idx_normalized[idx_changed]
+            self.weights[idx_changed] = (1.0 - self.alpha) * self.weights[idx_changed] + \
+                self.alpha * mean_loss_per_idx_normalized[idx_changed]
             self.weights /= torch.sum(self.weights)  # force sum to 1
             # logging.debug(f"unique_idx: {unique_idx}")
             # logging.debug(f"new self.weights: {self.weights}")
@@ -800,140 +598,6 @@ class SurpriseReweighting:
 
 # run:
 
-def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i,
-                        network_stride):
-    all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
-    test_subject = None
-    if PHASE == 'full':
-        p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
-        p2_subject = pd.read_csv(Path(path_dataset) / subject_list_p2, header=None, delim_whitespace=True).to_numpy()
-        train_subject_p1, validation_subject_p1 = train_test_split(p1_subject, train_size=0.8, random_state=split_i)
-        if TEST_SET:
-            test_subject_p1, validation_subject_p1 = train_test_split(validation_subject_p1, train_size=0.5, random_state=split_i)
-        train_subject_p2, validation_subject_p2 = train_test_split(p2_subject, train_size=0.8, random_state=split_i)
-        if TEST_SET:
-            test_subject_p2, validation_subject_p2 = train_test_split(validation_subject_p2, train_size=0.5, random_state=split_i)
-        train_subject = np.array([s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
-        if TEST_SET:
-            test_subject = np.array([s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
-        validation_subject = np.array(
-            [s for s in all_subject if s[0] in validation_subject_p1[:, 0] or s[0] in validation_subject_p2[:, 0]]).squeeze()
-    else:
-        train_subject, validation_subject = train_test_split(all_subject, train_size=0.8, random_state=split_i)
-        if TEST_SET:
-            test_subject, validation_subject = train_test_split(validation_subject, train_size=0.5, random_state=split_i)
-    logging.debug(f"Subjects in training : {train_subject[:, 0]}")
-    logging.debug(f"Subjects in validation : {validation_subject[:, 0]}")
-    if TEST_SET:
-        logging.debug(f"Subjects in test : {test_subject[:, 0]}")
-
-    len_segment = LEN_SEGMENT * fe
-    train_loader = None
-    validation_loader = None
-    test_loader = None
-    batch_size_validation = None
-    batch_size_test = None
-    filename = filename_classification_dataset if classification else filename_regression_dataset
-
-    if seq_len is not None:
-        nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
-        batch_size_validation = len(list(range(0, (seq_stride // network_stride) * network_stride, network_stride))) * nb_segment_validation
-
-        ds_train = SignalDataset(filename=filename,
-                                 path=path_dataset,
-                                 window_size=window_size,
-                                 fe=fe,
-                                 seq_len=seq_len,
-                                 seq_stride=seq_stride,
-                                 list_subject=train_subject,
-                                 len_segment=len_segment)
-
-        ds_validation = SignalDataset(filename=filename,
-                                      path=path_dataset,
-                                      window_size=window_size,
-                                      fe=fe,
-                                      seq_len=1,
-                                      seq_stride=1,  # just to be sure, fixed value
-                                      list_subject=validation_subject,
-                                      len_segment=len_segment)
-        idx_true, idx_false = get_class_idxs(ds_train, distribution_mode)
-        samp_train = RandomSampler(idx_true=idx_true,
-                                   idx_false=idx_false,
-                                   batch_size=batch_size,
-                                   nb_batch=nb_batch_per_epoch,
-                                   distribution_mode=distribution_mode)
-
-        samp_validation = ValidationSampler(ds_validation,
-                                            seq_stride=seq_stride,
-                                            len_segment=len_segment,
-                                            nb_segment=nb_segment_validation,
-                                            network_stride=network_stride)
-        train_loader = DataLoader(ds_train,
-                                  batch_size=batch_size,
-                                  sampler=samp_train,
-                                  shuffle=False,
-                                  num_workers=0,
-                                  pin_memory=True)
-
-        validation_loader = DataLoader(ds_validation,
-                                       batch_size=batch_size_validation,
-                                       sampler=samp_validation,
-                                       num_workers=0,
-                                       pin_memory=True,
-                                       shuffle=False)
-    else:
-        nb_segment_test = len(np.hstack([range(int(s[1]), int(s[2])) for s in test_subject]))
-        batch_size_test = len(list(range(0, (seq_stride // network_stride) * network_stride, network_stride))) * nb_segment_test
-
-        ds_test = SignalDataset(filename=filename,
-                                path=path_dataset,
-                                window_size=window_size,
-                                fe=fe,
-                                seq_len=1,
-                                seq_stride=1,  # just to be sure, fixed value
-                                list_subject=test_subject,
-                                len_segment=len_segment)
-
-        samp_test = ValidationSampler(ds_test,
-                                      seq_stride=seq_stride,
-                                      len_segment=len_segment,
-                                      nb_segment=nb_segment_test,
-                                      network_stride=network_stride)
-
-        test_loader = DataLoader(ds_test,
-                                 batch_size=batch_size_test,
-                                 sampler=samp_test,
-                                 num_workers=0,
-                                 pin_memory=True,
-                                 shuffle=False)
-
-    return train_loader, validation_loader, batch_size_validation, test_loader, batch_size_test, test_subject
-
-def generate_dataloader_unlabelled_offline(unlabelled_segment,
-                                           window_size,
-                                           seq_stride,
-                                           network_stride):
-    nb_segment_test = 1
-    batch_size_test = len(list(range(0, (seq_stride // network_stride) * network_stride, network_stride))) * nb_segment_test
-    unlabelled_segment = torch.tensor(unlabelled_segment, dtype=torch.float).squeeze()
-    assert len(unlabelled_segment.shape) == 1, f"Segment has more than one dimension: {unlabelled_segment.shape}"
-    len_segment = len(unlabelled_segment)
-    ds_test = UnlabelledSignalDatasetSingleSegment(unlabelled_segment=unlabelled_segment,
-                                                   window_size=window_size)
-    samp_test = ValidationSampler(ds_test,
-                                  seq_stride=seq_stride,
-                                  len_segment=len_segment-window_size,  # because we don't have additional data at the end on the signal here
-                                  nb_segment=nb_segment_test,
-                                  network_stride=network_stride)
-
-    test_loader = DataLoader(ds_test,
-                             batch_size=batch_size_test,
-                             sampler=samp_test,
-                             num_workers=0,
-                             pin_memory=True,
-                             shuffle=False)
-
-    return test_loader, batch_size_test
 
 def run(config_dict, wandb_project, save_model, unique_name):
     global precision_validation_factor
@@ -963,7 +627,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
     split_idx = config_dict["split_idx"]
     validation_network_stride = config_dict["validation_network_stride"]
 
-    assert reg_balancing in {'none', 'lds', 'sr'}, f"wrong key: {reg_balancing}"
+    assert reg_balancing in {'none', 'lds',
+                             'sr'}, f"wrong key: {reg_balancing}"
     assert classification or distribution_mode == 1, "distribution_mode must be 1 (no class balancing) in regression mode"
     balancer_type = 0
     lds = None
@@ -982,7 +647,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
     logger = LoggerWandb(experiment_name, config_dict, wandb_project)
     torch.seed()
     net = PortiloopNetwork(config_dict).to(device=device_train)
-    criterion = nn.MSELoss(reduction='none') if not classification else nn.BCELoss(reduction='none')
+    criterion = nn.MSELoss(
+        reduction='none') if not classification else nn.BCELoss(reduction='none')
     # criterion = nn.MSELoss() if not classification else nn.BCELoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
     best_loss_early_stopping = 1
@@ -1004,7 +670,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
         file_exp = experiment_name
         file_exp += "" if classification else "_on_loss"
         if not device_val.startswith("cuda"):
-            checkpoint = torch.load(path_dataset / file_exp, map_location=torch.device('cpu'))
+            checkpoint = torch.load(
+                path_dataset / file_exp, map_location=torch.device('cpu'))
         else:
             checkpoint = torch.load(path_dataset / file_exp)
         logging.debug("Use checkpoint model")
@@ -1025,7 +692,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
     has_envelope = 1
     if config_dict["envelope_input"]:
         has_envelope = 2
-    config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
+    config_dict["estimator_size_memory"] = nb_weights * \
+        window_size * seq_len * batch_size * has_envelope
 
     train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                                                                           batch_size, nb_batch_per_epoch, classification, split_idx,
@@ -1045,8 +713,10 @@ def run(config_dict, wandb_project, save_model, unique_name):
 
     early_stopping_counter = 0
     loss_early_stopping = None
-    h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
-    h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
+    h1_zero = torch.zeros(
+        (nb_rnn_layers, batch_size, hidden_size), device=device_train)
+    h2_zero = torch.zeros(
+        (nb_rnn_layers, batch_size, hidden_size), device=device_train)
     for epoch in range(first_epoch, first_epoch + nb_epoch_max):
 
         logging.debug(f"epoch: {epoch}")
@@ -1058,9 +728,12 @@ def run(config_dict, wandb_project, save_model, unique_name):
             _t_start = time.time()
             for batch_data in train_loader:
                 batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
-                batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
-                batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
-                batch_samples_input3 = batch_samples_input3.to(device=device_train).float()
+                batch_samples_input1 = batch_samples_input1.to(
+                    device=device_train).float()
+                batch_samples_input2 = batch_samples_input2.to(
+                    device=device_train).float()
+                batch_samples_input3 = batch_samples_input3.to(
+                    device=device_train).float()
                 batch_labels = batch_labels.to(device=device_train).float()
 
                 optimizer.zero_grad()
@@ -1068,7 +741,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
                     batch_labels = (batch_labels > THRESHOLD)
                     batch_labels = batch_labels.float()
 
-                output, _, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
+                output, _, _, _ = net(
+                    batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
 
                 output = output.view(-1)
 
@@ -1086,8 +760,10 @@ def run(config_dict, wandb_project, save_model, unique_name):
                         logging.debug(f"LDS: {lds}")
                         assert False, "loss is nan or inf"
                 elif balancer_type == 2:
-                    loss = sr.update_and_get_weighted_loss(batch_labels=batch_labels, unweighted_loss=loss)
-                    error = torch.isnan(loss).any().item() or torch.isinf(loss).any().item()
+                    loss = sr.update_and_get_weighted_loss(
+                        batch_labels=batch_labels, unweighted_loss=loss)
+                    error = torch.isnan(loss).any().item(
+                    ) or torch.isinf(loss).any().item()
                     if error:
                         logging.debug(f"batch_labels: {batch_labels}")
                         logging.debug(f"loss: {loss}")
@@ -1108,7 +784,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
                 accuracy_train += (output == batch_labels).float().mean()
                 n += 1
             _t_stop = time.time()
-            logging.debug(f"Training time for 1 epoch : {_t_stop - _t_start} s")
+            logging.debug(
+                f"Training time for 1 epoch : {_t_stop - _t_start} s")
             accuracy_train /= n
             loss_train /= n
 
@@ -1117,7 +794,8 @@ def run(config_dict, wandb_project, save_model, unique_name):
                                                                                                                    device_val, hidden_size,
                                                                                                                    nb_rnn_layers, classification,
                                                                                                                    batch_size_validation)
-        f1_validation, precision_validation, recall_validation = get_metrics(tp, fp, fn)
+        f1_validation, precision_validation, recall_validation = get_metrics(
+            tp, fp, fn)
 
         _t_stop = time.time()
         logging.debug(f"Validation time for 1 epoch : {_t_stop - _t_start} s")
@@ -1167,7 +845,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
             best_model_on_loss_accuracy = accuracy_validation
 
         loss_early_stopping = loss_validation if loss_early_stopping is None and early_stopping_smoothing_factor == 1 else loss_validation if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
-                1.0 - early_stopping_smoothing_factor)
+            1.0 - early_stopping_smoothing_factor)
 
         if loss_early_stopping < best_loss_early_stopping:
             best_loss_early_stopping = loss_early_stopping
@@ -1207,6 +885,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     logging.debug("Logger deleted")
     return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
 
+
 def run_offline_unlabelled(config_dict, path_experiments, unlabelled_segment):
     logging.debug(f"config_dict: {config_dict}")
     experiment_name = config_dict['experiment_name']
@@ -1232,7 +911,8 @@ def run_offline_unlabelled(config_dict, path_experiments, unlabelled_segment):
     file_exp += "" if classification else "_on_loss"
     path_experiments = Path(path_experiments)
     if not device_inference.startswith("cuda"):
-        checkpoint = torch.load(path_experiments / file_exp, map_location=torch.device('cpu'))
+        checkpoint = torch.load(
+            path_experiments / file_exp, map_location=torch.device('cpu'))
     else:
         checkpoint = torch.load(path_experiments / file_exp)
     logging.debug("Use checkpoint model")
@@ -1253,7 +933,6 @@ def run_offline_unlabelled(config_dict, path_experiments, unlabelled_segment):
     return output_total, true_idx_total
 
 
-
 def get_config_dict(index, split_i):
     # config_dict = {'experiment_name': f'pareto_search_10_619_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 1000,
     # 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,
@@ -1263,7 +942,7 @@ def get_config_dict(index, split_i):
     # 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400, "batch_size":
     # batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
     c_dict = {'experiment_name': f'spindleNet_{index}', 'device_train': 'cuda:0', 'device_val':
-        'cuda:0', 'nb_epoch_max': 500,
+              'cuda:0', 'nb_epoch_max': 500,
               'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
               'nb_batch_per_epoch': 1000,
               'first_layer_dropout': False,
@@ -1278,7 +957,7 @@ def get_config_dict(index, split_i):
     # put LSTM and Softmax for the occasion and add padding, not exactly the same frequency (spindleNet = 200 Hz)
 
     c_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v11_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
-        'cuda:0', 'nb_epoch_max': 500,
+              'cuda:0', 'nb_epoch_max': 500,
               'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
               'nb_batch_per_epoch': 1000,
               'first_layer_dropout': False,
@@ -1305,7 +984,7 @@ def get_config_dict(index, split_i):
               'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 18, 'time_in_past': 8.5,
               'estimator_size_memory': 188006400}
     c_dict = {'experiment_name': f'ABLATION_{ABLATION}_2inputs_network_{index}', 'device_train': 'cuda:0', 'device_val':
-        'cuda:0', 'nb_epoch_max': 500,
+              'cuda:0', 'nb_epoch_max': 500,
               'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
               'nb_batch_per_epoch': 1000,
               'first_layer_dropout': False,
@@ -1332,6 +1011,7 @@ def get_config_dict(index, split_i):
               'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 18, 'time_in_past': 8.5,
               'estimator_size_memory': 188006400}
     return c_dict
+
 
 def get_final_model_config_dict(index=0, split_i=0):
     """
@@ -1363,6 +1043,7 @@ def get_final_model_config_dict(index=0, split_i=0):
               'estimator_size_memory': 188006400}
     return c_dict
 
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('--path', type=str, default=None)
@@ -1373,18 +1054,24 @@ if __name__ == "__main__":
     parser.add_argument('--ablation', type=int, default=0)
     parser.add_argument('--max_split', type=int, default=10)
     feature_parser = parser.add_mutually_exclusive_group(required=False)
-    feature_parser.add_argument('--test_set', dest='test_set', action='store_true')
-    feature_parser.add_argument('--no_test_set', dest='test_set', action='store_false')
+    feature_parser.add_argument(
+        '--test_set', dest='test_set', action='store_true')
+    feature_parser.add_argument(
+        '--no_test_set', dest='test_set', action='store_false')
     parser.set_defaults(test_set=True)
     feature_class_parser = parser.add_mutually_exclusive_group(required=False)
-    feature_class_parser.add_argument('--classification', dest='classification', action='store_true')
-    feature_class_parser.add_argument('--regression', dest='classification', action='store_false')
+    feature_class_parser.add_argument(
+        '--classification', dest='classification', action='store_true')
+    feature_class_parser.add_argument(
+        '--regression', dest='classification', action='store_false')
     parser.set_defaults(classification=True)
     args = parser.parse_args()
     if args.output_file is not None:
-        logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
+        logging.basicConfig(format='%(levelname)s: %(message)s',
+                            filename=args.output_file, level=logging.DEBUG)
     else:
-        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
+        logging.basicConfig(
+            format='%(levelname)s: %(message)s', level=logging.DEBUG)
     if args.path is not None:
         path_dataset = Path(args.path)
     ABLATION = args.ablation  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
@@ -1422,7 +1109,8 @@ if __name__ == "__main__":
     # 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001,
     # 'estimator_size_memory': 1628774400}
 
-    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False)
+    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN,
+        save_model=True, unique_name=False)
 else:
     ABLATION = 0
     PHASE = 'full'
