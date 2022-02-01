@@ -11,7 +11,8 @@ from scipy.ndimage import gaussian_filter1d
 
 
 class LoggerWandb:
-    def __init__(self, experiment_name, c_dict, project_name):
+    def __init__(self, experiment_name, c_dict, project_name, data_config):
+        self.data_config = data_config
         self.best_model = None
         self.experiment_name = experiment_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
@@ -67,19 +68,20 @@ class LoggerWandb:
         self.wandb_run.summary["best_model_on_loss_accuracy_validation"] = best_model_on_loss_accuracy_validation
         if updated_model:
             self.wandb_run.save(os.path.join(
-                path_dataset, self.experiment_name), policy="live", base_path=path_dataset)
+                self.data_config['path_dataset'], self.experiment_name), policy="live", base_path=self.data_config['path_dataset'])
             self.wandb_run.save(os.path.join(
-                path_dataset, self.experiment_name + "_on_loss"), policy="live", base_path=path_dataset)
+                self.data_config['path_dataset'], self.experiment_name + "_on_loss"), policy="live", base_path=self.data_config['path_dataset'])
 
     def __del__(self):
         self.wandb_run.finish()
 
     def restore(self, classif):
         if classif:
-            self.wandb_run.restore(self.experiment_name, root=path_dataset)
+            self.wandb_run.restore(self.experiment_name,
+                                   root=self.data_config['path_dataset'])
         else:
             self.wandb_run.restore(
-                self.experiment_name + "_on_loss", root=path_dataset)
+                self.experiment_name + "_on_loss", root=self.data_config['path_dataset'])
 
 
 def f1_loss(output, batch_labels):

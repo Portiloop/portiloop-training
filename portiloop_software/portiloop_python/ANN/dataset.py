@@ -10,14 +10,6 @@ import torch
 from sklearn.model_selection import train_test_split
 
 
-# Global Variable for names of file
-filename_regression_dataset = f"dataset_regression_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
-filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
-subject_list = f"subject_sequence_{PHASE}_big.txt"
-subject_list_p1 = f"subject_sequence_p1_big.txt"
-subject_list_p2 = f"subject_sequence_p2_big.txt"
-
-
 class SignalDataset(Dataset):
     def __init__(self, filename, path, window_size, fe, seq_len, seq_stride, list_subject, len_segment):
         self.fe = fe
@@ -60,10 +52,8 @@ class SignalDataset(Dataset):
         assert self.data[3][idx + self.window_size -
                             1] >= 0, f"Bad index: {idx}."
 
-        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride)
-                                             :idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
-        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride)
-                                                 :idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
+        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
+        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
 
         ratio_pf = torch.tensor(
             self.data[2][idx + self.window_size - 1], dtype=torch.float)
@@ -325,16 +315,16 @@ class LabelDistributionSmoothing:
         return f"LDS nb_bins: {self.nb_bins}\nbins: {self.bins}\ndistribution: {self.distribution}\nlds_distribution: {self.lds_distribution}\nweights: {self.weights} "
 
 
-def generate_dataloader(path_dataset, phase, test, window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i,
+def generate_dataloader(data_config, phase, test, window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i,
                         network_stride):
     all_subject = pd.read_csv(
-        Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
+        Path(data_config['path_dataset']) / data_config['subject_list'], header=None, delim_whitespace=True).to_numpy()
     test_subject = None
     if phase == 'full':
         p1_subject = pd.read_csv(Path(
-            path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
+            data_config['path_dataset']) / data_config['subject_list_p1'], header=None, delim_whitespace=True).to_numpy()
         p2_subject = pd.read_csv(Path(
-            path_dataset) / subject_list_p2, header=None, delim_whitespace=True).to_numpy()
+            data_config['path_dataset']) / data_config['subject_list_p2'], header=None, delim_whitespace=True).to_numpy()
         train_subject_p1, validation_subject_p1 = train_test_split(
             p1_subject, train_size=0.8, random_state=split_i)
         if test:
@@ -369,7 +359,7 @@ def generate_dataloader(path_dataset, phase, test, window_size, fe, seq_len, seq
     test_loader = None
     batch_size_validation = None
     batch_size_test = None
-    filename = filename_classification_dataset if classification else filename_regression_dataset
+    filename = data_config['filename_classification_dataset'] if classification else data_config['filename_regression_dataset']
 
     if seq_len is not None:
         nb_segment_validation = len(
@@ -378,7 +368,7 @@ def generate_dataloader(path_dataset, phase, test, window_size, fe, seq_len, seq
             0, (seq_stride // network_stride) * network_stride, network_stride))) * nb_segment_validation
 
         ds_train = SignalDataset(filename=filename,
-                                 path=path_dataset,
+                                 path=data_config['path_dataset'],
                                  window_size=window_size,
                                  fe=fe,
                                  seq_len=seq_len,
@@ -387,7 +377,7 @@ def generate_dataloader(path_dataset, phase, test, window_size, fe, seq_len, seq
                                  len_segment=len_segment)
 
         ds_validation = SignalDataset(filename=filename,
-                                      path=path_dataset,
+                                      path=data_config['path_dataset'],
                                       window_size=window_size,
                                       fe=fe,
                                       seq_len=1,
@@ -426,7 +416,7 @@ def generate_dataloader(path_dataset, phase, test, window_size, fe, seq_len, seq
             0, (seq_stride // network_stride) * network_stride, network_stride))) * nb_segment_test
 
         ds_test = SignalDataset(filename=filename,
-                                path=path_dataset,
+                                path=data_config['path_dataset'],
                                 window_size=window_size,
                                 fe=fe,
                                 seq_len=1,
