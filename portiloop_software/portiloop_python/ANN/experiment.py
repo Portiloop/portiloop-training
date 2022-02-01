@@ -8,6 +8,7 @@ import copy
 from distutils.command.config import config
 import json
 import logging
+import os
 import time
 from argparse import ArgumentParser
 from pathlib import Path
@@ -24,15 +25,14 @@ from scipy.ndimage import gaussian_filter1d
 from portiloop_software.portiloop_python.Utils.utils import out_dim
 from portiloop_software.portiloop_python.ANN.dataset import LabelDistributionSmoothing, generate_dataloader, generate_dataloader_unlabelled_offline
 from portiloop_software.portiloop_python.ANN.nn_utils import LoggerWandb, SurpriseReweighting, get_metrics
+from portiloop_software.portiloop_python.ANN.configs import get_config_dict
+
 
 # hyperparameters
 
 # batch_size_list = [64, 64, 64, 128, 128, 128, 256, 256, 256]
 # lr_adam_list = [0.0003, 0.0005, 0.0009]
 # hidden_size_list = [2, 5, 10, 15, 20]
-
-LEN_SEGMENT = 115  # in seconds
-
 
 # all classes and functions:
 class ConvPoolModule(nn.Module):
@@ -357,7 +357,7 @@ def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rn
 # run:
 
 
-def run(config_dict, data, dict, wandb_project, save_model, unique_name):
+def run(config_dict, data_dict, wandb_project, save_model, unique_name):
     global precision_validation_factor
     global recall_validation_factor
     _t_start = time.time()
@@ -691,115 +691,46 @@ def run_offline_unlabelled(config_dict, path_experiments, unlabelled_segment):
     return output_total, true_idx_total
 
 
-def get_config_dict(index, split_i):
-    # config_dict = {'experiment_name': f'pareto_search_10_619_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 1000,
-    # 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 20, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,
-    # 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
-    # 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001, 'nb_rnn_layers': 1,
-    # 'RNN': True, 'envelope_input': True, 'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 9, 'kernel_pool': 7,
-    # 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001, 'estimator_size_memory': 1628774400, "batch_size":
-    # batch_size_list[index % len(batch_size_list)], "lr_adam": lr_adam_list[index % len(lr_adam_list)]}
-    c_dict = {'experiment_name': f'spindleNet_{index}', 'device_train': 'cuda:0', 'device_val':
-              'cuda:0', 'nb_epoch_max': 500,
-              'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
-              'nb_batch_per_epoch': 1000,
-              'first_layer_dropout': False,
-              'power_features_input': True, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
-              'reg_balancing': 'none',
-              'nb_conv_layers': 5,
-              'seq_len': 50, 'nb_channel': 40, 'hidden_size': 100, 'seq_stride_s': 0.004, 'nb_rnn_layers': 1, 'RNN': True,
-              'envelope_input': True,
-              "batch_size": 20, "lr_adam": 0.0009,
-              'window_size_s': 0.250, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 5,
-              'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400}
-    # put LSTM and Softmax for the occasion and add padding, not exactly the same frequency (spindleNet = 200 Hz)
-
-    c_dict = {'experiment_name': f'ABLATION_{ABLATION}_test_v11_implemented_on_portiloop_{index}', 'device_train': 'cuda:0', 'device_val':
-              'cuda:0', 'nb_epoch_max': 500,
-              'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
-              'nb_batch_per_epoch': 1000,
-              'first_layer_dropout': False,
-              'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
-              'reg_balancing': 'none',
-              'nb_conv_layers': 4,
-              'seq_len': 50, 'nb_channel': 26, 'hidden_size': 7, 'seq_stride_s': 0.044, 'nb_rnn_layers': 2, 'RNN': True,
-              'envelope_input': True,
-              "batch_size": 256, "lr_adam": 0.0009,
-              'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
-              'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400,
-              'split_idx': split_i, 'validation_network_stride': 1}
-    c_dict = {'experiment_name': f'pareto_search_15_35_v5_small_seq_{index}', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 150,
-              'max_duration':
-                  257400,
-              'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 1000,
-              'first_layer_dropout': False,
-              'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
-              'reg_balancing': 'none',
-              'split_idx': split_i, 'validation_network_stride': 1, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 31, 'hidden_size': 7,
-              'seq_stride_s': 0.02,
-              'nb_rnn_layers': 1, 'RNN': True, 'envelope_input': False, 'lr_adam': 0.0005, 'batch_size': 256, 'window_size_s': 0.218,
-              'stride_pool': 1,
-              'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 18, 'time_in_past': 8.5,
-              'estimator_size_memory': 188006400}
-    c_dict = {'experiment_name': f'ABLATION_{ABLATION}_2inputs_network_{index}', 'device_train': 'cuda:0', 'device_val':
-              'cuda:0', 'nb_epoch_max': 500,
-              'max_duration': 257400, 'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
-              'nb_batch_per_epoch': 1000,
-              'first_layer_dropout': False,
-              'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
-              'reg_balancing': 'none',
-              'nb_conv_layers': 4,
-              'seq_len': 50, 'nb_channel': 26, 'hidden_size': 7, 'seq_stride_s': 0.044, 'nb_rnn_layers': 2, 'RNN': True,
-              'envelope_input': True,
-              "batch_size": 256, "lr_adam": 0.0009,
-              'window_size_s': 0.234, 'stride_pool': 1, 'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 9,
-              'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 2, 'time_in_past': 1.55, 'estimator_size_memory': 139942400,
-              'split_idx': split_i, 'validation_network_stride': 1}
-    c_dict = {'experiment_name': f'pareto_search_15_35_v6_{index}', 'device_train': 'cpu', 'device_val': 'cpu', 'nb_epoch_max': 500,
-              'max_duration':
-                  257400,
-              'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 1000,
-              'first_layer_dropout': False,
-              'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0, 'classification': True,
-              'reg_balancing': 'none',
-              'split_idx': split_i, 'validation_network_stride': 1, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 31, 'hidden_size': 7,
-              'seq_stride_s': 0.17,
-              'nb_rnn_layers': 1, 'RNN': True, 'envelope_input': False, 'lr_adam': 0.0005, 'batch_size': 256, 'window_size_s': 0.218,
-              'stride_pool': 1,
-              'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 18, 'time_in_past': 8.5,
-              'estimator_size_memory': 188006400}
-    return c_dict
-
-
-def get_final_model_config_dict(index=0, split_i=0):
-    """
-    Configuration dictionary of the final 1-input pre-trained model presented in the Portiloop paper.
-
-    Args:
-        index: last number in the name of the pre-trained model (several are provided)
-        split_i: index of the random train/validation/test split (you can ignore this for inference)
-
-    Returns:
-        configuration dictionary of the pre-trained model
-    """
-    c_dict = {'experiment_name': f'pareto_search_15_35_v4_{index}', 'device_train': 'cpu', 'device_val': 'cpu',
-              'device_inference': 'cpu', 'nb_epoch_max': 150, 'max_duration': 257400,
-              'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
-              'nb_batch_per_epoch': 1000,
-              'first_layer_dropout': False,
-              'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0,
-              'classification': True,
-              'reg_balancing': 'none',
-              'split_idx': split_i, 'validation_network_stride': 1, 'nb_conv_layers': 3, 'seq_len': 50,
-              'nb_channel': 31, 'hidden_size': 7,
-              'seq_stride_s': 0.170,
-              'nb_rnn_layers': 1, 'RNN': True, 'envelope_input': False, 'lr_adam': 0.0005, 'batch_size': 256,
-              'window_size_s': 0.218,
-              'stride_pool': 1,
-              'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1,
-              'nb_out': 18, 'time_in_past': 8.5,
-              'estimator_size_memory': 188006400}
-    return c_dict
+def initialize_nn_config(experiment_name):
+    config_dict = {
+        'experiment_name': experiment_name,
+        'device_train': 'cuda:0',
+        'device_val': 'cuda:0',
+        'nb_epoch_max': 11,
+        'max_duration': 257400,
+        'nb_epoch_early_stopping_stop': 10,
+        'early_stopping_smoothing_factor': 0.1,
+        'fe': 250,
+        'nb_batch_per_epoch': 5000,
+        'batch_size': 256,
+        'first_layer_dropout': False,
+        'power_features_input': False,
+        'dropout': 0.5,
+        'adam_w': 0.01,
+        'distribution_mode': 0,
+        'classification': True,
+        'nb_conv_layers': 3,
+        'seq_len': 50,
+        'nb_channel': 16,
+        'hidden_size': 32,
+        'seq_stride_s': 0.08600000000000001,
+        'nb_rnn_layers': 1,
+        'RNN': True,
+        'envelope_input': True,
+        'lr_adam': 0.0007,
+        'window_size_s': 0.266,
+        'stride_pool': 1,
+        'stride_conv': 1,
+        'kernel_conv': 9,
+        'kernel_pool': 7,
+        'dilation_conv': 1,
+        'dilation_pool': 1,
+        'nb_out': 24,
+        'time_in_past': 4.300000000000001,
+        'estimator_size_memory': 1628774400}
+    with open(f"{experiment_name}_nn_config.json", "w") as outfile:
+        json.dump(config_dict, outfile)
+    return config_dict
 
 
 def initialize_dataset_config(phase, path_dataset=None, reg_filename=None, class_filename=None, sl=None, sl_p1=None, sl_p2=None):
@@ -879,28 +810,34 @@ if __name__ == "__main__":
 
     # Initialize configuration dictionary for NN
     if args.config_nn is None:
-        # TODO: get some default parameters and add them to a config
-        config_dict = initalize_nn_config()
+        config_dict = initialize_nn_config()
         config_dict['distribution_mode'] = 0 if args.classification else 1
         config_dict['classification'] = args.classification
         config_dict['experiment_name'] += "_regression" if not args.classification else ""
         config_dict['experiment_name'] += "_no_test" if not args.test_set else ""
     else:
-        config_dict = json.loads(args.config_nn)
+        try:
+            config_dict = json.loads(args.config_nn)
+        except Exception:
+            exp_index = args.experiment_index
+            possible_split = [0, 2]
+            split_idx = possible_split[exp_index % 2]
+            config_dict = get_config_dict(
+                args.config_nn, args.ablation, exp_index, split_idx)
 
-    ABLATION = args.ablation  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
-    PHASE = args.phase
-    WANDB_PROJECT_RUN = f"{PHASE}-dataset-public"
-    threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.2}  # full = p1 + p2
-    THRESHOLD = threshold_list[PHASE]
+    # ABLATION = args.ablation  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
+    # PHASE = args.phase
+    # WANDB_PROJECT_RUN = f"{PHASE}-dataset-public"
+    # threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.2}  # full = p1 + p2
+    # THRESHOLD = threshold_list[PHASE]
+    # LEN_SEGMENT = 115  # in seconds
 
-    max_split = args.max_split
-    exp_name = args.experiment_name
-    exp_index = args.experiment_index
-    possible_split = [0, 2]
-    split_idx = possible_split[exp_index % 2]
-    classification = args.classification
-    TEST_SET = args.test_set
+    # max_split = args.max_split
+    # exp_name = args.experiment_name
+
+    # classification = args.classification
+    # TEST_SET = args.test_set
+    
     logging.debug(f"classification: {classification}")
 
     seed()  # reset the seed
@@ -908,11 +845,3 @@ if __name__ == "__main__":
     # Start the run
     run(config_dict=config_dict, data_dict=data_dict, wandb_project=WANDB_PROJECT_RUN,
         save_model=True, unique_name=False)
-
-# config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11,
-# 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,
-# 'batch_size': 256, 'first_layer_dropout': False, 'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0,
-# 'classification': True, 'nb_conv_layers': 3, 'seq_len': 50, 'nb_channel': 16, 'hidden_size': 32, 'seq_stride_s': 0.08600000000000001,
-# 'nb_rnn_layers': 1, 'RNN': True, 'envelope_input': True, 'lr_adam': 0.0007, 'window_size_s': 0.266, 'stride_pool': 1, 'stride_conv': 1,
-# 'kernel_conv': 9, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1, 'nb_out': 24, 'time_in_past': 4.300000000000001,
-# 'estimator_size_memory': 1628774400}
