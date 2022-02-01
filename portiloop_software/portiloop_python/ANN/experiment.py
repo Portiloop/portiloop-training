@@ -89,8 +89,10 @@ class FcModule(nn.Module):
 
 
 class PortiloopNetwork(nn.Module):
-    def __init__(self, c_dict):
+    def __init__(self, c_dict, exp_config):
         super(PortiloopNetwork, self).__init__()
+
+        self.exp_config = exp_config
 
         RNN = c_dict["RNN"]
         stride_pool = c_dict["stride_pool"]
@@ -213,9 +215,9 @@ class PortiloopNetwork(nn.Module):
         # max_value (optional) : print the maximal value reach during inference (used to verify if the FPGA implementation precision is enough)
         (batch_size, sequence_len, features) = x1.shape
 
-        if ABLATION == 1:
+        if self.exp_config['ablation'] == 1:
             x1 = copy.deepcopy(x2)
-        elif ABLATION == 2:
+        elif self.exp_config['ablation'] == 2:
             x2 = copy.deepcopy(x1)
 
         x1 = x1.view(-1, 1, features)
@@ -270,7 +272,7 @@ class PortiloopNetwork(nn.Module):
         return x, hn1, hn2, max_value
 
 
-def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation, max_value=np.inf):
+def run_inference(exp_config, dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation, max_value=np.inf):
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
     net_copy = net_copy.eval()
@@ -293,7 +295,7 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
                 device=device).float()
             batch_labels = batch_labels.to(device=device).float()
             if classification:
-                batch_labels = (batch_labels > THRESHOLD)
+                batch_labels = (batch_labels > exp_config['threshold'])
                 batch_labels = batch_labels.float()
             output, h1, h2, max_value = net_copy(
                 batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2, max_value)
@@ -304,8 +306,8 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
             loss += loss_py.item()
             # logging.debug(f"loss = {loss}")
             if not classification:
-                output = (output > THRESHOLD)
-                batch_labels = (batch_labels > THRESHOLD)
+                output = (output > exp_config['threshold'])
+                batch_labels = (batch_labels > exp_config['threshold'])
             else:
                 output = (output >= 0.5)
             batch_labels_total = torch.cat([batch_labels_total, batch_labels])
@@ -357,33 +359,33 @@ def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rn
 # run:
 
 
-def run(config_dict, data_dict, wandb_project, save_model, unique_name):
+def run(nn_config, data_config, exp_config, wandb_project, save_model, unique_name):
     global precision_validation_factor
     global recall_validation_factor
     _t_start = time.time()
-    logging.debug(f"config_dict: {config_dict}")
-    experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}" if unique_name else config_dict['experiment_name']
-    nb_epoch_max = config_dict["nb_epoch_max"]
-    nb_batch_per_epoch = config_dict["nb_batch_per_epoch"]
-    nb_epoch_early_stopping_stop = config_dict["nb_epoch_early_stopping_stop"]
-    early_stopping_smoothing_factor = config_dict["early_stopping_smoothing_factor"]
-    batch_size = config_dict["batch_size"]
-    seq_len = config_dict["seq_len"]
-    window_size_s = config_dict["window_size_s"]
-    fe = config_dict["fe"]
-    seq_stride_s = config_dict["seq_stride_s"]
-    lr_adam = config_dict["lr_adam"]
-    hidden_size = config_dict["hidden_size"]
-    device_val = config_dict["device_val"]
-    device_train = config_dict["device_train"]
-    max_duration = config_dict["max_duration"]
-    nb_rnn_layers = config_dict["nb_rnn_layers"]
-    adam_w = config_dict["adam_w"]
-    distribution_mode = config_dict["distribution_mode"]
-    classification = config_dict["classification"]
-    reg_balancing = config_dict["reg_balancing"]
-    split_idx = config_dict["split_idx"]
-    validation_network_stride = config_dict["validation_network_stride"]
+    logging.debug(f"config_dict: {nn_config}")
+    experiment_name = f"{nn_config['experiment_name']}_{time.time_ns()}" if unique_name else nn_config['experiment_name']
+    nb_epoch_max = nn_config["nb_epoch_max"]
+    nb_batch_per_epoch = nn_config["nb_batch_per_epoch"]
+    nb_epoch_early_stopping_stop = nn_config["nb_epoch_early_stopping_stop"]
+    early_stopping_smoothing_factor = nn_config["early_stopping_smoothing_factor"]
+    batch_size = nn_config["batch_size"]
+    seq_len = nn_config["seq_len"]
+    window_size_s = nn_config["window_size_s"]
+    fe = nn_config["fe"]
+    seq_stride_s = nn_config["seq_stride_s"]
+    lr_adam = nn_config["lr_adam"]
+    hidden_size = nn_config["hidden_size"]
+    device_val = nn_config["device_val"]
+    device_train = nn_config["device_train"]
+    max_duration = nn_config["max_duration"]
+    nb_rnn_layers = nn_config["nb_rnn_layers"]
+    adam_w = nn_config["adam_w"]
+    distribution_mode = nn_config["distribution_mode"]
+    classification = nn_config["classification"]
+    reg_balancing = nn_config["reg_balancing"]
+    split_idx = nn_config["split_idx"]
+    validation_network_stride = nn_config["validation_network_stride"]
 
     assert reg_balancing in {'none', 'lds',
                              'sr'}, f"wrong key: {reg_balancing}"
@@ -402,9 +404,9 @@ def run(config_dict, data_dict, wandb_project, save_model, unique_name):
     if device_val.startswith("cuda") or device_train.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
-    logger = LoggerWandb(experiment_name, config_dict, wandb_project)
+    logger = LoggerWandb(experiment_name, nn_config, wandb_project)
     torch.seed()
-    net = PortiloopNetwork(config_dict).to(device=device_train)
+    net = PortiloopNetwork(nn_config).to(device=device_train)
     criterion = nn.MSELoss(
         reduction='none') if not classification else nn.BCELoss(reduction='none')
     # criterion = nn.MSELoss() if not classification else nn.BCELoss()
@@ -429,9 +431,9 @@ def run(config_dict, data_dict, wandb_project, save_model, unique_name):
         file_exp += "" if classification else "_on_loss"
         if not device_val.startswith("cuda"):
             checkpoint = torch.load(
-                data_dict['path_dataset'] / file_exp, map_location=torch.device('cpu'))
+                data_config['path_dataset'] / file_exp, map_location=torch.device('cpu'))
         else:
-            checkpoint = torch.load(data_dict['path_dataset'] / file_exp)
+            checkpoint = torch.load(data_config['path_dataset'] / file_exp)
         logging.debug("Use checkpoint model")
         net.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -448,9 +450,9 @@ def run(config_dict, data_dict, wandb_project, save_model, unique_name):
     for i in net.parameters():
         nb_weights += len(i)
     has_envelope = 1
-    if config_dict["envelope_input"]:
+    if nn_config["envelope_input"]:
         has_envelope = 2
-    config_dict["estimator_size_memory"] = nb_weights * \
+    nn_config["estimator_size_memory"] = nb_weights * \
         window_size * seq_len * batch_size * has_envelope
 
     train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
@@ -496,7 +498,7 @@ def run(config_dict, data_dict, wandb_project, save_model, unique_name):
 
                 optimizer.zero_grad()
                 if classification:
-                    batch_labels = (batch_labels > THRESHOLD)
+                    batch_labels = (batch_labels > exp_config['threshold'])
                     batch_labels = batch_labels.float()
 
                 output, _, _, _ = net(
@@ -535,8 +537,8 @@ def run(config_dict, data_dict, wandb_project, save_model, unique_name):
                 optimizer.step()
 
                 if not classification:
-                    output = (output > THRESHOLD)
-                    batch_labels = (batch_labels > THRESHOLD)
+                    output = (output > exp_config['threshold'])
+                    batch_labels = (batch_labels > exp_config['threshold'])
                 else:
                     output = (output >= 0.5)
                 accuracy_train += (output == batch_labels).float().mean()
@@ -548,7 +550,7 @@ def run(config_dict, data_dict, wandb_project, save_model, unique_name):
             loss_train /= n
 
             _t_start = time.time()
-        output_validation, labels_validation, loss_validation, accuracy_validation, tp, tn, fp, fn = run_inference(validation_loader, criterion, net,
+        output_validation, labels_validation, loss_validation, accuracy_validation, tp, tn, fp, fn = run_inference(exp_config, validation_loader, criterion, net,
                                                                                                                    device_val, hidden_size,
                                                                                                                    nb_rnn_layers, classification,
                                                                                                                    batch_size_validation)
@@ -574,7 +576,7 @@ def run(config_dict, data_dict, wandb_project, save_model, unique_name):
                     'precision_validation_factor': precision_validation_factor,
                     'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
                     'best_model_f1_score_validation': best_model_f1_score_validation,
-                }, data_dict['path_dataset'] / experiment_name, _use_new_zipfile_serialization=False)
+                }, data_config['path_dataset'] / experiment_name, _use_new_zipfile_serialization=False)
                 updated_model = True
             best_model_f1_score_validation = f1_validation
             best_model_precision_validation = precision_validation
@@ -594,7 +596,7 @@ def run(config_dict, data_dict, wandb_project, save_model, unique_name):
                     'precision_validation_factor': precision_validation_factor,
                     'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
                     'best_model_f1_score_validation': best_model_f1_score_validation,
-                }, data_dict['path_dataset'] / (experiment_name + "_on_loss"), _use_new_zipfile_serialization=False)
+                }, data_config['path_dataset'] / (experiment_name + "_on_loss"), _use_new_zipfile_serialization=False)
                 updated_model = True
             best_model_on_loss_f1_score_validation = f1_validation
             best_model_on_loss_precision_validation = precision_validation
@@ -795,10 +797,10 @@ if __name__ == "__main__":
 
     # Initialize configuration dictionary for dataset
     if args.config_data is None:
-        data_dict = initialize_dataset_config(
+        data_config = initialize_dataset_config(
             args.phase, path_dataset=Path(args.path) if args.path is not None else None)
     else:
-        data_dict = json.loads(args.config_data)
+        data_config = json.loads(args.config_data)
 
     # initialize output file for logging
     if args.output_file is not None:
@@ -810,38 +812,39 @@ if __name__ == "__main__":
 
     # Initialize configuration dictionary for NN
     if args.config_nn is None:
-        config_dict = initialize_nn_config()
-        config_dict['distribution_mode'] = 0 if args.classification else 1
-        config_dict['classification'] = args.classification
-        config_dict['experiment_name'] += "_regression" if not args.classification else ""
-        config_dict['experiment_name'] += "_no_test" if not args.test_set else ""
+        # Option with some random hyperparameters
+        nn_config = initialize_nn_config()
     else:
         try:
-            config_dict = json.loads(args.config_nn)
+            # Read from json file
+            nn_config = json.loads(args.config_nn)
         except Exception:
+            # REad from one of defaults
             exp_index = args.experiment_index
             possible_split = [0, 2]
             split_idx = possible_split[exp_index % 2]
-            config_dict = get_config_dict(
+            nn_config = get_config_dict(
                 args.config_nn, args.ablation, exp_index, split_idx)
 
-    # ABLATION = args.ablation  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
-    # PHASE = args.phase
-    # WANDB_PROJECT_RUN = f"{PHASE}-dataset-public"
-    # threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.2}  # full = p1 + p2
-    # THRESHOLD = threshold_list[PHASE]
-    # LEN_SEGMENT = 115  # in seconds
+    # Set classification mode and name of experiment
+    nn_config['distribution_mode'] = 0 if args.classification else 1
+    nn_config['classification'] = args.classification
+    nn_config['experiment_name'] += "_regression" if not args.classification else ""
+    nn_config['experiment_name'] += "_no_test" if not args.test_set else ""
 
-    # max_split = args.max_split
-    # exp_name = args.experiment_name
+    # Initialize a dictionary with all hyperparameters of the experiment
+    threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.2}  # full = p1 + p2
+    exp_config = {
+        'ablation': args.ablation,  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
+        'phase': args.phase,
+        'threshold': threshold_list[args.phase],
+        'len_segment': 115
+    }
 
-    # classification = args.classification
-    # TEST_SET = args.test_set
-    
-    logging.debug(f"classification: {classification}")
+    logging.debug(f"classification: {args.classification}")
 
     seed()  # reset the seed
 
     # Start the run
-    run(config_dict=config_dict, data_dict=data_dict, wandb_project=WANDB_PROJECT_RUN,
+    run(nn_config=nn_config, data_config=data_config, exp_config=exp_config, wandb_project=f"{args.phase}-dataset-public",
         save_model=True, unique_name=False)

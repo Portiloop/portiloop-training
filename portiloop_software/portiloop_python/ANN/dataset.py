@@ -11,10 +11,11 @@ from sklearn.model_selection import train_test_split
 
 
 class SignalDataset(Dataset):
-    def __init__(self, filename, path, window_size, fe, seq_len, seq_stride, list_subject, len_segment):
+    def __init__(self, exp_config, filename, path, window_size, fe, seq_len, seq_stride, list_subject, len_segment):
         self.fe = fe
         self.window_size = window_size
         self.path_file = Path(path) / filename
+        self.exp_config = exp_config
 
         self.data = pd.read_csv(self.path_file, header=None).to_numpy()
         assert list_subject is not None
@@ -39,7 +40,7 @@ class SignalDataset(Dataset):
         self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
                         if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
                                 or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
-        total_spindles = np.sum(self.data[3] > THRESHOLD)
+        total_spindles = np.sum(self.data[3] > self.exp_config['threshold'])
         logging.debug(
             f"total number of spindles in this dataset : {total_spindles}")
 
@@ -66,7 +67,7 @@ class SignalDataset(Dataset):
         assert 0 <= idx <= len(
             self), f"Index out of range ({idx}/{len(self)})."
         idx = self.indices[idx]
-        return True if (self.data[3][idx + self.window_size - 1] > THRESHOLD) else False
+        return True if (self.data[3][idx + self.window_size - 1] > self.exp_config['threshold']) else False
 
 
 class UnlabelledSignalDatasetSingleSegment(Dataset):
@@ -315,7 +316,7 @@ class LabelDistributionSmoothing:
         return f"LDS nb_bins: {self.nb_bins}\nbins: {self.bins}\ndistribution: {self.distribution}\nlds_distribution: {self.lds_distribution}\nweights: {self.weights} "
 
 
-def generate_dataloader(data_config, phase, test, window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i,
+def generate_dataloader(data_config, exp_config, phase, test, window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i,
                         network_stride):
     all_subject = pd.read_csv(
         Path(data_config['path_dataset']) / data_config['subject_list'], header=None, delim_whitespace=True).to_numpy()
@@ -353,7 +354,7 @@ def generate_dataloader(data_config, phase, test, window_size, fe, seq_len, seq_
     if test:
         logging.debug(f"Subjects in test : {test_subject[:, 0]}")
 
-    len_segment = LEN_SEGMENT * fe
+    len_segment = exp_config['len_segment'] * fe
     train_loader = None
     validation_loader = None
     test_loader = None
