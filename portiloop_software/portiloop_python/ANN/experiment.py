@@ -771,11 +771,9 @@ if __name__ == "__main__":
     parser.add_argument('--max_split', type=int, default=10)
     parser.add_argument('--config_nn', type=str, default=None)
     parser.add_argument('--config_data', type=str, default=None)
-    # TEst set and save config bools
-    feature_parser = parser.add_mutually_exclusive_group(required=False)
-    feature_parser.add_argument(
+    parser.add_argument(
         '--no_test_set', dest='test_set', action='store_false', default=True)
-    feature_parser.add_argument(
+    parser.add_argument(
         '--save_config', dest='save_config', action='store_true', default=False)
     # Group for classification argument
     feature_class_parser = parser.add_mutually_exclusive_group(required=False)
