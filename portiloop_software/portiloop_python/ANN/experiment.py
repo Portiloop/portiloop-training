@@ -709,6 +709,8 @@ def initialize_nn_config(experiment_name):
         'hidden_size': 32,
         'seq_stride_s': 0.08600000000000001,
         'nb_rnn_layers': 1,
+        'validation_network_stride': 1,
+        'reg_balancing': 'none',
         'RNN': True,
         'envelope_input': True,
         'lr_adam': 0.0007,
@@ -722,8 +724,6 @@ def initialize_nn_config(experiment_name):
         'nb_out': 24,
         'time_in_past': 4.300000000000001,
         'estimator_size_memory': 1628774400}
-    with open(f"{experiment_name}_nn_config.json", "w") as outfile:
-        json.dump(config_dict, outfile)
     return config_dict
 
 
@@ -771,13 +771,12 @@ if __name__ == "__main__":
     parser.add_argument('--max_split', type=int, default=10)
     parser.add_argument('--config_nn', type=str, default=None)
     parser.add_argument('--config_data', type=str, default=None)
-    # Group for test set argument
+    # TEst set and save config bools
     feature_parser = parser.add_mutually_exclusive_group(required=False)
     feature_parser.add_argument(
-        '--test_set', dest='test_set', action='store_true')
+        '--no_test_set', dest='test_set', action='store_false', default=True)
     feature_parser.add_argument(
-        '--no_test_set', dest='test_set', action='store_false')
-    parser.set_defaults(test_set=True)
+        '--save_config', dest='save_config', action='store_true', default=False)
     # Group for classification argument
     feature_class_parser = parser.add_mutually_exclusive_group(required=False)
     feature_class_parser.add_argument(
@@ -790,7 +789,7 @@ if __name__ == "__main__":
     # Initialize configuration dictionary for dataset
     if args.config_data is None:
         data_config = initialize_dataset_config(
-            args.phase, path_dataset=Path(args.path) if args.path is not None else None)
+            args.phase, path_dataset=Path(args.dataset_path) if args.dataset_path is not None else None)
     else:
         data_config = json.loads(args.config_data)
 
@@ -803,20 +802,23 @@ if __name__ == "__main__":
             format='%(levelname)s: %(message)s', level=logging.DEBUG)
 
     # Initialize configuration dictionary for NN
+    exp_index = args.experiment_index
+    possible_split = [0, 2]
+    split_idx = possible_split[exp_index % 2]
+
     if args.config_nn is None:
         # Option with some random hyperparameters
-        nn_config = initialize_nn_config()
+        nn_config = initialize_nn_config(args.experiment_name)
     else:
         try:
             # Read from json file
             nn_config = json.loads(args.config_nn)
         except Exception:
             # REad from one of defaults
-            exp_index = args.experiment_index
-            possible_split = [0, 2]
-            split_idx = possible_split[exp_index % 2]
+
             nn_config = get_config_dict(
                 args.config_nn, args.ablation, exp_index, split_idx)
+    nn_config['split_idx'] = split_idx
 
     # Set classification mode and name of experiment
     nn_config['distribution_mode'] = 0 if args.classification else 1
@@ -832,6 +834,10 @@ if __name__ == "__main__":
         'threshold': threshold_list[args.phase],
         'len_segment': 115
     }
+
+    if args.save_config:
+        with open(f"{args.experiment_name}_nn_config.json", "w") as outfile:
+            json.dump(nn_config, outfile)
 
     logging.debug(f"classification: {args.classification}")
 
