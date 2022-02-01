@@ -28,12 +28,6 @@ from portiloop_software.portiloop_python.ANN.nn_utils import LoggerWandb, Surpri
 from portiloop_software.portiloop_python.ANN.configs import get_config_dict
 
 
-# hyperparameters
-
-# batch_size_list = [64, 64, 64, 128, 128, 128, 256, 256, 256]
-# lr_adam_list = [0.0003, 0.0005, 0.0009]
-# hidden_size_list = [2, 5, 10, 15, 20]
-
 # all classes and functions:
 class ConvPoolModule(nn.Module):
     def __init__(self,
@@ -355,8 +349,6 @@ def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rn
     output_total = output_total.float()
     true_idx_total = true_idx_total.int()
     return output_total, true_idx_total
-
-# run:
 
 
 def run(nn_config, data_config, exp_config, wandb_project, save_model, unique_name):
