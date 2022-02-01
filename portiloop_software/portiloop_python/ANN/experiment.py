@@ -396,7 +396,8 @@ def run(nn_config, data_config, exp_config, wandb_project, save_model, unique_na
     if device_val.startswith("cuda") or device_train.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
-    logger = LoggerWandb(experiment_name, nn_config, wandb_project)
+    logger = LoggerWandb(experiment_name, nn_config,
+                         wandb_project, data_config)
     torch.seed()
     net = PortiloopNetwork(nn_config).to(device=device_train)
     criterion = nn.MSELoss(
