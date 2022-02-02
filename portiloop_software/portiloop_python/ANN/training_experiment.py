@@ -752,12 +752,10 @@ def initialize_dataset_config(phase, path_dataset=None, reg_filename=None, class
             'subject_list_p1': sl_p1,
             'subject_list_p2': sl_p2}
 
+# Example to run on google colab: https://colab.research.google.com/drive/1jlpZ_ng9yXJYxl3Mqscr-82ephg5PSkw?usp=sharing
+
 
 if __name__ == "__main__":
-
-    recall_validation_factor = 0.5
-    precision_validation_factor = 0.5
-    # TODO : Something with this
 
     # Parser definition
     parser = ArgumentParser()
