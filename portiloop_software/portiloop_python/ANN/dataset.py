@@ -53,8 +53,8 @@ class SignalDataset(Dataset):
         assert self.data[3][idx + self.window_size -
                             1] >= 0, f"Bad index: {idx}."
 
-        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
-        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
+        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride)                                      :idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
+        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride)                                          :idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
 
         ratio_pf = torch.tensor(
             self.data[2][idx + self.window_size - 1], dtype=torch.float)
@@ -316,29 +316,29 @@ class LabelDistributionSmoothing:
         return f"LDS nb_bins: {self.nb_bins}\nbins: {self.bins}\ndistribution: {self.distribution}\nlds_distribution: {self.lds_distribution}\nweights: {self.weights} "
 
 
-def generate_dataloader(data_config, exp_config, phase, test, window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i,
+def generate_dataloader(data_config, exp_config, window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i,
                         network_stride):
     all_subject = pd.read_csv(
         Path(data_config['path_dataset']) / data_config['subject_list'], header=None, delim_whitespace=True).to_numpy()
     test_subject = None
-    if phase == 'full':
+    if exp_config['phase'] == 'full':
         p1_subject = pd.read_csv(Path(
             data_config['path_dataset']) / data_config['subject_list_p1'], header=None, delim_whitespace=True).to_numpy()
         p2_subject = pd.read_csv(Path(
             data_config['path_dataset']) / data_config['subject_list_p2'], header=None, delim_whitespace=True).to_numpy()
         train_subject_p1, validation_subject_p1 = train_test_split(
             p1_subject, train_size=0.8, random_state=split_i)
-        if test:
+        if exp_config['test']:
             test_subject_p1, validation_subject_p1 = train_test_split(
                 validation_subject_p1, train_size=0.5, random_state=split_i)
         train_subject_p2, validation_subject_p2 = train_test_split(
             p2_subject, train_size=0.8, random_state=split_i)
-        if test:
+        if exp_config['test']:
             test_subject_p2, validation_subject_p2 = train_test_split(
                 validation_subject_p2, train_size=0.5, random_state=split_i)
         train_subject = np.array(
             [s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
-        if test:
+        if exp_config['test']:
             test_subject = np.array(
                 [s for s in all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
         validation_subject = np.array(
@@ -346,12 +346,12 @@ def generate_dataloader(data_config, exp_config, phase, test, window_size, fe, s
     else:
         train_subject, validation_subject = train_test_split(
             all_subject, train_size=0.8, random_state=split_i)
-        if test:
+        if exp_config['test']:
             test_subject, validation_subject = train_test_split(
                 validation_subject, train_size=0.5, random_state=split_i)
     logging.debug(f"Subjects in training : {train_subject[:, 0]}")
     logging.debug(f"Subjects in validation : {validation_subject[:, 0]}")
-    if test:
+    if exp_config['test']:
         logging.debug(f"Subjects in test : {test_subject[:, 0]}")
 
     len_segment = exp_config['len_segment'] * fe
@@ -368,75 +368,87 @@ def generate_dataloader(data_config, exp_config, phase, test, window_size, fe, s
         batch_size_validation = len(list(range(
             0, (seq_stride // network_stride) * network_stride, network_stride))) * nb_segment_validation
 
-        ds_train = SignalDataset(filename=filename,
-                                 path=data_config['path_dataset'],
-                                 window_size=window_size,
-                                 fe=fe,
-                                 seq_len=seq_len,
-                                 seq_stride=seq_stride,
-                                 list_subject=train_subject,
-                                 len_segment=len_segment)
+        ds_train = SignalDataset(
+            exp_config=exp_config,
+            filename=filename,
+            path=data_config['path_dataset'],
+            window_size=window_size,
+            fe=fe,
+            seq_len=seq_len,
+            seq_stride=seq_stride,
+            list_subject=train_subject,
+            len_segment=len_segment)
 
-        ds_validation = SignalDataset(filename=filename,
-                                      path=data_config['path_dataset'],
-                                      window_size=window_size,
-                                      fe=fe,
-                                      seq_len=1,
-                                      seq_stride=1,  # just to be sure, fixed value
-                                      list_subject=validation_subject,
-                                      len_segment=len_segment)
+        ds_validation = SignalDataset(
+            exp_config=exp_config,
+            filename=filename,
+            path=data_config['path_dataset'],
+            window_size=window_size,
+            fe=fe,
+            seq_len=1,
+            seq_stride=1,  # just to be sure, fixed value
+            list_subject=validation_subject,
+            len_segment=len_segment)
         idx_true, idx_false = get_class_idxs(ds_train, distribution_mode)
-        samp_train = RandomSampler(idx_true=idx_true,
-                                   idx_false=idx_false,
-                                   batch_size=batch_size,
-                                   nb_batch=nb_batch_per_epoch,
-                                   distribution_mode=distribution_mode)
+        samp_train = RandomSampler(
+            idx_true=idx_true,
+            idx_false=idx_false,
+            batch_size=batch_size,
+            nb_batch=nb_batch_per_epoch,
+            distribution_mode=distribution_mode)
 
-        samp_validation = ValidationSampler(ds_validation,
-                                            seq_stride=seq_stride,
-                                            len_segment=len_segment,
-                                            nb_segment=nb_segment_validation,
-                                            network_stride=network_stride)
-        train_loader = DataLoader(ds_train,
-                                  batch_size=batch_size,
-                                  sampler=samp_train,
-                                  shuffle=False,
-                                  num_workers=0,
-                                  pin_memory=True)
+        samp_validation = ValidationSampler(
+            ds_validation,
+            seq_stride=seq_stride,
+            len_segment=len_segment,
+            nb_segment=nb_segment_validation,
+            network_stride=network_stride)
+        train_loader = DataLoader(
+            ds_train,
+            batch_size=batch_size,
+            sampler=samp_train,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=True)
 
-        validation_loader = DataLoader(ds_validation,
-                                       batch_size=batch_size_validation,
-                                       sampler=samp_validation,
-                                       num_workers=0,
-                                       pin_memory=True,
-                                       shuffle=False)
+        validation_loader = DataLoader(
+            ds_validation,
+            batch_size=batch_size_validation,
+            sampler=samp_validation,
+            num_workers=0,
+            pin_memory=True,
+            shuffle=False)
     else:
         nb_segment_test = len(
             np.hstack([range(int(s[1]), int(s[2])) for s in test_subject]))
         batch_size_test = len(list(range(
             0, (seq_stride // network_stride) * network_stride, network_stride))) * nb_segment_test
 
-        ds_test = SignalDataset(filename=filename,
-                                path=data_config['path_dataset'],
-                                window_size=window_size,
-                                fe=fe,
-                                seq_len=1,
-                                seq_stride=1,  # just to be sure, fixed value
-                                list_subject=test_subject,
-                                len_segment=len_segment)
+        ds_test = SignalDataset(
+            exp_config=exp_config,
+            filename=filename,
+            path=data_config['path_dataset'],
+            window_size=window_size,
+            fe=fe,
+            seq_len=1,
+            seq_stride=1,  # just to be sure, fixed value
+            list_subject=test_subject,
+            len_segment=len_segment)
 
-        samp_test = ValidationSampler(ds_test,
-                                      seq_stride=seq_stride,
-                                      len_segment=len_segment,
-                                      nb_segment=nb_segment_test,
-                                      network_stride=network_stride)
+        samp_test = ValidationSampler(
+            ds_test,
+            seq_stride=seq_stride,
+            len_segment=len_segment,
+            nb_segment=nb_segment_test,
+            network_stride=network_stride)
 
-        test_loader = DataLoader(ds_test,
-                                 batch_size=batch_size_test,
-                                 sampler=samp_test,
-                                 num_workers=0,
-                                 pin_memory=True,
-                                 shuffle=False)
+        test_loader = DataLoader(
+            ds_test,
+            batch_size=batch_size_test,
+            sampler=samp_test,
+            num_workers=0,
+            pin_memory=True,
+            shuffle=False)
 
     return train_loader, validation_loader, batch_size_validation, test_loader, batch_size_test, test_subject
 

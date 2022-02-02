@@ -399,7 +399,7 @@ def run(nn_config, data_config, exp_config, wandb_project, save_model, unique_na
     logger = LoggerWandb(experiment_name, nn_config,
                          wandb_project, data_config)
     torch.seed()
-    net = PortiloopNetwork(nn_config).to(device=device_train)
+    net = PortiloopNetwork(nn_config, exp_config).to(device=device_train)
     criterion = nn.MSELoss(
         reduction='none') if not classification else nn.BCELoss(reduction='none')
     # criterion = nn.MSELoss() if not classification else nn.BCELoss()
@@ -448,7 +448,7 @@ def run(nn_config, data_config, exp_config, wandb_project, save_model, unique_na
     nn_config["estimator_size_memory"] = nb_weights * \
         window_size * seq_len * batch_size * has_envelope
 
-    train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
+    train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(data_config, exp_config, window_size, fe, seq_len, seq_stride, distribution_mode,
                                                                                           batch_size, nb_batch_per_epoch, classification, split_idx,
                                                                                           validation_network_stride)
     if balancer_type == 1:
@@ -831,7 +831,8 @@ if __name__ == "__main__":
         'ablation': args.ablation,  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
         'phase': args.phase,
         'threshold': threshold_list[args.phase],
-        'len_segment': 115
+        'len_segment': 115,
+        'test': args.test_set
     }
 
     if args.save_config:
