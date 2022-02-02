@@ -25,7 +25,7 @@ from scipy.ndimage import gaussian_filter1d
 from portiloop_software.portiloop_python.Utils.utils import out_dim
 from portiloop_software.portiloop_python.ANN.dataset import LabelDistributionSmoothing, generate_dataloader, generate_dataloader_unlabelled_offline
 from portiloop_software.portiloop_python.ANN.nn_utils import LoggerWandb, SurpriseReweighting, get_metrics
-from portiloop_software.portiloop_python.ANN.configs import get_config_dict
+from portiloop_software.portiloop_python.ANN.configs import get_nn_dict
 
 
 # all classes and functions:
@@ -355,7 +355,7 @@ def run(nn_config, data_config, exp_config, wandb_project, save_model, unique_na
     global precision_validation_factor
     global recall_validation_factor
     _t_start = time.time()
-    logging.debug(f"config_dict: {nn_config}")
+    logging.debug(f"nn_config: {nn_config}")
     experiment_name = f"{nn_config['experiment_name']}_{time.time_ns()}" if unique_name else nn_config['experiment_name']
     nb_epoch_max = nn_config["nb_epoch_max"]
     nb_batch_per_epoch = nn_config["nb_batch_per_epoch"]
@@ -639,17 +639,17 @@ def run(nn_config, data_config, exp_config, wandb_project, save_model, unique_na
     return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
 
 
-def run_offline_unlabelled(config_dict, path_experiments, unlabelled_segment):
-    logging.debug(f"config_dict: {config_dict}")
-    experiment_name = config_dict['experiment_name']
-    window_size_s = config_dict["window_size_s"]
-    fe = config_dict["fe"]
-    seq_stride_s = config_dict["seq_stride_s"]
-    hidden_size = config_dict["hidden_size"]
-    device_inference = config_dict["device_inference"]
-    nb_rnn_layers = config_dict["nb_rnn_layers"]
-    classification = config_dict["classification"]
-    validation_network_stride = config_dict["validation_network_stride"]
+def run_offline_unlabelled(nn_config, path_experiments, unlabelled_segment):
+    logging.debug(f"nn_config: {nn_config}")
+    experiment_name = nn_config['experiment_name']
+    window_size_s = nn_config["window_size_s"]
+    fe = nn_config["fe"]
+    seq_stride_s = nn_config["seq_stride_s"]
+    hidden_size = nn_config["hidden_size"]
+    device_inference = nn_config["device_inference"]
+    nb_rnn_layers = nn_config["nb_rnn_layers"]
+    classification = nn_config["classification"]
+    validation_network_stride = nn_config["validation_network_stride"]
 
     window_size = int(window_size_s * fe)
     seq_stride = int(seq_stride_s * fe)
@@ -658,7 +658,7 @@ def run_offline_unlabelled(config_dict, path_experiments, unlabelled_segment):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
     torch.seed()
-    net = PortiloopNetwork(config_dict).to(device=device_inference)
+    net = PortiloopNetwork(nn_config).to(device=device_inference)
 
     file_exp = experiment_name
     file_exp += "" if classification else "_on_loss"
@@ -687,7 +687,7 @@ def run_offline_unlabelled(config_dict, path_experiments, unlabelled_segment):
 
 
 def initialize_nn_config(experiment_name):
-    config_dict = {
+    nn_config = {
         'experiment_name': experiment_name,
         'device_train': 'cuda:0',
         'device_val': 'cuda:0',
@@ -725,7 +725,7 @@ def initialize_nn_config(experiment_name):
         'nb_out': 24,
         'time_in_past': 4.300000000000001,
         'estimator_size_memory': 1628774400}
-    return config_dict
+    return nn_config
 
 
 def initialize_dataset_config(phase, path_dataset=None, reg_filename=None, class_filename=None, sl=None, sl_p1=None, sl_p2=None):
@@ -751,6 +751,19 @@ def initialize_dataset_config(phase, path_dataset=None, reg_filename=None, class
             'subject_list': sl,
             'subject_list_p1': sl_p1,
             'subject_list_p2': sl_p2}
+
+
+def initialize_exp_config(ablation=0, phase='full', test_set=False):
+    # Initialize a dictionary with all hyperparameters of the experiment
+    threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.2}  # full = p1 + p2
+    config = {
+        'ablation': ablation,  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
+        'phase': phase,
+        'threshold': threshold_list[phase],
+        'len_segment': 115,
+        'test': test_set
+    }
+    return config
 
 # Example to run on google colab: https://colab.research.google.com/drive/1jlpZ_ng9yXJYxl3Mqscr-82ephg5PSkw?usp=sharing
 
@@ -813,7 +826,7 @@ if __name__ == "__main__":
         except Exception:
             # REad from one of defaults
 
-            nn_config = get_config_dict(
+            nn_config = get_nn_dict(
                 args.config_nn, args.ablation, exp_index, split_idx)
     nn_config['split_idx'] = split_idx
 
@@ -823,15 +836,8 @@ if __name__ == "__main__":
     nn_config['experiment_name'] += "_regression" if not args.classification else ""
     nn_config['experiment_name'] += "_no_test" if not args.test_set else ""
 
-    # Initialize a dictionary with all hyperparameters of the experiment
-    threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.2}  # full = p1 + p2
-    exp_config = {
-        'ablation': args.ablation,  # 0 : no ablation, 1 : remove input 1, 2 : remove input 2
-        'phase': args.phase,
-        'threshold': threshold_list[args.phase],
-        'len_segment': 115,
-        'test': args.test_set
-    }
+    exp_config = initialize_exp_config(
+        ablation=args.ablation, phase=args.phase, test_set=args.test_set)
 
     if args.save_config:
         with open(f"{args.experiment_name}_nn_config.json", "w") as outfile:

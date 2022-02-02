@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader, Dataset
 import wandb
 
 # all constants (no hyperparameters here!)
-from portiloop_software.portiloop_python.ANN.training_experiment import PortiloopNetwork, run
+from portiloop_software.portiloop_python.ANN.training_experiment import PortiloopNetwork, initialize_exp_config, run, initialize_dataset_config
 from portiloop_software.portiloop_python.Utils.utils import EPSILON_EXP_NOISE, MAX_NB_PARAMETERS, MIN_NB_PARAMETERS, sample_config_dict, MAXIMIZE_F1_SCORE
 
 THRESHOLD = 0.2
@@ -460,7 +460,7 @@ class LoggerWandbPareto:
         self.wandb_run.finish()
 
 
-def iterative_training_local():
+def iterative_training_local(data_config, exp_config):
     logger = LoggerWandbPareto(RUN_NAME)
 
     all_experiments, pareto_front = load_network_files()
@@ -532,8 +532,9 @@ def iterative_training_local():
         logging.debug(f"nb parameters: {nb_params}")
         logging.debug(f"predicted cost: {predicted_cost}")
         logging.debug("training...")
+        # TODO: Get the dataconfig and the experiment config
         best_loss, best_f1_score, exp["best_epoch"] = run(
-            exp["config_dict"], f"{WANDB_PROJECT_PARETO}_runs_{PARETO_ID}", save_model=False, unique_name=True)
+            exp["config_dict"], data_config, exp_config, f"{WANDB_PROJECT_PARETO}_runs_{PARETO_ID}", save_model=False, unique_name=True)
         exp["cost_software"] = 1 - \
             best_f1_score if MAXIMIZE_F1_SCORE else best_loss
 
@@ -568,8 +569,14 @@ def iterative_training_local():
 
 if __name__ == "__main__":
     parser = ArgumentParser()
+    parser.add_argument('--dataset_path', type=str, default=None)
     parser.add_argument('--output_file', type=str, default=None)
     args = parser.parse_args()
+
+    data_config = initialize_dataset_config(
+        args.phase, path_dataset=Path(args.dataset_path) if args.dataset_path is not None else None)
+    exp_config = initialize_exp_config()
+
     if args.output_file is not None:
         logging.basicConfig(format='%(levelname)s: %(message)s',
                             filename=args.output_file, level=logging.DEBUG)
@@ -577,4 +584,4 @@ if __name__ == "__main__":
         logging.basicConfig(
             format='%(levelname)s: %(message)s', level=logging.DEBUG)
 
-    iterative_training_local()
+    iterative_training_local(data_config, exp_config)
