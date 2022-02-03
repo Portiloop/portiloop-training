@@ -1,5 +1,5 @@
 
-def get_config_dict(config_name, ablation, index, split_i):
+def get_nn_dict(config_name, ablation, index, split_i):
 
     if config_name == 'spindle_net':
         return {'experiment_name': f'spindleNet_{index}', 'device_train': 'cuda:0', 'device_val':
