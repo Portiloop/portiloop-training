@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader, Dataset
 import wandb
 
 # all constants (no hyperparameters here!)
-from portiloop_software.portiloop_python.ANN.portiloop_detector_training import PortiloopNetwork, run
+from portiloop_software.portiloop_python.ANN.training_experiment import PortiloopNetwork, initialize_exp_config, run, initialize_dataset_config
 from portiloop_software.portiloop_python.Utils.utils import EPSILON_EXP_NOISE, MAX_NB_PARAMETERS, MIN_NB_PARAMETERS, sample_config_dict, MAXIMIZE_F1_SCORE
 
 THRESHOLD = 0.2
@@ -42,13 +42,18 @@ META_MODEL_DEVICE = "cpu"  # the surrogate model will be trained on this device
 PARETO_ID = "tests"
 RUN_NAME = f"pareto_search_{PARETO_ID}"
 
-NB_SAMPLED_MODELS_PER_ITERATION = 200  # number of models sampled per iteration, only the best predicted one is selected
+# number of models sampled per iteration, only the best predicted one is selected
+NB_SAMPLED_MODELS_PER_ITERATION = 200
 
-DEFAULT_META_EPOCHS = 100  # default number of meta-epochs before entering meta train/val training regime
-START_META_TRAIN_VAL_AFTER = 100  # minimum number of experiments in the dataset before using a validation set
+# default number of meta-epochs before entering meta train/val training regime
+DEFAULT_META_EPOCHS = 100
+# minimum number of experiments in the dataset before using a validation set
+START_META_TRAIN_VAL_AFTER = 100
 META_TRAIN_VAL_RATIO = 0.8  # portion of experiments in meta training sets
-MAX_META_EPOCHS = 500  # surrogate training will stop after this number of meta-training epochs if the model doesn't converge
-META_EARLY_STOPPING = 30  # meta early stopping after this number of unsuccessful meta epochs
+# surrogate training will stop after this number of meta-training epochs if the model doesn't converge
+MAX_META_EPOCHS = 500
+# meta early stopping after this number of unsuccessful meta epochs
+META_EARLY_STOPPING = 30
 
 
 class MetaDataset(Dataset):
@@ -60,7 +65,8 @@ class MetaDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
+        assert 0 <= idx <= len(
+            self), f"Index out of range ({idx}/{len(self)})."
         config_dict = self.data[idx]["config_dict"]
         x = transform_config_dict_to_input(config_dict)
         label = torch.tensor(self.data[idx]["cost_software"])
@@ -150,45 +156,52 @@ def dominates_pareto(experiment, pareto):
 
 
 def transform_config_dict_to_input(config_dict):
-    x = [#float(config_dict["seq_len"]),  # idk why, but needed
-         float(config_dict["nb_channel"]),
-         config_dict["hidden_size"],
-         int(config_dict["seq_stride_s"] * config_dict["fe"]),
-         config_dict["nb_rnn_layers"],
-         int(config_dict["window_size_s"] * config_dict["fe"]),
-         config_dict["nb_conv_layers"],
-         #config_dict["stride_pool"],
-         #config_dict["stride_conv"],
-         config_dict["kernel_conv"],
-         config_dict["kernel_pool"],
-         #config_dict["dilation_conv"],
-         #config_dict["dilation_pool"],
-         #int(config_dict['RNN']),
-         #int(config_dict['envelope_input']),
-         config_dict["lr_adam"],
-         config_dict["batch_size"]]
+    x = [  # float(config_dict["seq_len"]),  # idk why, but needed
+        float(config_dict["nb_channel"]),
+        config_dict["hidden_size"],
+        int(config_dict["seq_stride_s"] * config_dict["fe"]),
+        config_dict["nb_rnn_layers"],
+        int(config_dict["window_size_s"] * config_dict["fe"]),
+        config_dict["nb_conv_layers"],
+        # config_dict["stride_pool"],
+        # config_dict["stride_conv"],
+        config_dict["kernel_conv"],
+        config_dict["kernel_pool"],
+        # config_dict["dilation_conv"],
+        # config_dict["dilation_pool"],
+        # int(config_dict['RNN']),
+        # int(config_dict['envelope_input']),
+        config_dict["lr_adam"],
+        config_dict["batch_size"]]
     x = torch.tensor(x)
     return x
 
 
 def train_surrogate(net, all_experiments):
-    optimizer = torch.optim.SGD(net.parameters(), lr=0.05, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
+    optimizer = torch.optim.SGD(net.parameters(
+    ), lr=0.05, momentum=0, dampening=0, weight_decay=0.01, nesterov=False)
     criterion = nn.MSELoss()
     best_val_loss = np.inf
     best_model = None
     early_stopping_counter = 0
     random.shuffle(all_experiments)
-    max_epoch = MAX_META_EPOCHS if len(all_experiments) > START_META_TRAIN_VAL_AFTER else len(all_experiments)
+    max_epoch = MAX_META_EPOCHS if len(
+        all_experiments) > START_META_TRAIN_VAL_AFTER else len(all_experiments)
 
     for epoch in range(max_epoch):
         if len(all_experiments) > START_META_TRAIN_VAL_AFTER:
-            train_dataset = MetaDataset(all_experiments, start=0, end=META_TRAIN_VAL_RATIO)
-            validation_dataset = MetaDataset(all_experiments, start=META_TRAIN_VAL_RATIO, end=1)
-            train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
-            validation_loader = DataLoader(validation_dataset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
+            train_dataset = MetaDataset(
+                all_experiments, start=0, end=META_TRAIN_VAL_RATIO)
+            validation_dataset = MetaDataset(
+                all_experiments, start=META_TRAIN_VAL_RATIO, end=1)
+            train_loader = DataLoader(
+                train_dataset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
+            validation_loader = DataLoader(
+                validation_dataset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
         else:
             train_dataset = MetaDataset(all_experiments, start=0, end=1)
-            train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
+            train_loader = DataLoader(
+                train_dataset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
         losses = []
 
         net.train()
@@ -215,8 +228,10 @@ def train_surrogate(net, all_experiments):
             with torch.no_grad():
                 for batch_data in validation_loader:
                     batch_samples, batch_labels = batch_data
-                    batch_samples = batch_samples.to(device=META_MODEL_DEVICE).float()
-                    batch_labels = batch_labels.to(device=META_MODEL_DEVICE).float()
+                    batch_samples = batch_samples.to(
+                        device=META_MODEL_DEVICE).float()
+                    batch_labels = batch_labels.to(
+                        device=META_MODEL_DEVICE).float()
 
                     output = net(batch_samples)
                     output = output.view(-1)
@@ -235,10 +250,12 @@ def train_surrogate(net, all_experiments):
                 if early_stopping_counter >= META_EARLY_STOPPING:
                     net = best_model
                     mean_loss = best_val_loss
-                    logging.debug(f"DEBUG: meta training converged at epoch:{epoch} (-{META_EARLY_STOPPING})")
+                    logging.debug(
+                        f"DEBUG: meta training converged at epoch:{epoch} (-{META_EARLY_STOPPING})")
                     break
                 elif epoch == MAX_META_EPOCHS - 1:
-                    logging.debug(f"DEBUG: meta training did not converge after epoch:{epoch}")
+                    logging.debug(
+                        f"DEBUG: meta training did not converge after epoch:{epoch}")
                     break
     net.eval()
     return net, mean_loss
@@ -255,7 +272,8 @@ def wandb_plot_pareto(all_experiments, ordered_pareto_front):
     y_axis = [exp["cost_software"] for exp in ordered_pareto_front]
     plt.plot(x_axis, y_axis, 'ro-')
     # last dot
-    plt.plot(all_experiments[-1]["cost_hardware"], all_experiments[-1]["cost_software"], 'go')
+    plt.plot(all_experiments[-1]["cost_hardware"],
+             all_experiments[-1]["cost_software"], 'go')
 
     plt.xlabel(f"nb parameters")
     plt.ylabel(f"validation cost")
@@ -326,12 +344,14 @@ def pareto_efficiency(experiment, all_experiments):
 
 def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
     assert len(experiments) >= 1
-    noise = random.choices(population=[True, False], weights=[EPSILON_EXP_NOISE, 1.0 - EPSILON_EXP_NOISE])[0]
+    noise = random.choices(population=[True, False], weights=[
+                           EPSILON_EXP_NOISE, 1.0 - EPSILON_EXP_NOISE])[0]
     if noise or len(pareto_front) == 0:
         return random.choice(experiments)
     else:
         assert len(all_experiments) != 0
-        histo = np.histogram([exp["cost_hardware"] for exp in all_experiments], bins=100, density=True, range=(0, MAX_NB_PARAMETERS))
+        histo = np.histogram([exp["cost_hardware"] for exp in all_experiments],
+                             bins=100, density=True, range=(0, MAX_NB_PARAMETERS))
 
         max_efficiency = -np.inf
         best_exp = None
@@ -347,7 +367,8 @@ def exp_max_pareto_efficiency(experiments, pareto_front, all_experiments):
                 best_efficiency = efficiency + nerf
                 best_nerf = nerf
         assert best_exp is not None
-        logging.debug(f"DEBUG: selected {best_exp['cost_hardware']}: efficiency:{best_efficiency}, nerf:{best_nerf}")
+        logging.debug(
+            f"DEBUG: selected {best_exp['cost_hardware']}: efficiency:{best_efficiency}, nerf:{best_nerf}")
         return best_exp
 
 
@@ -419,7 +440,8 @@ class LoggerWandbPareto:
     def __init__(self, run_name):
         self.run_name = run_name
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project=WANDB_PROJECT_PARETO, entity="portiloop", id=run_name, resume="allow", reinit=True)
+        self.wandb_run = wandb.init(
+            project=WANDB_PROJECT_PARETO, entity="portiloop", id=run_name, resume="allow", reinit=True)
 
     def log(self,
             surrogate_loss,
@@ -438,7 +460,7 @@ class LoggerWandbPareto:
         self.wandb_run.finish()
 
 
-def iterative_training_local():
+def iterative_training_local(data_config, exp_config):
     logger = LoggerWandbPareto(RUN_NAME)
 
     all_experiments, pareto_front = load_network_files()
@@ -455,7 +477,8 @@ def iterative_training_local():
         meta_model = SurrogateModel()
         meta_model.to(META_MODEL_DEVICE)
         meta_model.train()
-        meta_model, meta_loss = train_surrogate(meta_model, deepcopy(all_experiments))
+        meta_model, meta_loss = train_surrogate(
+            meta_model, deepcopy(all_experiments))
         logging.debug(f"surrogate model loss: {meta_loss}")
 
     # main meta-learning procedure:
@@ -475,7 +498,8 @@ def iterative_training_local():
             exp = {}
 
             # sample model
-            config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), previous_exp=prev_exp, all_exp=all_experiments)
+            config_dict, unrounded = sample_config_dict(
+                name=RUN_NAME + "_" + str(num_experiment), previous_exp=prev_exp, all_exp=all_experiments)
 
             nb_params = nb_parameters(config_dict)
             if nb_params > MAX_NB_PARAMETERS or nb_params < MIN_NB_PARAMETERS:
@@ -496,7 +520,8 @@ def iterative_training_local():
             if len(exps) >= NB_SAMPLED_MODELS_PER_ITERATION:
                 # select model
                 model_selected = True
-                exp = exp_max_pareto_efficiency(exps, pareto_front, all_experiments)
+                exp = exp_max_pareto_efficiency(
+                    exps, pareto_front, all_experiments)
 
         config_dict = exp["config_dict"]
         predicted_cost = exp["cost_software"]
@@ -507,8 +532,11 @@ def iterative_training_local():
         logging.debug(f"nb parameters: {nb_params}")
         logging.debug(f"predicted cost: {predicted_cost}")
         logging.debug("training...")
-        best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], f"{WANDB_PROJECT_PARETO}_runs_{PARETO_ID}", save_model=False, unique_name=True)
-        exp["cost_software"] = 1 - best_f1_score if MAXIMIZE_F1_SCORE else best_loss
+        # TODO: Get the dataconfig and the experiment config
+        best_loss, best_f1_score, exp["best_epoch"] = run(
+            exp["config_dict"], data_config, exp_config, f"{WANDB_PROJECT_PARETO}_runs_{PARETO_ID}", save_model=False, unique_name=True)
+        exp["cost_software"] = 1 - \
+            best_f1_score if MAXIMIZE_F1_SCORE else best_loss
 
         pareto_front = update_pareto(exp, pareto_front)
         all_experiments.append(exp)
@@ -525,12 +553,14 @@ def iterative_training_local():
         meta_model.to(META_MODEL_DEVICE)
 
         meta_model.train()
-        meta_model, meta_loss = train_surrogate(meta_model, deepcopy(all_experiments))
+        meta_model, meta_loss = train_surrogate(
+            meta_model, deepcopy(all_experiments))
 
         logging.debug(f"surrogate model loss: {meta_loss}")
 
         dump_network_files(all_experiments, pareto_front)
-        logger.log(surrogate_loss=meta_loss, surprise=surprise, all_experiments=all_experiments, pareto_front=pareto_front)
+        logger.log(surrogate_loss=meta_loss, surprise=surprise,
+                   all_experiments=all_experiments, pareto_front=pareto_front)
 
     logging.debug(f"End of meta-training.")
 
@@ -539,11 +569,19 @@ def iterative_training_local():
 
 if __name__ == "__main__":
     parser = ArgumentParser()
+    parser.add_argument('--dataset_path', type=str, default=None)
     parser.add_argument('--output_file', type=str, default=None)
     args = parser.parse_args()
-    if args.output_file is not None:
-        logging.basicConfig(format='%(levelname)s: %(message)s', filename=args.output_file, level=logging.DEBUG)
-    else:
-        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
 
-    iterative_training_local()
+    data_config = initialize_dataset_config(
+        args.phase, path_dataset=Path(args.dataset_path) if args.dataset_path is not None else None)
+    exp_config = initialize_exp_config()
+
+    if args.output_file is not None:
+        logging.basicConfig(format='%(levelname)s: %(message)s',
+                            filename=args.output_file, level=logging.DEBUG)
+    else:
+        logging.basicConfig(
+            format='%(levelname)s: %(message)s', level=logging.DEBUG)
+
+    iterative_training_local(data_config, exp_config)
