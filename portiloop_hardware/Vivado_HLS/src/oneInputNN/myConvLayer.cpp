@@ -1,2 +1,0 @@
-#include "myConvLayer.h"
-

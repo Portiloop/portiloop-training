@@ -1,1 +1,0 @@
-to export the code in .bin, use makemybin with xilinx shell (inside Xilinx SDK, Xilinx > Launch Shell)

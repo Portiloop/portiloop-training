@@ -1,6 +1,6 @@
-# The Portiloop
+# Portiloop training
 
-![Prototype](https://github.com/nicolasvalenchon/Portiloop/blob/main/images/photo_portiloop.jpg)
+![Prototype](images/meta.jpg)
 
 ## Quick start guide
 
@@ -32,6 +32,3 @@ Functions used for training are defined in python under the `portiloop_software`
 We provide [bash scripts examples](https://github.com/nicolasvalenchon/Portiloop/releases/download/v0.0.2/scripts.zip) for `SLURM` to train the model on HPC systems.
 Adapt these scripts to your configuration.
 Your training curves can be visualized in real time easily using [wandb](https://wandb.ai/portiloop) (the code is ready, you may adapt it to your project name and entity).
-
-### Hardware implementation:
-The current hardware implementation (pynq FPGA with Vivado / Vivado HLS) is provided under the `portiloop_hardware` folder.

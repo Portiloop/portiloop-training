@@ -1,1 +1,0 @@
-Follow pynq installation vivado but use portiloop.tcl file
