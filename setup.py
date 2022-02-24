@@ -18,15 +18,15 @@ install_requires = [
     'pyinstrument'
 ]
 
-setup(name='portiloop',
+setup(name='portiloop-training',
       packages=[package for package in find_packages()],
       version='0.0.2',
       license='MIT',
       description='Sleep spindle detector',
       long_description=long_description,
       long_description_content_type="text/markdown",
-      author='Nicolas Valenchon',
-      url='https://github.com/nicolasmiles/Portiloop',
+      author='Nicolas Valenchon, Yann Bouteiller',
+      url='https://github.com/Portiloop/portiloop-training',
       download_url='',
       keywords=['spindle'],
       install_requires=install_requires,
