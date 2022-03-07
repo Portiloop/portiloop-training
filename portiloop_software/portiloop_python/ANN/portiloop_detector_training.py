@@ -1204,6 +1204,25 @@ def run(config_dict, wandb_project, save_model, unique_name):
     logging.debug("Logger deleted")
     return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
 
+
+def get_trained_model(config_dict, path_experiments):
+    experiment_name = config_dict['experiment_name']
+    device_inference = config_dict["device_inference"]
+    classification = config_dict["classification"]
+    if device_inference.startswith("cuda"):
+        assert torch.cuda.is_available(), "CUDA unavailable"
+    net = PortiloopNetwork(config_dict).to(device=device_inference)
+    file_exp = experiment_name
+    file_exp += "" if classification else "_on_loss"
+    path_experiments = Path(path_experiments)
+    if not device_inference.startswith("cuda"):
+        checkpoint = torch.load(path_experiments / file_exp, map_location=torch.device('cpu'))
+    else:
+        checkpoint = torch.load(path_experiments / file_exp)
+    net.load_state_dict(checkpoint['model_state_dict'])
+    return net
+
+
 def run_offline_unlabelled(config_dict, path_experiments, unlabelled_segment):
     logging.debug(f"config_dict: {config_dict}")
     experiment_name = config_dict['experiment_name']
