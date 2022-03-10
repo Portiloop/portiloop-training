@@ -230,6 +230,13 @@ class ValidationSampler(Sampler):
         # return len(self.data_source)
 
 
+def print_tensor_debug(x):
+    to_print = x.detach().numpy()
+    print(f"DEBUG: =========================")
+    print(f"DEBUG: x.shape:{to_print.shape}")
+    print(f"DEBUG: x:\n{x.detach().numpy()}")
+
+
 class ConvPoolModule(nn.Module):
     def __init__(self,
                  in_channels,
@@ -265,6 +272,7 @@ class ConvPoolModule(nn.Module):
         if max_temp > max_value:
             logging.debug(f"max_value = {max_temp}")
             max_value = max_temp
+        print_tensor_debug(x)
         return self.dropout(x), max_value
 
 
@@ -280,6 +288,7 @@ class FcModule(nn.Module):
 
     def forward(self, x):
         x = F.relu(self.fc(x))
+        print_tensor_debug(x)
         return self.dropout(x)
 
 
@@ -402,6 +411,7 @@ class PortiloopNetwork(nn.Module):
         # h1 : gru 1 hidden size
         # h2 : gru 2 hidden size
         # max_value (optional) : print the maximal value reach during inference (used to verify if the FPGA implementation precision is enough)
+
         (batch_size, sequence_len, features) = x1.shape
 
         if ABLATION == 1:
@@ -411,6 +421,7 @@ class PortiloopNetwork(nn.Module):
 
         x1 = x1.view(-1, 1, features)
         x1, max_value = self.first_layer_input1((x1, max_value))
+
         x1, max_value = self.seq_input1((x1, max_value))
 
         x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
@@ -451,12 +462,18 @@ class PortiloopNetwork(nn.Module):
             x3 = x3.view(-1, 1)
             x = torch.cat((x, x3), -1)
 
+        print(f"DEBUG: before FC")
+        print_tensor_debug(x)
         x = self.fc(x)  # output size: 1
+        print(f"DEBUG: after FC")
+        print_tensor_debug(x)
         max_temp = torch.max(abs(x))
         if max_temp > max_value:
             logging.debug(f"max_value = {max_temp}")
             max_value = max_temp
         x = torch.sigmoid(x)
+        print(f"DEBUG: after sigmoid:")
+        print_tensor_debug(x)
 
         return x, hn1, hn2, max_value
 
