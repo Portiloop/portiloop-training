@@ -231,10 +231,11 @@ class ValidationSampler(Sampler):
 
 
 def print_tensor_debug(x):
-    to_print = x.detach().numpy()
+    to_print = x.squeeze().detach().numpy()
     print(f"DEBUG: =========================")
     print(f"DEBUG: x.shape:{to_print.shape}")
-    print(f"DEBUG: x:\n{x.detach().numpy()}")
+    print(f"DEBUG: x.mean():{to_print.mean()}")
+    print(f"DEBUG: x:\n{to_print}")
 
 
 class ConvPoolModule(nn.Module):
@@ -428,6 +429,8 @@ class PortiloopNetwork(nn.Module):
         hn1 = None
         if self.RNN:
             x1 = x1.view(batch_size, sequence_len, -1)
+            print(f"DEBUG: GRU input")
+            print_tensor_debug(x1)
             x1, hn1 = self.gru_input1(x1, h1)
             max_temp = torch.max(abs(x1))
             if max_temp > max_value:
