@@ -233,9 +233,10 @@ class ValidationSampler(Sampler):
 def print_tensor_debug(x):
     to_print = x.squeeze().detach().numpy()
     print(f"DEBUG: =========================")
-    print(f"DEBUG: x.shape:{to_print.shape}")
+    print(f"DEBUG: x.shape:{x.detach().numpy().shape}")
     print(f"DEBUG: x.mean():{to_print.mean()}")
-    print(f"DEBUG: x:\n{to_print}")
+    print(f"DEBUG: squeezed shape :{to_print.shape}")
+    print(f"DEBUG: squeezed x:\n{to_print}")
 
 
 class ConvPoolModule(nn.Module):
@@ -425,18 +426,31 @@ class PortiloopNetwork(nn.Module):
 
         x1, max_value = self.seq_input1((x1, max_value))
 
+        x_debug_1 = x1.detach().numpy()
+
         x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
+
+        x_debug_2 = x1.detach().numpy()
+
         hn1 = None
         if self.RNN:
             x1 = x1.view(batch_size, sequence_len, -1)
+
+            x_debug_3 = x1.detach().numpy()
+
             print(f"DEBUG: GRU input")
             print_tensor_debug(x1)
             x1, hn1 = self.gru_input1(x1, h1)
+
+            x_debug_4 = x1.detach().numpy()
+
             max_temp = torch.max(abs(x1))
             if max_temp > max_value:
                 logging.debug(f"max_value = {max_temp}")
                 max_value = max_temp
             x1 = x1[:, -1, :]
+
+            x_debug_5 = x1.detach().numpy()
         else:
             x1 = self.first_fc_input1(x1)
             x1 = self.seq_fc_input1(x1)
@@ -478,7 +492,7 @@ class PortiloopNetwork(nn.Module):
         print(f"DEBUG: after sigmoid:")
         print_tensor_debug(x)
 
-        return x, hn1, hn2, max_value
+        return x, hn1, hn2, max_value, [x_debug_1, x_debug_2, x_debug_3, x_debug_4, x_debug_5]
 
 
 class LoggerWandb:
