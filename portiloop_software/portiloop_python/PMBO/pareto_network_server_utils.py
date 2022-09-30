@@ -145,7 +145,8 @@ def get_connected_socket(timeout, ip_connect, port_connect):
     s.settimeout(timeout)
     try:
         s.connect((ip_connect, port_connect))
-    except OSError:  # connection broken or timeout
+    except OSError as e:  # connection broken or timeout
+        logging.debug(f"Caugth exception {str(e)}")
         logging.debug(f"INFO: connect() timed-out or failed, sleeping {WAIT_BEFORE_RECONNECTION}s")
         s.close()
         time.sleep(WAIT_BEFORE_RECONNECTION)
