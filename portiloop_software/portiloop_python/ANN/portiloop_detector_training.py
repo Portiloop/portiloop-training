@@ -516,9 +516,9 @@ class LoggerWandb:
         self.wandb_run.summary["best_model_on_loss_recall_validation"] = best_model_on_loss_recall_validation
         self.wandb_run.summary["best_model_on_loss_loss_validation"] = best_model_on_loss_loss_validation
         self.wandb_run.summary["best_model_on_loss_accuracy_validation"] = best_model_on_loss_accuracy_validation
-        if updated_model:
-            self.wandb_run.save(os.path.join(path_dataset, self.experiment_name), policy="live", base_path=path_dataset)
-            self.wandb_run.save(os.path.join(path_dataset, self.experiment_name + "_on_loss"), policy="live", base_path=path_dataset)
+        # if updated_model:
+        #     self.wandb_run.save(os.path.join(path_dataset, self.experiment_name), policy="live", base_path=path_dataset)
+        #     self.wandb_run.save(os.path.join(path_dataset, self.experiment_name + "_on_loss"), policy="live", base_path=path_dataset)
 
     def __del__(self):
         self.wandb_run.finish()
@@ -875,6 +875,7 @@ def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode,
                                   num_workers=0,
                                   pin_memory=True)
 
+        print(f"DEBUG: Validation dataloader batch size: {batch_size_validation}")
         validation_loader = DataLoader(ds_validation,
                                        batch_size=batch_size_validation,
                                        sampler=samp_validation,
@@ -1360,29 +1361,51 @@ def get_final_model_config_dict(index=0, split_i=0):
     Returns:
         configuration dictionary of the pre-trained model
     """
-    c_dict = {'experiment_name': f'pareto_search_15_35_v4_{index}', 'device_train': 'cpu', 'device_val': 'cpu',
-              'device_inference': 'cpu', 'nb_epoch_max': 150, 'max_duration': 257400,
-              'nb_epoch_early_stopping_stop': 100, 'early_stopping_smoothing_factor': 0.1, 'fe': 250,
+    c_dict = {'experiment_name': f'sanity_check_final_model_0',
+              'device_train': 'cuda',
+              'device_val': 'cuda',
+              'device_inference': 'cpu',
+              'nb_epoch_max': 150,
+              'max_duration': 257400,
+              'nb_epoch_early_stopping_stop': 100,
+              'early_stopping_smoothing_factor': 0.1,
+              'fe': 250,
               'nb_batch_per_epoch': 1000,
               'first_layer_dropout': False,
-              'power_features_input': False, 'dropout': 0.5, 'adam_w': 0.01, 'distribution_mode': 0,
+              'power_features_input': False,
+              'dropout': 0.5,
+              'adam_w': 0.01,
+              'distribution_mode': 0,
               'classification': True,
               'reg_balancing': 'none',
-              'split_idx': split_i, 'validation_network_stride': 1, 'nb_conv_layers': 3, 'seq_len': 50,
-              'nb_channel': 31, 'hidden_size': 7,
+              'split_idx': split_i,
+              'validation_network_stride': 1,
+              'nb_conv_layers': 3,
+              'seq_len': 50,
+              'nb_channel': 31,
+              'hidden_size': 7,
               'seq_stride_s': 0.170,
-              'nb_rnn_layers': 1, 'RNN': True, 'envelope_input': False, 'lr_adam': 0.0005, 'batch_size': 256,
+              'nb_rnn_layers': 1,
+              'RNN': True,
+              'envelope_input': False,
+              'lr_adam': 0.0005,
+              'batch_size': 256,
               'window_size_s': 0.218,
               'stride_pool': 1,
-              'stride_conv': 1, 'kernel_conv': 7, 'kernel_pool': 7, 'dilation_conv': 1, 'dilation_pool': 1,
-              'nb_out': 18, 'time_in_past': 8.5,
+              'stride_conv': 1,
+              'kernel_conv': 7,
+              'kernel_pool': 7,
+              'dilation_conv': 1,
+              'dilation_pool': 1,
+              'nb_out': 18,
+              'time_in_past': 8.5,
               'estimator_size_memory': 188006400}
     return c_dict
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument('--experiment_name', type=str)
-    parser.add_argument('--experiment_index', type=int)
+    parser.add_argument('--experiment_name', type=str, default='test')
+    parser.add_argument('--experiment_index', type=int, default=0)
     parser.add_argument('--output_file', type=str, default=None)
     parser.add_argument('--phase', type=str, default='full')
     parser.add_argument('--ablation', type=int, default=0)
@@ -1421,7 +1444,7 @@ if __name__ == "__main__":
     classification = args.classification
     TEST_SET = args.test_set
     logging.debug(f"classification: {classification}")
-    config_dict = get_config_dict(exp_index, split_idx)
+    config_dict = get_final_model_config_dict(exp_index, split_idx)
     config_dict['distribution_mode'] = 0 if classification else 1
     config_dict['classification'] = classification
     config_dict['experiment_name'] += "_regression" if not classification else ""
