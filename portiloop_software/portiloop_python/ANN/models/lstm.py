@@ -6,7 +6,7 @@ import numpy as np
 from math import floor
 import copy
 
-from portiloop_software.portiloop_python.ANN.model_blocks import AttentionLayer, FullAttention, TransformerEncoderLayer
+from portiloop_software.portiloop_python.ANN.models.model_blocks import AttentionLayer, FullAttention, TransformerEncoderLayer
 
 
 ABLATION = 0
@@ -138,6 +138,7 @@ class PortiloopNetwork(nn.Module):
 
         self.after = "attention"
         # self.after = "cnn"
+        # self.after = None
 
         conv_padding = 0  # int(kernel_conv // 2)
         pool_padding = 0  # int(kernel_pool // 2)
@@ -198,11 +199,11 @@ class PortiloopNetwork(nn.Module):
         )
         self.cls = nn.Parameter(torch.randn(1, 1, fc_features))
 
-        self.fc = nn.Linear(in_features=fc_features * 2,  # enveloppe and signal + power features ratio
+        self.fc = nn.Linear(in_features=fc_features * 2 if self.after == "attention" else fc_features,  # enveloppe and signal + power features ratio
                             out_features=out_features)  # probability of being a spindle
 
 
-    def forward(self, x, h, max_value=np.inf):
+    def forward(self, x, h, past_x=None, max_value=np.inf):
         # x1 : input 1 : cleaned signal
         # x2 : input 2 : envelope
         # x3 : power features ratio
@@ -222,6 +223,11 @@ class PortiloopNetwork(nn.Module):
         out_gru = x[:, -1, :]  # output size: 1
 
         if self.after == "attention":
+            
+            # Use the accumulated past embeddings for attention (for validation)
+            if past_x is not None:
+                x = torch.cat((past_x, x), dim=1)
+
             # Append the cls token to the output of the GRU
             cls = self.cls.expand(batch_size, -1, -1)
             x = torch.cat((cls, x), dim=1)
@@ -232,12 +238,15 @@ class PortiloopNetwork(nn.Module):
             out = torch.cat((out_gru, out_attention[:, 0, :]), dim=1)
         elif self.after == "cnn":
             out = out_gru
+            # Add CNN experiment
+        else:
+            out = out_gru
 
         out = self.fc(out)
 
         x = torch.sigmoid(out)
 
-        return x, h
+        return x, h, out_gru
 
 
 def out_dim(window_size, padding, dilation, kernel, stride):

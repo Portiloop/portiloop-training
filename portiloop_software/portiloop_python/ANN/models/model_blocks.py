@@ -6,8 +6,8 @@ from einops import repeat
 from math import sqrt
 from copy import deepcopy
 
-from portiloop_software.portiloop_python.ANN.encoding import PositionalEncoder
-from portiloop_software.portiloop_python.ANN.masking import FullMask, LengthMask
+from portiloop_software.portiloop_python.ANN.models.encoding import PositionalEncoder
+from portiloop_software.portiloop_python.ANN.models.masking import FullMask, LengthMask
 
 
 class Transformer(nn.Module):
