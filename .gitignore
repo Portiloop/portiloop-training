@@ -140,3 +140,5 @@ wandb
 *.autosave
 
 *.svg
+
+portiloop_software/models/*

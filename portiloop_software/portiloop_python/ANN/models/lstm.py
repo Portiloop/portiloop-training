@@ -1,69 +1,18 @@
-import torch.nn as nn
-import torch
-import logging
-from torch.nn import functional as F
-import numpy as np
-from math import floor
 import copy
+import logging
+from math import floor
+from pathlib import Path
 
-from portiloop_software.portiloop_python.ANN.models.model_blocks import AttentionLayer, FullAttention, TransformerEncoderLayer
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
 
+from portiloop_software.portiloop_python.ANN.models.model_blocks import (
+    AttentionLayer, FullAttention, TransformerEncoderLayer)
+from portiloop_software.portiloop_python.ANN.utils import get_configs
 
 ABLATION = 0
-
-
-def get_final_model_config_dict(index=0, split_i=0):
-    """
-    Configuration dictionary of the final 1-input pre-trained model presented in the Portiloop paper.
-
-    Args:
-        index: last number in the name of the pre-trained model (several are provided)
-        split_i: index of the random train/validation/test split (you can ignore this for inference)
-
-    Returns:
-        configuration dictionary of the pre-trained model
-    """
-    c_dict = {'experiment_name': f'sanity_check_final_model_1',
-              'device_train': 'cuda',
-              'device_val': 'cuda',
-              'device_inference': 'cpu',
-              'nb_epoch_max': 150,
-              'max_duration': 257400,
-              'nb_epoch_early_stopping_stop': 100,
-              'early_stopping_smoothing_factor': 0.1,
-              'fe': 250,
-              'nb_batch_per_epoch': 1000,
-              'first_layer_dropout': False,
-              'power_features_input': False,
-              'dropout': 0.0,
-              'adam_w': 0.01,
-              'distribution_mode': 0,
-              'classification': True,
-              'reg_balancing': 'none',
-              'split_idx': split_i,
-              'validation_network_stride': 1,
-              'nb_conv_layers': 3,
-              'seq_len': 50,
-              'nb_channel': 31,
-              'hidden_size': 7,
-              'seq_stride_s': 0.170,
-              'nb_rnn_layers': 1,
-              'RNN': True,
-              'envelope_input': False,
-              'lr_adam': 0.0005,
-              'batch_size': 256,
-              'window_size_s': 0.218,
-              'stride_pool': 1,
-              'stride_conv': 1,
-              'kernel_conv': 7,
-              'kernel_pool': 7,
-              'dilation_conv': 1,
-              'dilation_pool': 1,
-              'nb_out': 18,
-              'time_in_past': 8.5,
-              'estimator_size_memory': 188006400}
-    return c_dict
-
 
 class ConvPoolModule(nn.Module):
     def __init__(self,
@@ -135,10 +84,8 @@ class PortiloopNetwork(nn.Module):
         self.envelope_input = c_dict["envelope_input"]
         self.power_features_input = c_dict["power_features_input"]
         self.classification = c_dict["classification"]
-
-        self.after = "attention"
-        # self.after = "cnn"
-        # self.after = None
+        n_heads = c_dict["n_heads"]
+        self.after = c_dict['after_rnn']
 
         conv_padding = 0  # int(kernel_conv // 2)
         pool_padding = 0  # int(kernel_pool // 2)
@@ -185,8 +132,6 @@ class PortiloopNetwork(nn.Module):
         fc_features += hidden_size
         out_features = 1
 
-        n_heads = 4
-
         self.attention_layer = TransformerEncoderLayer(
             attention=AttentionLayer(
                 FullAttention(),
@@ -199,7 +144,16 @@ class PortiloopNetwork(nn.Module):
         )
         self.cls = nn.Parameter(torch.randn(1, 1, fc_features))
 
-        self.fc = nn.Linear(in_features=fc_features * 2 if self.after == "attention" else fc_features,  # enveloppe and signal + power features ratio
+        out_cnn_size_after_rnn = 0
+
+        if self.after == "attention":
+            in_fc = fc_features * 2
+        elif self.after == "cnn":
+            in_fc = fc_features + out_cnn_size_after_rnn
+        else:
+            in_fc = fc_features
+
+        self.fc = nn.Linear(in_features=in_fc,
                             out_features=out_features)  # probability of being a spindle
 
 
@@ -254,10 +208,28 @@ def out_dim(window_size, padding, dilation, kernel, stride):
 
 
 if __name__ == "__main__":
-    config = get_final_model_config_dict()
+    config = get_configs()
     model = PortiloopNetwork(config)
     window_size = int(config['window_size_s'] * config['fe'])
     x = torch.randn(config['batch_size'], config['seq_len'], window_size)
     h = torch.zeros(config['nb_rnn_layers'], config['batch_size'], config['hidden_size'])
 
     res_x, res_h = model(x, h)
+
+
+def get_trained_model(config_dict, path_experiments):
+    experiment_name = config_dict['experiment_name']
+    device_inference = config_dict["device_inference"]
+    classification = config_dict["classification"]
+    if device_inference.startswith("cuda"):
+        assert torch.cuda.is_available(), "CUDA unavailable"
+    net = PortiloopNetwork(config_dict).to(device=device_inference)
+    file_exp = experiment_name
+    file_exp += "" if classification else "_on_loss"
+    path_experiments = Path(path_experiments)
+    if not device_inference.startswith("cuda"):
+        checkpoint = torch.load(path_experiments / file_exp, map_location=torch.device('cpu'))
+    else:
+        checkpoint = torch.load(path_experiments / file_exp)
+    net.load_state_dict(checkpoint['model_state_dict'])
+    return net    
