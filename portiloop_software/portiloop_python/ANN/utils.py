@@ -209,7 +209,6 @@ def get_configs(exp_name, test_set, seed_exp):
         # CNN stuff
         'nb_conv_layers': 3,
         'nb_channel': 31,
-        'hidden_size': 7,
         'stride_pool': 1,
         'stride_conv': 1,
         'kernel_conv': 7,
@@ -220,10 +219,11 @@ def get_configs(exp_name, test_set, seed_exp):
         # RNN stuff
         'nb_rnn_layers': 1,
         'nb_out': 18,
+        'hidden_size': 7,
 
         # Attention stuff
         'max_h_length': 50, # How many time steps to consider in the attention
-        'n_heads': 1, # How many attention heads to use
+        'n_heads': 4, # How many attention heads to use
         'after_rnn': "attention", # Whether to put attention, CNN, or nothing after the RNN
 
         # IDK

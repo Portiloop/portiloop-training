@@ -608,7 +608,7 @@ class SingleSubjectDataset(Dataset):
 
         self.config = config
         self.window_size = config['window_size']
-        self.seq_len = config['seq_len']
+        self.seq_len = 1
         self.seq_stride = config['seq_stride']
         
         # signal needed before the last window
@@ -620,7 +620,7 @@ class SingleSubjectDataset(Dataset):
         self.full_labels = []
         self.spindle_labels = []
 
-        assert subject_id not in data.keys(), f"Subject {subject_id} not found in the pretraining dataset"
+        assert subject_id in data.keys(), f"Subject {subject_id} not found in the pretraining dataset"
 
         # Get the signal for the given subject
         signal = torch.tensor(
@@ -654,7 +654,7 @@ class SingleSubjectDataset(Dataset):
         self.full_signal = signal
         del data[subject_id], signal, label
         
-        print(f"Number of spindle labels: {len(self.spindle_labels_iso) + len(self.spindle_labels_first) + len(self.spindle_labels_train)}")
+        print(f"Number of spindle labels: {len(self.spindle_labels)}")
 
 
     @staticmethod

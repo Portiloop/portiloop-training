@@ -1,4 +1,6 @@
 import argparse
+import random
+import time
 import torch
 from torch import nn
 from torch import optim
@@ -33,9 +35,11 @@ def run_adaptation(dataloader, net, device, config):
     h1 = torch.zeros((config['nb_rnn_layers'], 1, config['hidden_size']), device=device)
 
     # Run through the dataloader
-    out_grus = []
+    out_grus = None
     out_loss = 0
     for index, info in enumerate(dataloader):
+
+        # print(f"Batch {index}")
         # Get the data and labels
         window_data, window_labels = info
         window_data = window_data.to(device)
@@ -44,20 +48,32 @@ def run_adaptation(dataloader, net, device, config):
         optimizer.zero_grad()
 
         # Get the output of the network
-        output, h1, out_gru = net_copy(window_data, h1, torch.tensor(out_grus))
-        out_grus.append(out_gru)
+        output, h1, out_gru = net_copy(window_data, h1, past_x=out_grus)
+    
+        # Update the past embeddings
+        if out_grus is None:
+            out_grus = out_gru
+        else:
+            out_grus = torch.cat([out_grus, out_gru], dim=1)
 
         if len(out_grus) > config['max_h_length']:
-            out_grus.pop(0)
+            out_grus = out_grus[:, 1:, :]
 
         # Compute the loss
+        output = output.squeeze(-1)
+        window_labels = window_labels.float()
         loss = criterion(output, window_labels)
 
-        if index % 1 == 0:
+        if index % 1 == 0 and False:
             # Update the model
             loss.backward()
             optimizer.step()
 
+        h1 = h1.detach()
+        out_gru = out_gru.detach()
+        out_grus = out_grus.detach()
+        output = output.detach()
+        
         # Update the loss
         out_loss += loss.item()
         n += 1
@@ -91,22 +107,31 @@ def parse_config():
     parser.add_argument('--subject_id', type=str, default='01-01-0001', help='Subject on which to run the experiment')
     parser.add_argument('--model_path', type=str, default='testing_att_after_gru', help='Model for the starting point of the model')
     parser.add_argument('--experiment_name', type=str, default='test', help='Name of the model')
+    parser.add_argument('--seed', type=int, default=-1, help='Seed for the experiment')
     args = parser.parse_args()
 
     return args
 
 
 if __name__ == "__main__":
-    seed = 42
     # Parse config dict important for the adapatation
     args = parse_config()
+    if args.seed == -1:
+        seed = random.randint(0, 100000)
+    else:
+        seed = args.seed
+
     config = get_configs(args.experiment_name, False, seed)
     config['subject_id'] = args.subject_id
 
     # Load the data
     labels = read_spindle_trains_labels(config['old_dataset'])
-    data = read_pretraining_dataset(config['MASS_dir'])
-    dataset = SingleSubjectDataset(config['subject_id']) 
+    data = read_pretraining_dataset(config['MASS_dir'], patients_to_keep=[args.subject_id])
+
+    assert args.subject_id in data.keys(), 'Subject not in the dataset'
+    assert args.subject_id in labels.keys(), 'Subject not in the dataset'
+
+    dataset = SingleSubjectDataset(config['subject_id'], data=data, labels=labels, config=config) 
     dataloader = torch.utils.data.DataLoader(
         dataset, 
         batch_size=1, 
@@ -117,8 +142,12 @@ if __name__ == "__main__":
     net = get_trained_model(config, config['path_models'] / args.model_path)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
     # Run the adaptation
+    start = time.time()
     output_total, window_labels_total, loss, acc, tp, tn, fp, fn, net_copy = run_adaptation(dataloader, net, device, config)
+    end = time.time()
+    print('Time: ', end - start)
 
     # Get the metrics
     f1, precision, recall = get_metrics(tp, fp, fn)

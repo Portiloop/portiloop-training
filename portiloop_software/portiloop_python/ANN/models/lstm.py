@@ -158,11 +158,9 @@ class PortiloopNetwork(nn.Module):
 
 
     def forward(self, x, h, past_x=None, max_value=np.inf):
-        # x1 : input 1 : cleaned signal
-        # x2 : input 2 : envelope
-        # x3 : power features ratio
-        # h1 : gru 1 hidden size
-        # h2 : gru 2 hidden size
+        # x: input data (batch_size, sequence_len, features)
+        # h: hidden state of the GRU (nb_rnn_layers, batch_size, hidden_size)
+        # past_x: accumulated past embeddings (batch_size, any_seq_len, features)
         # max_value (optional) : print the maximal value reach during inference (used to verify if the FPGA implementation precision is enough)
         (batch_size, sequence_len, features) = x.shape
 
@@ -200,7 +198,7 @@ class PortiloopNetwork(nn.Module):
 
         x = torch.sigmoid(out)
 
-        return x, h, out_gru
+        return x, h, out_gru.unsqueeze(1)
 
 
 def out_dim(window_size, padding, dilation, kernel, stride):
@@ -217,19 +215,16 @@ if __name__ == "__main__":
     res_x, res_h = model(x, h)
 
 
-def get_trained_model(config_dict, path_experiments):
+def get_trained_model(config_dict, model_path):
     experiment_name = config_dict['experiment_name']
     device_inference = config_dict["device_inference"]
     classification = config_dict["classification"]
     if device_inference.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
     net = PortiloopNetwork(config_dict).to(device=device_inference)
-    file_exp = experiment_name
-    file_exp += "" if classification else "_on_loss"
-    path_experiments = Path(path_experiments)
     if not device_inference.startswith("cuda"):
-        checkpoint = torch.load(path_experiments / file_exp, map_location=torch.device('cpu'))
+        checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
     else:
-        checkpoint = torch.load(path_experiments / file_exp)
+        checkpoint = torch.load(model_path)
     net.load_state_dict(checkpoint['model_state_dict'])
     return net    
