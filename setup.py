@@ -15,7 +15,8 @@ install_requires = [
     'scipy',
     'matplotlib',
     'requests',
-    'pyinstrument'
+    'pyinstrument',
+    'einops'
 ]
 
 setup(name='portiloop-training',
