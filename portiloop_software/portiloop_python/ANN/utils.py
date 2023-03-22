@@ -224,7 +224,7 @@ def get_configs(exp_name, test_set, seed_exp):
         # Attention stuff
         'max_h_length': 50, # How many time steps to consider in the attention
         'n_heads': 4, # How many attention heads to use
-        'after_rnn': "attention", # Whether to put attention, CNN, or nothing after the RNN
+        'after_rnn': None, # Whether to put attention, CNN, or nothing after the RNN
 
         # IDK
         'time_in_past': 8.5,
@@ -243,7 +243,7 @@ def get_configs(exp_name, test_set, seed_exp):
         'threshold': 0.5,
         'window_size': 54,
         'seq_stride': 42,
-        'nb_batch_per_epoch': 1000,
+        'nb_batch_per_epoch': 10000,
         'distribution_mode': 0,
         'seq_len': 50,
         'seq_stride_s': 0.170,

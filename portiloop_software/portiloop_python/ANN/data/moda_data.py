@@ -8,6 +8,8 @@ import pandas as pd
 from random import randint, seed
 import logging
 
+from portiloop_software.portiloop_python.ANN.utils import get_configs
+
 
 def generate_dataloader(config):
     all_subject = pd.read_csv(Path(config['path_dataset']) / config['subject_list'], header=None, delim_whitespace=True).to_numpy()
@@ -334,3 +336,6 @@ class ValidationSampler(Sampler):
         assert False
         # return len(self.data)
         # return len(self.data_source)
+    
+
+    

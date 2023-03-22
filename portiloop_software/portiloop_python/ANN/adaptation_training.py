@@ -6,9 +6,83 @@ from torch import nn
 from torch import optim
 import copy
 
-from portiloop_software.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, read_pretraining_dataset, read_spindle_trains_labels
+from portiloop_software.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, SingleSubjectSampler, read_pretraining_dataset, read_spindle_trains_labels
 from portiloop_software.portiloop_python.ANN.models.lstm import get_trained_model
 from portiloop_software.portiloop_python.ANN.utils import get_configs, get_metrics
+
+
+class AdaptationSampler(torch.utils.data.Sampler):
+    def __init__(self, dataset):
+        """
+        Sample random items from a dataset
+        """
+        self.dataset = dataset
+
+    def __iter__(self):
+        """
+        Returns an iterator over the dataset
+        """
+        while True:
+            toss = random.random()
+            if toss > 0.5:
+                # Get a random index from the spindle indexes
+                yield random.choice(self.dataset.spindle_indexes)
+            else:
+                yield random.choice(self.dataset.non_spindle_indexes)
+
+
+class AdaptationDataset(torch.utils.data.Dataset):
+    def __init__(self, config):
+        """
+        Store items from a dataset 
+        """
+        self.samples = []
+        self.window_buffer = []
+        self.label_buffer = []
+        self.spindle_indexes = []
+        self.non_spindle_indexes = []
+        self.seq_len = config['seq_len']
+
+    def __getitem__(self, index):
+        """
+        Returns a sample from the dataset
+        """
+        return self.samples[index]
+
+    def __len__(self):
+        """
+        Returns the length of the dataset
+        """
+        return len(self.samples)
+
+    def add_sample(self, sample, label):
+        """
+        Takes a list of windows and adds them to the dataset
+        """
+        sample = torch.stack(sample)
+        sample = sample.reshape(sample.size(0), sample.size(-1))
+        self.samples.append((sample, label))
+        if label == 1:
+            self.spindle_indexes.append(len(self.samples) - 1)
+        else:
+            self.non_spindle_indexes.append(len(self.samples) - 1)
+
+    def add_window(self, window, label):
+        """
+        Adds a window to the window buffer to make it a sample when enough windows have arrived
+        """
+        self.window_buffer.append(window)
+        self.label_buffer.append(label)
+        # If we have enough windows to create a new sample, we add it to the dataset
+        if len(self.window_buffer) > self.seq_len:
+            self.add_sample(self.window_buffer[-self.seq_len:], self.label_buffer[-1])
+
+    def spindle_percentage(self):
+        sum_spindles = sum([i[1] for i in self.samples if i[1] == 1])
+        return sum_spindles / len(self)
+
+    def has_samples(self):
+        return len(self.spindle_indexes) > 0 and len(self.non_spindle_indexes) > 0 
 
 
 def run_adaptation(dataloader, net, device, config):
@@ -17,15 +91,24 @@ def run_adaptation(dataloader, net, device, config):
     Returns the accuracy and loss as well as fp, fn, tp, tn count for spindles
     Also returns the updated model
     """
-
-    # Initialize optimizer and criterion
-    optimizer = optim.AdamW(net.parameters(), lr=config['lr_adam'], weight_decay=config['adam_w'])
-    criterion = nn.BCELoss(reduction='none')
+    # Initialize adaptation dataset stuff
+    adap_dataset = AdaptationDataset(config)
+    adap_dataloader = torch.utils.data.DataLoader(
+        adap_dataset, 
+        batch_size=32, 
+        sampler=AdaptationSampler(adap_dataset), 
+        num_workers=0)
+    # sampler = AdaptationSampler(adap_dataset)
 
     # Initialize All the necessary variables
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
     net_copy = net_copy.train()
+
+    # Initialize optimizer and criterion
+    optimizer = optim.AdamW(net_copy.parameters(), lr=config['lr_adam'], weight_decay=config['adam_w'])
+    criterion = nn.BCELoss(reduction='none')
+
     loss = 0
     n = 0
     window_labels_total = torch.tensor([], device=device)
@@ -37,59 +120,74 @@ def run_adaptation(dataloader, net, device, config):
     # Run through the dataloader
     out_grus = None
     out_loss = 0
-    for index, info in enumerate(dataloader):
+    for index in range(len(dataloader)):
+        info = dataloader[index]
 
-        # print(f"Batch {index}")
-        # Get the data and labels
-        window_data, window_labels = info
-        window_data = window_data.to(device)
-        window_labels = window_labels.to(device)
+        with torch.no_grad():
+            # if index > 10000:
+            #     break
 
-        optimizer.zero_grad()
+            # print(f"Batch {index}")
+            # Get the data and labels
+            window_data, _, _, window_labels = info
+            window_data = window_data.unsqueeze(0)
+            window_labels = window_labels.unsqueeze(0)
 
-        # Get the output of the network
-        output, h1, out_gru = net_copy(window_data, h1, past_x=out_grus)
-    
-        # Update the past embeddings
-        if out_grus is None:
-            out_grus = out_gru
-        else:
-            out_grus = torch.cat([out_grus, out_gru], dim=1)
+            adap_dataset.add_window(window_data, window_labels)
+            
+            window_data = window_data.to(device)
+            window_labels = window_labels.to(device)
 
-        if len(out_grus) > config['max_h_length']:
-            out_grus = out_grus[:, 1:, :]
+            if index % 10000 == 0:
+                print(f"Doing index: {index}/{len(dataloader)}")
 
-        # Compute the loss
-        output = output.squeeze(-1)
-        window_labels = window_labels.float()
-        loss = criterion(output, window_labels)
+            # Get the output of the network
+            output, h1, _ = net_copy(window_data, h1)
 
-        if index % 1 == 0 and False:
-            # Update the model
+            # Compute the loss
+            output = output.squeeze(-1)
+            window_labels = window_labels.float()
+            
+            # Update the loss
+            out_loss += criterion(output, window_labels).detach().item()
+            n += 1
+
+            # Get the predictions
+            output = (output >= 0.5)
+
+            # Concatenate the predictions
+            window_labels_total = torch.cat([window_labels_total, window_labels])
+            output_total = torch.cat([output_total, output])
+
+        # Training loop for the adaptation
+        if index % 100 == 0 and adap_dataset.has_samples() and False:
+            train_sample, train_label = next(iter(adap_dataloader))
+            train_sample = train_sample.to(device)
+            train_label = train_label.to(device)
+
+            optimizer.zero_grad()
+
+            # Get the output of the network
+            h_zero = torch.zeros((config['nb_rnn_layers'], train_sample.size(0), config['hidden_size']), device=device)
+            output, _, _ = net_copy(train_sample, h_zero)
+            
+            # Compute the loss
+            output = output.squeeze(-1)
+            train_label = train_label.squeeze(-1).float()
+            loss = criterion(output, train_label)
+            
+            loss = loss.mean()
             loss.backward()
             optimizer.step()
 
-        h1 = h1.detach()
-        out_gru = out_gru.detach()
-        out_grus = out_grus.detach()
-        output = output.detach()
-        
-        # Update the loss
-        out_loss += loss.item()
-        n += 1
+    print(adap_dataset.spindle_percentage())
 
-        # Get the predictions
-        output = (output >= 0.5)
-
-        # Concatenate the predictions
-        window_labels_total = torch.cat([window_labels_total, window_labels])
-        output_total = torch.cat([output_total, output])
-    
     # Compute metrics
     loss /= n
     acc = (output_total == window_labels_total).float().mean()
     output_total = output_total.float()
     window_labels_total = window_labels_total.float()
+
     # Get the true positives, true negatives, false positives and false negatives
     tp = (window_labels_total * output_total)
     tn = ((1 - window_labels_total) * (1 - output_total))
@@ -105,7 +203,7 @@ def parse_config():
     """
     parser = argparse.ArgumentParser(description='Argument parser')
     parser.add_argument('--subject_id', type=str, default='01-01-0001', help='Subject on which to run the experiment')
-    parser.add_argument('--model_path', type=str, default='testing_att_after_gru', help='Model for the starting point of the model')
+    parser.add_argument('--model_path', type=str, default='no_att_baseline', help='Model for the starting point of the model')
     parser.add_argument('--experiment_name', type=str, default='test', help='Name of the model')
     parser.add_argument('--seed', type=int, default=-1, help='Seed for the experiment')
     args = parser.parse_args()
@@ -131,12 +229,12 @@ if __name__ == "__main__":
     assert args.subject_id in data.keys(), 'Subject not in the dataset'
     assert args.subject_id in labels.keys(), 'Subject not in the dataset'
 
-    dataset = SingleSubjectDataset(config['subject_id'], data=data, labels=labels, config=config) 
+    dataset = SingleSubjectDataset(config['subject_id'], data=data, labels=labels, config=config)   
     dataloader = torch.utils.data.DataLoader(
         dataset, 
         batch_size=1, 
-        shuffle=False, 
-        num_workers=0)       
+        sampler=SingleSubjectSampler(len(dataset), config['seq_stride']), 
+        num_workers=0)
 
     # Load the model
     net = get_trained_model(config, config['path_models'] / args.model_path)
@@ -145,7 +243,8 @@ if __name__ == "__main__":
     
     # Run the adaptation
     start = time.time()
-    output_total, window_labels_total, loss, acc, tp, tn, fp, fn, net_copy = run_adaptation(dataloader, net, device, config)
+    # run_adaptation(dataloader, net, device, config)
+    output_total, window_labels_total, loss, acc, tp, tn, fp, fn, net_copy = run_adaptation(dataset, net, device, config)
     end = time.time()
     print('Time: ', end - start)
 

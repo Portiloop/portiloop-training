@@ -24,6 +24,7 @@ from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.sampler import Sampler
 
 import wandb
+from portiloop_software.portiloop_python.ANN.data.mass_data import get_dataloaders_mass
 from portiloop_software.portiloop_python.ANN.data.moda_data import (
     generate_dataloader, generate_dataloader_unlabelled_offline)
 from portiloop_software.portiloop_python.ANN.data.reg_balancing import (
@@ -68,6 +69,7 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
                 batch_labels = batch_labels.float()
 
             # Run the model
+            # h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
             output, h1, out_gru = net_copy(batch_samples_input1, h1)
             out_grus.append(out_gru)
             MAX_H_SIZE = 100
@@ -90,7 +92,6 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
             batch_labels_total = torch.cat([batch_labels_total, batch_labels])
             output_total = torch.cat([output_total, output])
             n += 1
-
     # Compute metrics
     loss /= n
     acc = (output_total == batch_labels_total).float().mean()
@@ -203,15 +204,16 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
         file_exp = experiment_name
         file_exp += "" if classification else "_on_loss"
         checkpoint = torch.load(config_dict['path_dataset'] / file_exp)
-        logging.debug("Use checkpoint model")
         net.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        logging.debug("Use checkpoint model")
+
         first_epoch = checkpoint['epoch'] + 1
         recall_validation_factor = checkpoint['recall_validation_factor']
         precision_validation_factor = checkpoint['precision_validation_factor']
         best_model_on_loss_loss_validation = checkpoint['best_model_on_loss_loss_validation']
         best_model_f1_score_validation = checkpoint['best_model_f1_score_validation']
-    except (ValueError, FileNotFoundError):
+    except (ValueError, FileNotFoundError, RuntimeError):
         #    net = PortiloopNetwork(config_dict).to(device=device_train)
         logging.debug("Create new model")
     net = net.train()
@@ -223,7 +225,12 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
         has_envelope = 2
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
-    train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(config_dict)
+    # _, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(config_dict)
+    batch_size_validation = 1
+    config_dict["batch_size_validation"] = batch_size_validation
+
+    train_loader, validation_loader = get_dataloaders_mass(config_dict)
+
     if balancer_type == 1:
         lds = LabelDistributionSmoothing(c=1.0, dataset=train_loader.dataset, weights=None, kernel_size=5, kernel_std=0.01, nb_bins=100,
                                          weighting_mode='inv_sqrt')
@@ -251,6 +258,7 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
             loss_train = 0
             _t_start = time.time()
             for batch_data in train_loader:
+
                 batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
                 batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
                 batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
