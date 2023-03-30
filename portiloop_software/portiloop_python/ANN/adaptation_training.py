@@ -120,8 +120,7 @@ def run_adaptation(dataloader, net, device, config):
     # Run through the dataloader
     out_grus = None
     out_loss = 0
-    for index in range(len(dataloader)):
-        info = dataloader[index]
+    for index, info in enumerate(dataloader):
 
         with torch.no_grad():
             # if index > 10000:
@@ -130,8 +129,8 @@ def run_adaptation(dataloader, net, device, config):
             # print(f"Batch {index}")
             # Get the data and labels
             window_data, _, _, window_labels = info
-            window_data = window_data.unsqueeze(0)
-            window_labels = window_labels.unsqueeze(0)
+            # window_data = window_data.unsqueeze(0)
+            # window_labels = window_labels.unsqueeze(0)
 
             adap_dataset.add_window(window_data, window_labels)
             
@@ -139,7 +138,7 @@ def run_adaptation(dataloader, net, device, config):
             window_labels = window_labels.to(device)
 
             if index % 10000 == 0:
-                print(f"Doing index: {index}/{len(dataloader)}")
+                print(f"Doing index: {index}/{len(dataloader.sampler)}")
 
             # Get the output of the network
             output, h1, _ = net_copy(window_data, h1)
@@ -160,7 +159,7 @@ def run_adaptation(dataloader, net, device, config):
             output_total = torch.cat([output_total, output])
 
         # Training loop for the adaptation
-        if index % 100 == 0 and adap_dataset.has_samples() and False:
+        if index % 100 == 0 and adap_dataset.has_samples():
             train_sample, train_label = next(iter(adap_dataloader))
             train_sample = train_sample.to(device)
             train_label = train_label.to(device)
@@ -203,7 +202,7 @@ def parse_config():
     """
     parser = argparse.ArgumentParser(description='Argument parser')
     parser.add_argument('--subject_id', type=str, default='01-01-0001', help='Subject on which to run the experiment')
-    parser.add_argument('--model_path', type=str, default='no_att_baseline', help='Model for the starting point of the model')
+    parser.add_argument('--model_path', type=str, default='test_filtered_MASS', help='Model for the starting point of the model')
     parser.add_argument('--experiment_name', type=str, default='test', help='Name of the model')
     parser.add_argument('--seed', type=int, default=-1, help='Seed for the experiment')
     args = parser.parse_args()
@@ -230,10 +229,11 @@ if __name__ == "__main__":
     assert args.subject_id in labels.keys(), 'Subject not in the dataset'
 
     dataset = SingleSubjectDataset(config['subject_id'], data=data, labels=labels, config=config)   
+    sampler = SingleSubjectSampler(len(dataset), config['seq_stride'])
     dataloader = torch.utils.data.DataLoader(
         dataset, 
         batch_size=1, 
-        sampler=SingleSubjectSampler(len(dataset), config['seq_stride']), 
+        sampler=sampler, 
         num_workers=0)
 
     # Load the model
@@ -244,7 +244,7 @@ if __name__ == "__main__":
     # Run the adaptation
     start = time.time()
     # run_adaptation(dataloader, net, device, config)
-    output_total, window_labels_total, loss, acc, tp, tn, fp, fn, net_copy = run_adaptation(dataset, net, device, config)
+    output_total, window_labels_total, loss, acc, tp, tn, fp, fn, net_copy = run_adaptation(dataloader, net, device, config)
     end = time.time()
     print('Time: ', end - start)
 

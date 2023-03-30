@@ -48,7 +48,7 @@ def generate_dataloader(config):
     if config['seq_len'] is not None:
         nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in validation_subject]))
         batch_size_validation = len(list(range(0, (config['seq_stride'] // config['validation_network_stride']) * config['validation_network_stride'], config['validation_network_stride']))) * nb_segment_validation
-
+        print(batch_size_validation)
         ds_train = SignalDataset(filename=filename,
                                  path=config['path_dataset'],
                                  window_size=config['window_size'],
@@ -320,6 +320,8 @@ class ValidationSampler(Sampler):
         self.nb_segment = nb_segment
         self.len_segment = len_segment
 
+        self.length = len(list(iter(self)))
+
     def __iter__(self):
         seed()
         batches_per_segment = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
@@ -333,7 +335,7 @@ class ValidationSampler(Sampler):
             cursor_batch += 1
 
     def __len__(self):
-        assert False
+        return self.length
         # return len(self.data)
         # return len(self.data_source)
     

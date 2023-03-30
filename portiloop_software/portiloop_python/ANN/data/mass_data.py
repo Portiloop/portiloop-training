@@ -764,13 +764,15 @@ class SingleSubjectSampler(Sampler):
     def __init__(self, dataset_len, seq_stride):
         self.dataset_len = dataset_len
         self.seq_stride = seq_stride
+        self.indices = torch.arange(0, self.dataset_len, self.seq_stride)
+        print(f"Length of sampler: {len(self)}")
 
     def __iter__(self):
         # Get the indices of the first window of each sequence
-        indices = torch.arange(0, self.dataset_len, self.seq_stride)
-        return iter(indices)
+        return iter(self.indices)
 
-
+    def __len__(self):
+        return len(self.indices)
 
 class SingleSubjectDataset(Dataset):
     def __init__(self, subject_id, data, labels, config):
@@ -825,7 +827,7 @@ class SingleSubjectDataset(Dataset):
         del data[subject_id], signal, label
         
         print(f"Number of spindle labels: {len(self.spindle_labels)}")
-
+        print(f"len of full signal: {len(self.full_signal)}")
 
     @staticmethod
     def get_labels():

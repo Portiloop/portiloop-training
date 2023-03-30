@@ -225,11 +225,16 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
         has_envelope = 2
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
-    # _, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(config_dict)
-    batch_size_validation = 1
+    train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(config_dict)
+    # batch_size_validation = 1
     config_dict["batch_size_validation"] = batch_size_validation
 
-    train_loader, validation_loader = get_dataloaders_mass(config_dict)
+    train_loader_mass, validation_loader_mass = get_dataloaders_mass(config_dict)
+
+    MASS = True
+    if MASS:
+        train_loader = train_loader_mass
+        # validation_loader = validation_loader_mass
 
     if balancer_type == 1:
         lds = LabelDistributionSmoothing(c=1.0, dataset=train_loader.dataset, weights=None, kernel_size=5, kernel_std=0.01, nb_bins=100,
@@ -360,7 +365,7 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
                     'precision_validation_factor': precision_validation_factor,
                     'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
                     'best_model_f1_score_validation': best_model_f1_score_validation,
-                }, config_dict['path_dataset'] / (experiment_name + "_on_loss"), _use_new_zipfile_serialization=False)
+                }, config_dict['path_models'] / (experiment_name + "_on_loss"), _use_new_zipfile_serialization=False)
                 updated_model = True
             best_model_on_loss_f1_score_validation = f1_validation
             best_model_on_loss_precision_validation = precision_validation
