@@ -703,58 +703,79 @@ class MassDataset(SpindleTrainDataset):
 
 
 class MassValidationSampler(Sampler):
-    def __init__(self, subject_list, dividing_factor, seq_stride, total_len, past_signal_len):
+    def __init__(self, subject_list, seq_stride, window_size, total_len, past_signal_len, max_batch_size, max_segment_len):
         """
         Samples in order from a dataset. This is used for validation.
         To accelerate validation, each batch will be a collation of each point in the seq_stride for each subject, times the dividing factor.
         This means that the sequence for each subject will be divided according to the dividing factor to speed things up.
         Args:
-        dataset (SpindleTrainDataset): dataset to sample from
-        dividing_factor (int): the factor by which each subject will be divided
+        subject_list: list of the first index of each subject in the dataset,
+        seq_stride: the stride between each window of the sequence,
+        total_len: the total length of the dataset,
+        past_signal_len: the length of the past signal, how much of past signal we need to sample a sequence.
+        max_batch_size: the maximum batch size. This is used to select the number of segments to sample from each subject. 
+        max_segment_len: the maximum length of each segment of the sequence.
         """
         self.subject_indices = subject_list
-        self.subject_indices[0] = past_signal_len
-        self.dividing_factor = dividing_factor
         self.seq_stride = seq_stride
+        self.window_size = window_size
         self.total_len = total_len-1
         self.past_signal_len = past_signal_len
+        self.max_batch_size = max_batch_size
+        self.max_segment_len = max_segment_len
 
-        # figure out the shortest subdivision length among all the subjects according to the dividing factor
-        self.subdisivion_length = self.get_min_subdivision()
-        self.max_length = self.subdisivion_length // self.seq_stride
+        # Check that the max_segment_len is smaller than the smallest sequence size
+        self.subject_lengths = [self.subject_indices[i+1] - (self.subject_indices[i] + self.past_signal_len) for i in range(len(self.subject_indices)-1)]\
+                                + [self.total_len - (self.subject_indices[-1] + self.past_signal_len)]
+        smallest_subject = min(self.subject_lengths)
+        assert max_segment_len < smallest_subject, f"Max segment length {max_segment_len} is greater than the smallest subject length {smallest_subject}"
+        
+        self.max_length = self.max_segment_len // self.seq_stride
+        self.segment_starts = self.select_sequences()
+        self.indexes = list(self.get_iterator())
 
-    def get_min_subdivision(self):
+    def select_sequences(self):
         """
-        The validation can only be as large as the smallest subdivision of the subjects.
+        Select some random sequences from each subject.
+        We want to have at most batch_size sequences in total.
         """
-        min = 1000000000
-        for index, subject_index in enumerate(self.subject_indices[:-1]):
-            length = self.subject_indices[index + 1] - subject_index
-            length = length // self.dividing_factor
-            if length < min:
-                min = length
-        # Check the length of the final subject with the total length
-        length = self.total_len - self.subject_indices[-1]
-        length = length // self.dividing_factor
-        if length < min:
-            min = length
-        return min
+
+        # Get a list of the length of each subject
+        seg_starts = []
+        subject_index = 0
+        while len(seg_starts) < self.max_batch_size:
+            subject_index += 1
+            # If we have gone through all the subjects, start again
+            if subject_index >= len(self.subject_indices):
+                subject_index = 0
+
+            # Get the starting point for this subject
+            start_index = self.subject_indices[subject_index]
+            
+            # Get a random valid point for this subject
+            start = random.randint(start_index + self.past_signal_len, start_index + (self.subject_lengths[subject_index] - self.max_segment_len))
+            seg_starts.append(start)
+
+            assert start + self.max_segment_len < self.total_len, "The selected sequence is too long"
+
+        # This is now a batch_size length list of random starting points for sampling sequences spread around the subjects
+        return seg_starts
 
     def get_validation_batch_size(self): 
-        return self.dividing_factor * len(self.subject_indices) * self.seq_stride
+        return len(self.segment_starts)
             
     def __iter__(self):
         """
         Send an index in the right order.
         We start by iterating through the seq_stride, then through the subdivisions, then through the subjects.
         """
+        return iter(self.indexes)
+
+    def get_iterator(self):
         for i in range(self.max_length):
-            # Each batch will consist of all the following collated together:
-            for j in range(len(self.subject_indices)):
-                for k in range(self.dividing_factor):
-                    for l in range(self.seq_stride):
-                        #      place in subject       |     PLace in subdivision     |  place in seq_stride       
-                        yield self.subject_indices[j] + k * self.subdisivion_length + i * self.seq_stride + l - self.past_signal_len
+            # Each batch is a collation of all the prechosen segments accross all subjects
+            for start in self.segment_starts:
+                yield start + i * self.seq_stride
 
     def __len__(self):
         return self.max_length
@@ -863,26 +884,33 @@ if __name__ == "__main__":
 
 
     # Get the dataloader
-    sampler = MassValidationSampler(dataset.subject_list, 70, config['seq_stride'], len(dataset), dataset.past_signal_len)
+    sampler = MassValidationSampler(
+        subject_list=dataset.subject_list, 
+        seq_stride=config['seq_stride'], 
+        window_size=config['window_size'],
+        total_len=len(dataset), 
+        past_signal_len=dataset.past_signal_len,
+        max_batch_size=4000,
+        max_segment_len=15000)
+    
     batch_size = sampler.get_validation_batch_size()
     print(f"Number of batches {len(sampler)}")
     print(f"batch_size: {batch_size}")
-    # config['validation_batch_size'] = batch_size
-    # train_dataloader = DataLoader(
-    #     dataset,
-    #     batch_size=batch_size,
-    #     sampler=sampler,
-    #     pin_memory=True,
-    # )
+    config['validation_batch_size'] = batch_size
+    train_dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        sampler=sampler,
+        pin_memory=True,
+        num_workers=4,
+    )
 
-    # start = time.time()
-    # for index, i in enumerate(train_dataloader):
-    #     if index % 1000 == 0:
-    #         print(index)
+    start = time.time()
+    for index, i in enumerate(train_dataloader):
+        if index % 100 == 0:
+            print(index)
+    print(time.time() - start)
 
-    # print(time.time() - start)
-    # batches = torch.tensor(list(sampler)).reshape(-1, batch_size)
-    # print(batches[-1, :])
-    
-
+    batches = torch.tensor(list(sampler)).reshape(-1, batch_size)
+    print(batches[-1, :])
 
