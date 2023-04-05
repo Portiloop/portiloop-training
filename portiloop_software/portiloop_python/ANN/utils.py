@@ -93,10 +93,21 @@ def f1_loss(output, batch_labels):
     return 1 - New_F1
 
 
-def get_metrics(tp, fp, fn):
+def get_metrics(predictions, labels):
     """
     Compute the F1, precision and recall for spindles from a true positive count, false positive count and false negative count
     """
+
+    acc = (predictions == labels).float().mean()
+    predictions = predictions.float()
+    labels = labels.float()
+
+    # Get the true positives, true negatives, false positives and false negatives
+    tp = (labels * predictions)
+    tn = ((1 - labels) * (1 - predictions))
+    fp = ((1 - labels) * predictions)
+    fn = (labels * (1 - predictions))
+
     tp_sum = tp.sum().to(torch.float32).item()
     fp_sum = fp.sum().to(torch.float32).item()
     fn_sum = fn.sum().to(torch.float32).item()
@@ -107,7 +118,7 @@ def get_metrics(tp, fp, fn):
 
     f1 = 2 * (precision * recall) / (precision + recall + epsilon)
 
-    return f1, precision, recall
+    return acc, f1, precision, recall
 
 
 def get_final_model_config_dict(index=0, split_i=0):
@@ -194,7 +205,7 @@ def get_configs(exp_name, test_set, seed_exp):
         'lr_adam': 0.0005,
 
         # Stopping parameters
-        'nb_epoch_max': 150,
+        'nb_epoch_max': 1500,
         'max_duration': 257400,
         'nb_epoch_early_stopping_stop': 100,
         'early_stopping_smoothing_factor': 0.1,
@@ -208,7 +219,6 @@ def get_configs(exp_name, test_set, seed_exp):
 
         # CNN stuff
         'nb_conv_layers': 3,
-        'nb_channel': 31,
         'stride_pool': 1,
         'stride_conv': 1,
         'kernel_conv': 7,
@@ -217,9 +227,10 @@ def get_configs(exp_name, test_set, seed_exp):
         'dilation_pool': 1,
 
         # RNN stuff
-        'nb_rnn_layers': 1,
+        'nb_rnn_layers': 4,
         'nb_out': 18,
-        'hidden_size': 7,
+        'hidden_size': 32,
+        'nb_channel': 31,
 
         # Attention stuff
         'max_h_length': 50, # How many time steps to consider in the attention
@@ -237,17 +248,17 @@ def get_configs(exp_name, test_set, seed_exp):
 
         # Data info
         'fe': 250,
-        'validation_network_stride': 1,
+        'validation_network_stride': 10,
         'phase': "full",
         'split_idx': 0,
         'threshold': 0.5,
-        'window_size': 54,
-        'seq_stride': 42,
+        'window_size': 104,
+        'seq_stride': 84,
         'nb_batch_per_epoch': 1000,
         'distribution_mode': 0,
-        'seq_len': 50,
-        'seq_stride_s': 0.170,
-        'window_size_s': 0.218,
+        'seq_len': 100,
+        'seq_stride_s': 0.340,
+        'window_size_s': 0.416,
         'len_segment_s': 115,
     }
 

@@ -39,7 +39,7 @@ precision_validation_factor = 0.5
 # all classes and functions:
 
 
-def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation, threshold):
+def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation, threshold, recurrent=True):
     """
     Runs a validation inference over a whole dataset and returns the loss and accuracy.
     Aslo returns fp, fn, tp, tn count for spindles
@@ -54,11 +54,12 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
     output_total = torch.tensor([], device=device)
 
     # Initialize the hidden state of the GRU to Zero 
-    h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
+    if recurrent:
+        h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
 
     # Run through the dataloader
     with torch.no_grad():
-        out_grus = []
+        # out_grus = []
         for batch_data in dataloader:
             # Get the current batch data
             batch_samples_input1, _, _, batch_labels = batch_data
@@ -70,11 +71,15 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
 
             # Run the model
             # h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
-            output, h1, out_gru = net_copy(batch_samples_input1, h1)
-            out_grus.append(out_gru)
-            MAX_H_SIZE = 100
-            if len(out_grus) > MAX_H_SIZE:
-                out_grus.pop(0)
+            if recurrent:
+                output, h1, _ = net_copy(batch_samples_input1, h1)
+            else:
+                output = net_copy(batch_samples_input1)
+
+            # out_grus.append(out_gru)
+            # MAX_H_SIZE = 100
+            # if len(out_grus) > MAX_H_SIZE:
+            #     out_grus.pop(0)
 
             # Compute the loss
             output = output.view(-1)
@@ -92,18 +97,13 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
             batch_labels_total = torch.cat([batch_labels_total, batch_labels])
             output_total = torch.cat([output_total, output])
             n += 1
+
     # Compute metrics
     loss /= n
-    acc = (output_total == batch_labels_total).float().mean()
     output_total = output_total.float()
     batch_labels_total = batch_labels_total.float()
-    # Get the true positives, true negatives, false positives and false negatives
-    tp = (batch_labels_total * output_total)
-    tn = ((1 - batch_labels_total) * (1 - output_total))
-    fp = ((1 - batch_labels_total) * output_total)
-    fn = (batch_labels_total * (1 - output_total))
 
-    return output_total, batch_labels_total, loss, acc, tp, tn, fp, fn
+    return output_total, batch_labels_total, loss
 
 
 def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation):
@@ -133,7 +133,222 @@ def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rn
     output_total = output_total.float()
     true_idx_total = true_idx_total.int()
     return output_total, true_idx_total
-    
+
+
+def train(train_loader, val_loader, model, recurrent, logger, save_model, unique_name, config_dict):
+    global precision_validation_factor
+    global recall_validation_factor
+    _t_start = time.time()
+    logging.debug(f"config_dict: {config_dict}")
+    experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}" if unique_name else config_dict['experiment_name']
+    nb_epoch_max = config_dict["nb_epoch_max"]
+    nb_batch_per_epoch = config_dict["nb_batch_per_epoch"]
+    nb_epoch_early_stopping_stop = config_dict["nb_epoch_early_stopping_stop"]
+    early_stopping_smoothing_factor = config_dict["early_stopping_smoothing_factor"]
+    batch_size = config_dict["batch_size"]
+    seq_len = config_dict["seq_len"]
+    window_size_s = config_dict["window_size_s"]
+    fe = config_dict["fe"]
+    seq_stride_s = config_dict["seq_stride_s"]
+    lr_adam = config_dict["lr_adam"]
+    hidden_size = config_dict["hidden_size"]
+    device_val = config_dict["device_val"]
+    device_train = config_dict["device_train"]
+    max_duration = config_dict["max_duration"]
+    nb_rnn_layers = config_dict["nb_rnn_layers"]
+    adam_w = config_dict["adam_w"]
+    distribution_mode = config_dict["distribution_mode"]
+    classification = config_dict["classification"]
+    reg_balancing = config_dict["reg_balancing"]
+
+    window_size = int(window_size_s * fe)
+    seq_stride = int(seq_stride_s * fe)
+
+    if device_val.startswith("cuda") or device_train.startswith("cuda"):
+        assert torch.cuda.is_available(), "CUDA unavailable"
+
+    # Choose model type:
+    net = copy.deepcopy(model)
+
+    criterion =  nn.BCELoss(reduction='none')
+    optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
+    best_loss_early_stopping = 1
+    best_epoch_early_stopping = 0
+    best_model_precision_validation = 0
+    best_model_f1_score_validation = 0
+    best_model_recall_validation = 0
+    best_model_loss_validation = 1
+
+    best_model_on_loss_accuracy = 0
+    best_model_on_loss_precision_validation = 0
+    best_model_on_loss_f1_score_validation = 0
+    best_model_on_loss_recall_validation = 0
+    best_model_on_loss_loss_validation = 1
+
+    first_epoch = 0
+
+    net = net.train()
+
+    best_model_accuracy = 0
+    best_epoch = 0
+    best_model = None
+    accuracy_train = None
+    loss_train = None
+    early_stopping_counter = 0
+    loss_early_stopping = None
+    h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
+
+    for epoch in range(first_epoch, first_epoch + nb_epoch_max):
+        logging.debug(f"epoch: {epoch}")
+        n = 0
+        if epoch > -1:
+            accuracy_train = 0
+            loss_train = 0
+            _t_start = time.time()
+            for batch_data in train_loader:
+
+                batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
+                batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
+                batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
+                batch_samples_input3 = batch_samples_input3.to(device=device_train).float()
+                batch_labels = batch_labels.to(device=device_train).float()
+
+                optimizer.zero_grad()
+
+                # Forward pass
+                if recurrent:
+                    output, _, _ = net(batch_samples_input1, h1_zero)
+                else: 
+                    output = net(batch_samples_input1)
+
+                output = output.view(-1) # (output > THRESHOLD)
+
+                # Get the labels for the batch
+                batch_labels = (batch_labels > config_dict['threshold'])
+                batch_labels = batch_labels.float()
+
+                # Compute loss
+                loss = criterion(output, batch_labels)
+                loss = loss.mean()
+
+                # Backward pass
+                loss_train += loss.item()
+                loss.backward()
+                optimizer.step()
+
+                # Compute accuracy
+                output = (output >= 0.5)
+                accuracy_train += (output == batch_labels).float().mean()
+                n += 1
+            _t_stop = time.time()
+            logging.debug(f"Training time for 1 epoch : {_t_stop - _t_start} s")
+            accuracy_train /= n
+            loss_train /= n
+
+            _t_start = time.time()
+
+        output_validation, labels_validation, loss_validation = run_inference(
+            val_loader, 
+            criterion, 
+            net, 
+            device_val, 
+            hidden_size,
+            nb_rnn_layers, 
+            classification,
+            config_dict['batch_size_validation'], 
+            config_dict['threshold'], 
+            recurrent=recurrent)
+        accuracy_validation, f1_validation, precision_validation, recall_validation = get_metrics(output_validation, labels_validation)
+
+        _t_stop = time.time()
+        logging.debug(f"Validation time for 1 epoch : {_t_stop - _t_start} s")
+
+        recall_validation_factor = recall_validation
+        precision_validation_factor = precision_validation
+        updated_model = False
+        if f1_validation > best_model_f1_score_validation:
+            best_model = copy.deepcopy(net)
+            best_epoch = epoch
+            # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
+            if save_model:
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': best_model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'recall_validation_factor': recall_validation_factor,
+                    'precision_validation_factor': precision_validation_factor,
+                    'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
+                    'best_model_f1_score_validation': best_model_f1_score_validation,
+                }, config_dict['path_models'] / experiment_name, _use_new_zipfile_serialization=False)
+                updated_model = True
+            best_model_f1_score_validation = f1_validation
+            best_model_precision_validation = precision_validation
+            best_model_recall_validation = recall_validation
+            best_model_loss_validation = loss_validation
+            best_model_accuracy = accuracy_validation
+        if loss_validation < best_model_on_loss_loss_validation:
+            best_model = copy.deepcopy(net)
+            best_epoch = epoch
+            # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
+            if save_model:
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': best_model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'recall_validation_factor': recall_validation_factor,
+                    'precision_validation_factor': precision_validation_factor,
+                    'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
+                    'best_model_f1_score_validation': best_model_f1_score_validation,
+                }, config_dict['path_models'] / (experiment_name + "_on_loss"), _use_new_zipfile_serialization=False)
+                updated_model = True
+            best_model_on_loss_f1_score_validation = f1_validation
+            best_model_on_loss_precision_validation = precision_validation
+            best_model_on_loss_recall_validation = recall_validation
+            best_model_on_loss_loss_validation = loss_validation
+            best_model_on_loss_accuracy = accuracy_validation
+
+        loss_early_stopping = loss_validation if loss_early_stopping is None and early_stopping_smoothing_factor == 1 else loss_validation if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
+                1.0 - early_stopping_smoothing_factor)
+
+        if loss_early_stopping < best_loss_early_stopping:
+            best_loss_early_stopping = loss_early_stopping
+            early_stopping_counter = 0
+            best_epoch_early_stopping = epoch
+        else:
+            early_stopping_counter += 1
+
+        logger.log(accuracy_train=accuracy_train,
+                   loss_train=loss_train,
+                   accuracy_validation=accuracy_validation,
+                   loss_validation=loss_validation,
+                   f1_validation=f1_validation,
+                   precision_validation=precision_validation,
+                   recall_validation=recall_validation,
+                   best_epoch=best_epoch,
+                   best_model=best_model,
+                   loss_early_stopping=loss_early_stopping,
+                   best_epoch_early_stopping=best_epoch_early_stopping,
+                   best_model_accuracy_validation=best_model_accuracy,
+                   best_model_f1_score_validation=best_model_f1_score_validation,
+                   best_model_precision_validation=best_model_precision_validation,
+                   best_model_recall_validation=best_model_recall_validation,
+                   best_model_loss_validation=best_model_loss_validation,
+                   best_model_on_loss_accuracy_validation=best_model_on_loss_accuracy,
+                   best_model_on_loss_f1_score_validation=best_model_on_loss_f1_score_validation,
+                   best_model_on_loss_precision_validation=best_model_on_loss_precision_validation,
+                   best_model_on_loss_recall_validation=best_model_on_loss_recall_validation,
+                   best_model_on_loss_loss_validation=best_model_on_loss_loss_validation,
+                   updated_model=updated_model)
+
+        if early_stopping_counter > nb_epoch_early_stopping_stop:
+            logging.debug("Early stopping.")
+            break
+    logging.debug("Delete logger")
+    del logger
+    logging.debug("Logger deleted")
+    return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
+
+
 
 def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
     global precision_validation_factor
@@ -181,7 +396,11 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
 
     logger = LoggerWandb(experiment_name, config_dict, wandb_project, group=wandb_group)
     torch.seed()
+
+    # Choose model type:
     net = PortiloopNetwork(config_dict).to(device=device_train)
+    recurrent = True
+
     criterion = nn.MSELoss(reduction='none') if not classification else nn.BCELoss(reduction='none')
     # criterion = nn.MSELoss() if not classification else nn.BCELoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
@@ -225,12 +444,12 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
         has_envelope = 2
     config_dict["estimator_size_memory"] = nb_weights * window_size * seq_len * batch_size * has_envelope
 
+    # Choose dataset to use
     train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(config_dict)
     # batch_size_validation = 1
     config_dict["batch_size_validation"] = batch_size_validation
 
     train_loader_mass, validation_loader_mass = get_dataloaders_mass(config_dict)
-
     MASS = True
     if MASS:
         train_loader = train_loader_mass
@@ -252,7 +471,6 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
     early_stopping_counter = 0
     loss_early_stopping = None
     h1_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
-    h2_zero = torch.zeros((nb_rnn_layers, batch_size, hidden_size), device=device_train)
     for epoch in range(first_epoch, first_epoch + nb_epoch_max):
 
         logging.debug(f"epoch: {epoch}")
@@ -275,7 +493,7 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
                     batch_labels = (batch_labels > config_dict['threshold'])
                     batch_labels = batch_labels.float()
 
-                output, h1, _ = net(batch_samples_input1, h1_zero)
+                output, _, _ = net(batch_samples_input1, h1_zero)
 
                 output = output.view(-1)
 
@@ -320,11 +538,13 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
             loss_train /= n
 
             _t_start = time.time()
-        output_validation, labels_validation, loss_validation, accuracy_validation, tp, tn, fp, fn = run_inference(validation_loader, criterion, net,
+
+
+        output_validation, labels_validation, loss_validation = run_inference(validation_loader, criterion, net,
                                                                                                                    device_val, hidden_size,
                                                                                                                    nb_rnn_layers, classification,
-                                                                                                                   batch_size_validation, config_dict['threshold'])
-        f1_validation, precision_validation, recall_validation = get_metrics(tp, fp, fn)
+                                                                                                                   batch_size_validation, config_dict['threshold'], recurrent=recurrent)
+        accuracy_validation, f1_validation, precision_validation, recall_validation = get_metrics(output_validation, labels_validation)
 
         _t_stop = time.time()
         logging.debug(f"Validation time for 1 epoch : {_t_stop - _t_start} s")

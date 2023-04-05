@@ -85,7 +85,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         return len(self.spindle_indexes) > 0 and len(self.non_spindle_indexes) > 0 
 
 
-def run_adaptation(dataloader, net, device, config):
+def run_adaptation(dataloader, net, device, config, train):
     """
     Goes over the dataset and learns at every step.
     Returns the accuracy and loss as well as fp, fn, tp, tn count for spindles
@@ -159,7 +159,7 @@ def run_adaptation(dataloader, net, device, config):
             output_total = torch.cat([output_total, output])
 
         # Training loop for the adaptation
-        if index % 100 == 0 and adap_dataset.has_samples():
+        if index % 100 == 0 and adap_dataset.has_samples() and train:
             train_sample, train_label = next(iter(adap_dataloader))
             train_sample = train_sample.to(device)
             train_label = train_label.to(device)
@@ -183,17 +183,8 @@ def run_adaptation(dataloader, net, device, config):
 
     # Compute metrics
     loss /= n
-    acc = (output_total == window_labels_total).float().mean()
-    output_total = output_total.float()
-    window_labels_total = window_labels_total.float()
 
-    # Get the true positives, true negatives, false positives and false negatives
-    tp = (window_labels_total * output_total)
-    tn = ((1 - window_labels_total) * (1 - output_total))
-    fp = ((1 - window_labels_total) * output_total)
-    fn = (window_labels_total * (1 - output_total))
-
-    return output_total, window_labels_total, loss, acc, tp, tn, fp, fn, net_copy
+    return output_total, window_labels_total, loss, net_copy
 
 
 def parse_config():
@@ -244,12 +235,12 @@ if __name__ == "__main__":
     # Run the adaptation
     start = time.time()
     # run_adaptation(dataloader, net, device, config)
-    output_total, window_labels_total, loss, acc, tp, tn, fp, fn, net_copy = run_adaptation(dataloader, net, device, config)
+    output_total, window_labels_total, loss, net_copy = run_adaptation(dataloader, net, device, config, True)
     end = time.time()
     print('Time: ', end - start)
 
     # Get the metrics
-    f1, precision, recall = get_metrics(tp, fp, fn)
+    acc, f1, precision, recall = get_metrics(output_total, window_labels_total)
 
     # Print the results
     print('Loss: ', loss)

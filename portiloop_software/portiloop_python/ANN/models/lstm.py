@@ -2,11 +2,13 @@ import copy
 import logging
 from math import floor
 from pathlib import Path
+import time
 
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from torchsummary import summary
 
 from portiloop_software.portiloop_python.ANN.models.model_blocks import (
     AttentionLayer, FullAttention, TransformerEncoderLayer)
@@ -204,17 +206,6 @@ class PortiloopNetwork(nn.Module):
 def out_dim(window_size, padding, dilation, kernel, stride):
     return floor((window_size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)
 
-
-if __name__ == "__main__":
-    config = get_configs()
-    model = PortiloopNetwork(config)
-    window_size = int(config['window_size_s'] * config['fe'])
-    x = torch.randn(config['batch_size'], config['seq_len'], window_size)
-    h = torch.zeros(config['nb_rnn_layers'], config['batch_size'], config['hidden_size'])
-
-    res_x, res_h = model(x, h)
-
-
 def get_trained_model(config_dict, model_path):
     experiment_name = config_dict['experiment_name']
     device_inference = config_dict["device_inference"]
@@ -228,3 +219,22 @@ def get_trained_model(config_dict, model_path):
         checkpoint = torch.load(model_path)
     net.load_state_dict(checkpoint['model_state_dict'])
     return net    
+
+if __name__ ==  "__main__":
+
+    
+    config = get_configs("Test", True, 42)
+    config['nb_conv_layers'] = 4
+    config['hidden_size'] = 64
+    config['nb_rnn_layers'] = 4
+
+    model = PortiloopNetwork(config)
+    summary(model)
+
+    window_size = int(config['window_size_s'] * config['fe'])
+    x = torch.randn(config['batch_size'], config['seq_len'], window_size)
+    h = torch.zeros(config['nb_rnn_layers'], config['batch_size'], config['hidden_size'])
+    start = time.time()
+    res_x, res_h, _ = model(x, h)
+    end = time.time()
+    print("Time taken: ", end - start)

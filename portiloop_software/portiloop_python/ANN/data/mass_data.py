@@ -455,7 +455,7 @@ def get_dataloaders_mass(config):
     # Create the train and test datasets
     train_dataset = MassDataset(train_subjects, data, labels, config)
     # test_dataset = MassDataset(test_subjects, data, labels, config)
-    test_dataset = SingleSubjectDataset(test_subjects[0], data, labels, config)
+    test_dataset = MassDataset(test_subjects, data, labels, config)
 
     # Create the train and test dataloaders
     train_dataloader = DataLoader(
@@ -474,15 +474,31 @@ def get_dataloaders_mass(config):
     #     drop_last=True
     # )
 
-    test_dataloader = DataLoader(
+    # test_dataloader = DataLoader(
+    #     test_dataset,
+    #     batch_size=1,
+    #     sampler=SingleSubjectSampler(len(test_dataset), config['seq_stride']),
+    #     pin_memory=True,
+    #     drop_last=True
+    # )
+    validation_sampler = MassValidationSampler(
+        subject_list=test_dataset.subject_list, 
+        seq_stride=config['seq_stride'], 
+        window_size=config['window_size'],
+        total_len=len(test_dataset), 
+        past_signal_len=test_dataset.past_signal_len,
+        max_batch_size=512,
+        max_segment_len=15000)
+    
+    val_dataloader = DataLoader(
         test_dataset,
-        batch_size=1,
-        sampler=SingleSubjectSampler(len(test_dataset), config['seq_stride']),
+        batch_size=validation_sampler.get_validation_batch_size(),
+        sampler=validation_sampler,
         pin_memory=True,
         drop_last=True
     )
 
-    return train_dataloader, test_dataloader
+    return train_dataloader, val_dataloader
 
 
 class MassRandomSampler(Sampler):
@@ -611,7 +627,7 @@ class SpindleTrainDataset(Dataset):
                 continue
 
             # Keeps track of the first index of the signal for the given subject
-            self.subject_list.append(len(self.full_signal))
+            self.subject_list.append(sum([len(i) for i in self.full_signal]))
 
             # Get the signal for the given subject
             signal = torch.tensor(
@@ -877,11 +893,10 @@ if __name__ == "__main__":
     # generate_spindle_trains_dataset(dataset_path / 'SpindleTrains_raw_data', dataset_path / 'spindle_trains_annots.json')
     config = get_configs("Test", False, 0)
     config['batch_size_validation'] = 64
-    subjects = ['01-01-0001']
+    subjects = ['01-01-0001', '01-01-0002', '01-01-0003']
     data = read_pretraining_dataset(config['MASS_dir'], patients_to_keep=subjects)
     labels = read_spindle_trains_labels(config['old_dataset']) 
     dataset = MassDataset(subjects, data, labels, config)
-
 
     # Get the dataloader
     sampler = MassValidationSampler(
