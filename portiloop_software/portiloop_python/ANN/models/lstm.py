@@ -74,6 +74,7 @@ class PortiloopNetwork(nn.Module):
         kernel_conv = c_dict["kernel_conv"]
         kernel_pool = c_dict["kernel_pool"]
         nb_channel = c_dict["nb_channel"]
+        in_channels = c_dict["in_channels"]
         hidden_size = c_dict["hidden_size"]
         window_size_s = c_dict["window_size_s"]
         dropout_p = c_dict["dropout"]
@@ -99,9 +100,17 @@ class PortiloopNetwork(nn.Module):
             nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
 
         output_cnn_size = int(nb_channel * nb_out)
+        print(output_cnn_size)
 
         self.RNN = RNN
-        self.cnn = ConvPoolModule(in_channels=1,
+
+        self.wavelet_cnn = WaveletCNN(
+            device=c_dict['device_train'],
+            kernel_size=32, 
+            channels=64
+        )
+
+        self.cnn = ConvPoolModule(in_channels=8,
                                                  out_channel=nb_channel,
                                                  kernel_conv=kernel_conv,
                                                  stride_conv=stride_conv,
@@ -134,17 +143,17 @@ class PortiloopNetwork(nn.Module):
         fc_features += hidden_size
         out_features = 1
 
-        self.attention_layer = TransformerEncoderLayer(
-            attention=AttentionLayer(
-                FullAttention(),
-                fc_features,
-                n_heads
-            ),
-            d_model=fc_features,
-            dropout=dropout_p,
-            norm_layer=nn.LayerNorm(fc_features)
-        )
-        self.cls = nn.Parameter(torch.randn(1, 1, fc_features))
+        # self.attention_layer = TransformerEncoderLayer(
+        #     attention=AttentionLayer(
+        #         FullAttention(),
+        #         fc_features,
+        #         n_heads
+        #     ),
+        #     d_model=fc_features,
+        #     dropout=dropout_p,
+        #     norm_layer=nn.LayerNorm(fc_features)
+        # )
+        # self.cls = nn.Parameter(torch.randn(1, 1, fc_features))
 
         out_cnn_size_after_rnn = 0
 
@@ -164,9 +173,10 @@ class PortiloopNetwork(nn.Module):
         # h: hidden state of the GRU (nb_rnn_layers, batch_size, hidden_size)
         # past_x: accumulated past embeddings (batch_size, any_seq_len, features)
         # max_value (optional) : print the maximal value reach during inference (used to verify if the FPGA implementation precision is enough)
-        (batch_size, sequence_len, features) = x.shape
+        (batch_size, sequence_len, in_channels, features) = x.shape
 
-        x = x.view(-1, 1, features)
+        x = x.view(-1, in_channels, features)
+        x = self.wavelet_cnn(x)
         x = self.cnn(x)
         x = self.cnn2(x)
 
@@ -218,22 +228,56 @@ def get_trained_model(config_dict, model_path):
     else:
         checkpoint = torch.load(model_path)
     net.load_state_dict(checkpoint['model_state_dict'])
-    return net    
+    return net   
+
+
+class WaveletCNN(nn.Module):
+    def __init__(self, device, kernel_size=1, channels=1, bias=True, padding='same'):
+        super().__init__()
+        self.w = nn.Parameter(torch.ones(channels, 1) * 5, requires_grad=True)
+        self.s = nn.Parameter(torch.ones(channels, 1), requires_grad=True)
+        self.bias = nn.Parameter(torch.zeros(channels), requires_grad=True) if bias else None
+        self.kernel_size = kernel_size
+        self.channels = channels
+        self.padding = padding
+        self.device = device
+
+    def forward(self, x):
+        kernels = self.get_kernels()
+        result = F.conv1d(x, kernels, self.bias, padding=self.padding)
+        return result
+
+    def get_kernels(self, complete=True):
+        """
+        Get morlet wave
+        """
+        spaces = torch.linspace(-1, 1, self.kernel_size).unsqueeze(0).expand(self.channels, self.kernel_size).to(self.device)
+        scales = (self.s * 2 * torch.pi)
+        spaces = spaces * scales
+        output = torch.cos(self.w * spaces)
+
+        if complete:
+            output -= torch.exp(-0.5 * (self.w**2))
+
+        output *= torch.exp(-0.5 * (spaces**2)) * torch.pi**(-0.25)
+
+        return output.unsqueeze(1)
+
 
 if __name__ ==  "__main__":
 
     
     config = get_configs("Test", True, 42)
-    config['nb_conv_layers'] = 4
-    config['hidden_size'] = 64
-    config['nb_rnn_layers'] = 4
+    # config['nb_conv_layers'] = 4
+    # config['hidden_size'] = 64
+    # config['nb_rnn_layers'] = 4
 
-    model = PortiloopNetwork(config)
+    model = PortiloopNetwork(config).to(config["device_train"])
     summary(model)
 
     window_size = int(config['window_size_s'] * config['fe'])
-    x = torch.randn(config['batch_size'], config['seq_len'], window_size)
-    h = torch.zeros(config['nb_rnn_layers'], config['batch_size'], config['hidden_size'])
+    x = torch.randn(config['batch_size'], config['seq_len'], 1, window_size).to(config['device_train'])
+    h = torch.zeros(config['nb_rnn_layers'], config['batch_size'], config['hidden_size']).to(config['device_train'])
     start = time.time()
     res_x, res_h, _ = model(x, h)
     end = time.time()

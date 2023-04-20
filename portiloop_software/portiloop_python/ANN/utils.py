@@ -198,7 +198,7 @@ def get_configs(exp_name, test_set, seed_exp):
         'test_set': test_set,
 
         # Training hyperparameters
-        'batch_size': 256,
+        'batch_size': 64,
         'dropout': 0.5,
         'adam_w': 0.01,
         'reg_balancing': 'none',
@@ -227,10 +227,11 @@ def get_configs(exp_name, test_set, seed_exp):
         'dilation_pool': 1,
 
         # RNN stuff
-        'nb_rnn_layers': 4,
+        'nb_rnn_layers': 1,
         'nb_out': 18,
-        'hidden_size': 32,
-        'nb_channel': 31,
+        'hidden_size': 7,
+        'nb_channel': 31,   
+        'in_channels': 1,
 
         # Attention stuff
         'max_h_length': 50, # How many time steps to consider in the attention
@@ -252,13 +253,13 @@ def get_configs(exp_name, test_set, seed_exp):
         'phase': "full",
         'split_idx': 0,
         'threshold': 0.5,
-        'window_size': 104,
-        'seq_stride': 84,
+        'window_size': 54,
+        'seq_stride': 42,
         'nb_batch_per_epoch': 1000,
         'distribution_mode': 0,
-        'seq_len': 100,
-        'seq_stride_s': 0.340,
-        'window_size_s': 0.416,
+        'seq_len': 50,
+        'seq_stride_s': 0.170,
+        'window_size_s': 0.218,
         'len_segment_s': 115,
     }
 

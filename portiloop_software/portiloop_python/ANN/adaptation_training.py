@@ -201,6 +201,36 @@ def parse_config():
     return args
 
 
+def run_subject(net, subject_id, train):
+    config['subject_id'] = subject_id
+
+    # Load the data
+    labels = read_spindle_trains_labels(config['old_dataset'])
+    data = read_pretraining_dataset(config['MASS_dir'], patients_to_keep=[subject_id])
+
+    assert subject_id in data.keys(), 'Subject not in the dataset'
+    assert subject_id in labels.keys(), 'Subject not in the dataset'
+
+    dataset = SingleSubjectDataset(config['subject_id'], data=data, labels=labels, config=config)   
+    sampler = SingleSubjectSampler(len(dataset), config['seq_stride'])
+    dataloader = torch.utils.data.DataLoader(
+        dataset, 
+        batch_size=1, 
+        sampler=sampler, 
+        num_workers=0)
+    
+    # Run the adaptation
+    start = time.time()
+    # run_adaptation(dataloader, net, device, config)
+    output_total, window_labels_total, loss, net_copy = run_adaptation(dataloader, net, device, config, train)
+    end = time.time()
+    print('Time: ', end - start)
+
+    # Get the metrics
+    acc, f1, precision, recall = get_metrics(output_total, window_labels_total)
+    return loss, acc, f1, precision, recall, net_copy
+
+
 if __name__ == "__main__":
     # Parse config dict important for the adapatation
     args = parse_config()
@@ -210,41 +240,43 @@ if __name__ == "__main__":
         seed = args.seed
 
     config = get_configs(args.experiment_name, False, seed)
-    config['subject_id'] = args.subject_id
-
-    # Load the data
-    labels = read_spindle_trains_labels(config['old_dataset'])
-    data = read_pretraining_dataset(config['MASS_dir'], patients_to_keep=[args.subject_id])
-
-    assert args.subject_id in data.keys(), 'Subject not in the dataset'
-    assert args.subject_id in labels.keys(), 'Subject not in the dataset'
-
-    dataset = SingleSubjectDataset(config['subject_id'], data=data, labels=labels, config=config)   
-    sampler = SingleSubjectSampler(len(dataset), config['seq_stride'])
-    dataloader = torch.utils.data.DataLoader(
-        dataset, 
-        batch_size=1, 
-        sampler=sampler, 
-        num_workers=0)
-
+    config['nb_conv_layers'] = 4
+    config['hidden_size'] = 64
+    config['nb_rnn_layers'] = 4
+    
     # Load the model
     net = get_trained_model(config, config['path_models'] / args.model_path)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # Run the adaptation
-    start = time.time()
-    # run_adaptation(dataloader, net, device, config)
-    output_total, window_labels_total, loss, net_copy = run_adaptation(dataloader, net, device, config, True)
-    end = time.time()
-    print('Time: ', end - start)
-
-    # Get the metrics
-    acc, f1, precision, recall = get_metrics(output_total, window_labels_total)
+    # Run some testing on subject 1
+    loss, acc, f1, precision, recall, net = run_subject(net, '01-01-0001', True) 
 
     # Print the results
+    print('Subject 1')
     print('Loss: ', loss)
     print('Accuracy: ', acc)
     print('F1: ', f1)
     print('Precision: ', precision)
     print('Recall: ', recall)
+
+    # # Run the adaptation on subject 2
+    # loss, acc, f1, precision, recall, net = run_subject(net, '01-01-0002', True)
+
+    # # Print the results
+    # print('Subject 2')
+    # print('Loss: ', loss)
+    # print('Accuracy: ', acc)
+    # print('F1: ', f1)
+    # print('Precision: ', precision)
+    # print('Recall: ', recall)
+
+    # # Run some testing on subject 1
+    # loss, acc, f1, precision, recall, net = run_subject(net, '01-01-0001', False) 
+    # print('Subject 1 - Post subject 2')
+    # print('Loss: ', loss)
+    # print('Accuracy: ', acc)
+    # print('F1: ', f1)
+    # print('Precision: ', precision)
+    # print('Recall: ', recall)
+

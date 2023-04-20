@@ -200,17 +200,18 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
 
     for epoch in range(first_epoch, first_epoch + nb_epoch_max):
         logging.debug(f"epoch: {epoch}")
+        print(f"starting epoch {epoch}")
         n = 0
         if epoch > -1:
             accuracy_train = 0
             loss_train = 0
             _t_start = time.time()
+            start = time.time()
             for batch_data in train_loader:
-
-                batch_samples_input1, batch_samples_input2, batch_samples_input3, batch_labels = batch_data
+                end = time.time()
+                start = time.time()
+                batch_samples_input1, _, _,  batch_labels = batch_data
                 batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
-                batch_samples_input2 = batch_samples_input2.to(device=device_train).float()
-                batch_samples_input3 = batch_samples_input3.to(device=device_train).float()
                 batch_labels = batch_labels.to(device=device_train).float()
 
                 optimizer.zero_grad()
@@ -239,14 +240,19 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
                 # Compute accuracy
                 output = (output >= 0.5)
                 accuracy_train += (output == batch_labels).float().mean()
+                end = time.time()
+                if n % 100 == 0:
+                    print(f"batch {n} / {nb_batch_per_epoch} in {end - start} s")
                 n += 1
+                start = time.time()
             _t_stop = time.time()
-            logging.debug(f"Training time for 1 epoch : {_t_stop - _t_start} s")
+            print(f"Training time for 1 epoch : {_t_stop - _t_start} s")
             accuracy_train /= n
             loss_train /= n
 
             _t_start = time.time()
 
+        print(f"Validation...")
         output_validation, labels_validation, loss_validation = run_inference(
             val_loader, 
             criterion, 
@@ -261,7 +267,7 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
         accuracy_validation, f1_validation, precision_validation, recall_validation = get_metrics(output_validation, labels_validation)
 
         _t_stop = time.time()
-        logging.debug(f"Validation time for 1 epoch : {_t_stop - _t_start} s")
+        print(f"Validation time for 1 epoch : {_t_stop - _t_start} s")
 
         recall_validation_factor = recall_validation
         precision_validation_factor = precision_validation

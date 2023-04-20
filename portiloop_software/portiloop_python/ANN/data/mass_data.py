@@ -5,7 +5,8 @@ import os
 import pathlib
 import random
 import time
-
+import einops
+import pywt
 import numpy as np
 import pandas as pd
 import pyedflib
@@ -447,6 +448,8 @@ def get_dataloaders_mass(config):
     subjects = list(labels.keys())
     random.shuffle(subjects)
     train_subjects = subjects[:int(len(subjects) * 0.8)]
+    # train_subjects = subjects[:10]
+    # test_subjects = subjects[10:14]
     test_subjects = subjects[int(len(subjects) * 0.8):]
 
     # Read the pretraining dataset
@@ -487,7 +490,7 @@ def get_dataloaders_mass(config):
         window_size=config['window_size'],
         total_len=len(test_dataset), 
         past_signal_len=test_dataset.past_signal_len,
-        max_batch_size=512,
+        max_batch_size=config['batch_size_validation'],
         max_segment_len=15000)
     
     val_dataloader = DataLoader(
@@ -606,6 +609,12 @@ class SpindleTrainDataset(Dataset):
         self.window_size = config['window_size']
         self.seq_len = config['seq_len']
         self.seq_stride = config['seq_stride']
+        self.in_channels = config['in_channels']
+        self.wavelet = 'morl'
+        fs = 250 # Sampling frequency in hz
+        frequencies = [i for i in range(10, 21)]
+        frequencies_norm = np.array(frequencies) / fs # normalize
+        self.scales = pywt.frequency2scale(self.wavelet, frequencies_norm)
         
         # signal needed before the last window
         self.past_signal_len = (self.seq_len - 1) * self.seq_stride
@@ -679,6 +688,13 @@ class SpindleTrainDataset(Dataset):
         print(f"Shuffling took {end - start} seconds")
         print(f"Number of spindle labels: {len(self.spindle_labels_iso) + len(self.spindle_labels_first) + len(self.spindle_labels_train)}")
 
+        # Get the wavelet transform of the whole signal
+        if self.in_channels != 1:
+            start = time.time()
+            self.full_signal_wt, _ = pywt.cwt(self.full_signal.numpy(), self.scales, self.wavelet)
+            self.full_signal_wt = torch.from_numpy(self.full_signal_wt)
+            end = time.time()
+            print(f"Wavelet transform took {end - start} seconds")
 
     @staticmethod
     def get_labels():
@@ -694,8 +710,8 @@ class SpindleTrainDataset(Dataset):
 
         # Make sure that the last index of the signal is the same as the label
         # assert signal[-1, -1] == self.full_signal[index + self.window_size - 1], "Issue with the data and the labels"
-        label = label.type(torch.LongTensor)
-        print(f"super getitem {label}")
+        label = label.type(torch.LongTensor)            
+
         return signal, label
 
     def __len__(self):
@@ -706,8 +722,14 @@ class MassDataset(SpindleTrainDataset):
     def __getitem__(self, index):
         # Get data
         index = index + self.past_signal_len
-        signal = self.full_signal[index - self.past_signal_len:index + self.window_size].unfold(
-            0, self.window_size, self.seq_stride)
+        if self.in_channels != 1:
+            signal = self.full_signal_wt[:, index - self.past_signal_len:index + self.window_size].unfold(
+                1, self.window_size, self.seq_stride)
+        else:
+            signal = self.full_signal[index - self.past_signal_len:index + self.window_size].unfold(
+                0, self.window_size, self.seq_stride)
+            signal = signal.unsqueeze(0)
+        signal = einops.rearrange(signal, 'e s w -> s e w')
         label = self.full_labels[index + self.window_size - 1]
 
         # Make sure that the last index of the signal is the same as the label
