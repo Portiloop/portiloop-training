@@ -6,7 +6,7 @@ from torch import nn
 from torch import optim
 import copy
 
-from portiloop_software.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, SingleSubjectSampler, read_pretraining_dataset, read_spindle_trains_labels
+from portiloop_software.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, SingleSubjectSampler, SleepStageDataset, read_pretraining_dataset, read_sleep_staging_labels, read_spindle_trains_labels
 from portiloop_software.portiloop_python.ANN.models.lstm import get_trained_model
 from portiloop_software.portiloop_python.ANN.utils import get_configs, get_metrics
 
@@ -120,6 +120,7 @@ def run_adaptation(dataloader, net, device, config, train):
     # Run through the dataloader
     out_grus = None
     out_loss = 0
+    started = False
     for index, info in enumerate(dataloader):
 
         with torch.no_grad():
@@ -128,9 +129,17 @@ def run_adaptation(dataloader, net, device, config, train):
 
             # print(f"Batch {index}")
             # Get the data and labels
-            window_data, _, _, window_labels = info
+            window_data, _, _, window_labels, ss_label = info
             # window_data = window_data.unsqueeze(0)
             # window_labels = window_labels.unsqueeze(0)
+            if not (ss_label == SleepStageDataset.get_labels().index("2") or ss_label == SleepStageDataset.get_labels().index("3")):
+                started = False
+                continue
+            else:
+                # Reset the model if we just got into an interesting sleep stage
+                if not started:
+                    h1 = torch.zeros((config['nb_rnn_layers'], 1, config['hidden_size']), device=device)
+                    started = True
 
             adap_dataset.add_window(window_data, window_labels)
             
@@ -193,7 +202,7 @@ def parse_config():
     """
     parser = argparse.ArgumentParser(description='Argument parser')
     parser.add_argument('--subject_id', type=str, default='01-01-0001', help='Subject on which to run the experiment')
-    parser.add_argument('--model_path', type=str, default='test_filtered_MASS', help='Model for the starting point of the model')
+    parser.add_argument('--model_path', type=str, default='no_att_baseline', help='Model for the starting point of the model')
     parser.add_argument('--experiment_name', type=str, default='test', help='Name of the model')
     parser.add_argument('--seed', type=int, default=-1, help='Seed for the experiment')
     args = parser.parse_args()
@@ -206,12 +215,13 @@ def run_subject(net, subject_id, train):
 
     # Load the data
     labels = read_spindle_trains_labels(config['old_dataset'])
+    ss_labels = read_sleep_staging_labels(config['path_dataset'])
     data = read_pretraining_dataset(config['MASS_dir'], patients_to_keep=[subject_id])
 
     assert subject_id in data.keys(), 'Subject not in the dataset'
     assert subject_id in labels.keys(), 'Subject not in the dataset'
 
-    dataset = SingleSubjectDataset(config['subject_id'], data=data, labels=labels, config=config)   
+    dataset = SingleSubjectDataset(config['subject_id'], data=data, labels=labels, config=config, ss_labels=ss_labels)  
     sampler = SingleSubjectSampler(len(dataset), config['seq_stride'])
     dataloader = torch.utils.data.DataLoader(
         dataset, 
@@ -240,9 +250,9 @@ if __name__ == "__main__":
         seed = args.seed
 
     config = get_configs(args.experiment_name, False, seed)
-    config['nb_conv_layers'] = 4
-    config['hidden_size'] = 64
-    config['nb_rnn_layers'] = 4
+    # config['nb_conv_layers'] = 4
+    # config['hidden_size'] = 64
+    # config['nb_rnn_layers'] = 4
     
     # Load the model
     net = get_trained_model(config, config['path_models'] / args.model_path)
@@ -250,7 +260,7 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Run some testing on subject 1
-    loss, acc, f1, precision, recall, net = run_subject(net, '01-01-0001', True) 
+    loss, acc, f1, precision, recall, net = run_subject(net, '01-01-0001', False) 
 
     # Print the results
     print('Subject 1')
