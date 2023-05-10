@@ -141,7 +141,7 @@ class PortiloopNetwork(nn.Module):
 
         fc_features = 0
         fc_features += hidden_size
-        out_features = 1
+        out_features = c_dict['out_features']
 
         # self.attention_layer = TransformerEncoderLayer(
         #     attention=AttentionLayer(

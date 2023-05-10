@@ -13,7 +13,7 @@ import pyedflib
 import torch
 from torch.utils.data import DataLoader, Dataset, Sampler
 
-from portiloop_software.portiloop_python.ANN.utils import get_configs
+# from portiloop_software.portiloop_python.ANN.utils import get_configs
 
 
 def read_patient_info(dataset_path):
@@ -176,14 +176,14 @@ class ValidationSampler(Sampler):
         return self.len_max // self.dividing_factor
 
 
-def get_dataloaders_sleep_stage(MASS_dir, ds_dir, config):
+def get_dataloaders_sleep_stage(config):
     """
     Get the dataloaders for the MASS dataset
     - Start by dividing the available subjects into train and test sets
     - Create the train and test datasets and dataloaders
     """
     # Read all the subjects available in the dataset
-    labels = read_sleep_staging_labels(ds_dir) 
+    labels = read_sleep_staging_labels(config['path_dataset']) 
 
     # Divide the subjects into train and test sets
     subjects = list(labels.keys())
@@ -192,7 +192,7 @@ def get_dataloaders_sleep_stage(MASS_dir, ds_dir, config):
     test_subjects = subjects[int(len(subjects) * 0.8):]
 
     # Read the pretraining dataset
-    data = read_pretraining_dataset(MASS_dir)
+    data = read_pretraining_dataset(config['MASS_dir'])
 
     # Create the train and test datasets
     train_dataset = SleepStageDataset(train_subjects, data, labels, config)
@@ -206,10 +206,20 @@ def get_dataloaders_sleep_stage(MASS_dir, ds_dir, config):
         pin_memory=True,
         drop_last=True
     )
+
+    sampler = MassValidationSampler(
+        subject_list=test_dataset.subject_list, 
+        seq_stride=config['seq_stride'], 
+        window_size=config['window_size'],
+        total_len=len(test_dataset), 
+        past_signal_len=test_dataset.past_signal_len,
+        max_batch_size=config['batch_size_validation'],
+        max_segment_len=15000)
+    
     test_dataloader = DataLoader(
         test_dataset,
         batch_size=config['batch_size_validation'],
-        sampler=SleepStageSampler(test_dataset, config),
+        sampler=sampler,
         pin_memory=True,
         drop_last=True
     )
@@ -241,14 +251,17 @@ class SleepStageSampler(Sampler):
         self.dataset = dataset
         self.window_size = config['window_size']
         self.max_len = len(dataset) - self.dataset.past_signal_len - self.window_size
+        self.limit = config['nb_batch_per_epoch'] * config['batch_size']
 
     def __iter__(self):
-        while True:
-            index = random.randint(0, self.max_len - 1)
-            # Make sure that the label at the end of the window is not '?'
-            label = self.dataset.full_labels[index + self.dataset.past_signal_len + self.window_size - 1]
-            if label != SleepStageDataset.get_labels().index('?'):
-                yield index
+        for i in range(self.limit): 
+            while True:
+                index = random.randint(0, self.max_len - 1)
+                # Make sure that the label at the end of the window is not '?'
+                label = self.dataset.full_labels[index + self.dataset.past_signal_len + self.window_size - 1]
+                if label != SleepStageDataset.get_labels().index('?'):
+                    break
+            yield index
 
     def __len__(self):
         return len(self.indices)
@@ -273,10 +286,15 @@ class SleepStageDataset(Dataset):
         self.full_signal = []
         self.full_labels = []
 
+        self.subject_list = []
         for subject in subjects:
             if subject not in data.keys():
                 print(f"Subject {subject} not found in the pretraining dataset")
                 continue
+
+            # Keeps track of the first index of the signal for the given subject
+            self.subject_list.append(sum([len(i) for i in self.full_signal]))
+
             # assert subject in data.keys(), f"Subject {subject} not found in the pretraining dataset" 
             signal = torch.tensor(
                 data[subject]['signal'], dtype=torch.float)
@@ -311,10 +329,11 @@ class SleepStageDataset(Dataset):
         signal = self.full_signal[index - self.past_signal_len:index + self.window_size].unfold(
             0, self.window_size, self.seq_stride)  # TODO: double-check
         label = self.full_labels[index + self.window_size - 1]
+        signal = signal.unsqueeze(1)
 
-        assert label != 5, "Label is '?'"
+        # assert label != 5, "Label is '?'"
 
-        return signal, label.type(torch.LongTensor)
+        return signal, signal, signal, label.type(torch.LongTensor)
 
     def __len__(self):
         return len(self.full_signal)
@@ -642,6 +661,7 @@ class SpindleTrainDataset(Dataset):
             signal = torch.tensor(
                 data[subject]['signal'], dtype=torch.float)
 
+            print(f"Number of spindles for subject {subject}: {len(labels[subject]['onsets'])}")
 
             # Get all the labels for the given subject
             label = torch.zeros_like(signal, dtype=torch.uint8)
@@ -858,6 +878,8 @@ class SingleSubjectDataset(Dataset):
         signal = torch.tensor(
             data[subject_id]['signal'], dtype=torch.float)
 
+        print(f"Number of spindles: {len(labels[subject_id]['onsets'])}")
+
         # Get all the spindle labels for the given subject
         label = torch.zeros_like(signal, dtype=torch.uint8)
         for index, (onset, offset, l) in enumerate(zip(labels[subject_id]['onsets'], labels[subject_id]['offsets'], labels[subject_id]['labels_num'])):
@@ -929,53 +951,52 @@ if __name__ == "__main__":
     # generate_spindle_trains_dataset(dataset_path / 'SpindleTrains_raw_data', dataset_path / 'spindle_trains_annots.json')
     config = get_configs("Test", False, 0)
     config['batch_size_validation'] = 64
-    subjects = ['01-01-0001'] # , '01-01-0002', '01-01-0003']
+    subjects = ['01-02-0019'] # , '01-01-0002', '01-01-0003']
 
     data = read_pretraining_dataset(config['MASS_dir'], patients_to_keep=subjects)
     labels = read_spindle_trains_labels(config['old_dataset']) 
     ss_labels = read_sleep_staging_labels(config['path_dataset'])
 
-    dataset = SingleSubjectDataset(subjects[0], data, labels, config, ss_labels=ss_labels)
-    sampler = SingleSubjectSampler(len(dataset), config['seq_stride'])
-    dataloader = torch.utils.data.DataLoader(
-        dataset, 
-        batch_size=1, 
-        sampler=sampler, 
-        num_workers=0)
+    # dataset = SingleSubjectDataset(subjects[0], data, labels, config, ss_labels=ss_labels)
+    # sampler = SingleSubjectSampler(len(dataset), config['seq_stride'])
+    # dataloader = torch.utils.data.DataLoader(
+    #     dataset, 
+    #     batch_size=1, 
+    #     sampler=sampler, 
+    #     num_workers=0)
 
-    item = next(iter(dataloader))
+    # item = next(iter(dataloader))
     
-    print()
-    # dataset = MassDataset(subjects, data, labels, config)
+    dataset = SleepStageDataset(subjects, data, ss_labels, config)
 
-    # # Get the dataloader
-    # sampler = MassValidationSampler(
-    #     subject_list=dataset.subject_list, 
-    #     seq_stride=config['seq_stride'], 
-    #     window_size=config['window_size'],
-    #     total_len=len(dataset), 
-    #     past_signal_len=dataset.past_signal_len,
-    #     max_batch_size=4000,
-    #     max_segment_len=15000)
+    # Get the dataloader
+    sampler = MassValidationSampler(
+        subject_list=dataset.subject_list, 
+        seq_stride=config['seq_stride'], 
+        window_size=config['window_size'],
+        total_len=len(dataset), 
+        past_signal_len=dataset.past_signal_len,
+        max_batch_size=4000,
+        max_segment_len=15000)
     
-    # batch_size = sampler.get_validation_batch_size()
-    # print(f"Number of batches {len(sampler)}")
-    # print(f"batch_size: {batch_size}")
-    # config['validation_batch_size'] = batch_size
-    # train_dataloader = DataLoader(
-    #     dataset,
-    #     batch_size=batch_size,
-    #     sampler=sampler,
-    #     pin_memory=True,
-    #     num_workers=4,
-    # )
+    batch_size = sampler.get_validation_batch_size()
+    print(f"Number of batches {len(sampler)}")
+    print(f"batch_size: {batch_size}")
+    config['validation_batch_size'] = batch_size
+    train_dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        sampler=sampler,
+        pin_memory=True,
+        num_workers=4,
+    )
 
-    # start = time.time()
-    # for index, i in enumerate(train_dataloader):
-    #     if index % 100 == 0:
-    #         print(index)
-    # print(time.time() - start)
+    start = time.time()
+    for index, i in enumerate(train_dataloader):
+        if index % 100 == 0:
+            print(index)
+    print(time.time() - start)
 
-    # batches = torch.tensor(list(sampler)).reshape(-1, batch_size)
-    # print(batches[-1, :])
+    batches = torch.tensor(list(sampler)).reshape(-1, batch_size)
+    print(batches[-1, :])
 

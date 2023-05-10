@@ -5,10 +5,11 @@ import torch
 from torch import nn
 from torch import optim
 import copy
-
+import numpy as np
 from portiloop_software.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, SingleSubjectSampler, SleepStageDataset, read_pretraining_dataset, read_sleep_staging_labels, read_spindle_trains_labels
 from portiloop_software.portiloop_python.ANN.models.lstm import get_trained_model
 from portiloop_software.portiloop_python.ANN.utils import get_configs, get_metrics
+from scipy.signal import firwin, remez, kaiser_atten, kaiser_beta, kaiserord , filtfilt
 
 
 class AdaptationSampler(torch.utils.data.Sampler):
@@ -61,6 +62,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         """
         sample = torch.stack(sample)
         sample = sample.reshape(sample.size(0), sample.size(-1))
+        sample = sample.unsqueeze(1)
         self.samples.append((sample, label))
         if label == 1:
             self.spindle_indexes.append(len(self.samples) - 1)
@@ -85,7 +87,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         return len(self.spindle_indexes) > 0 and len(self.non_spindle_indexes) > 0 
 
 
-def run_adaptation(dataloader, net, device, config, train):
+def run_adaptation(dataloader, net, device, config, train, skip=False):
     """
     Goes over the dataset and learns at every step.
     Returns the accuracy and loss as well as fp, fn, tp, tn count for spindles
@@ -121,33 +123,38 @@ def run_adaptation(dataloader, net, device, config, train):
     out_grus = None
     out_loss = 0
     started = False
+
+    counter = 0
     for index, info in enumerate(dataloader):
 
         with torch.no_grad():
             # if index > 10000:
             #     break
+            if index % 10000 == 0:
+                print(f"Doing index: {index}/{len(dataloader.sampler)}")
+
+            # if counter % 715 == 0:
+            #     h1 = torch.zeros((config['nb_rnn_layers'], 1, config['hidden_size']), device=device)
+            counter += 1
 
             # print(f"Batch {index}")
             # Get the data and labels
             window_data, _, _, window_labels, ss_label = info
             # window_data = window_data.unsqueeze(0)
             # window_labels = window_labels.unsqueeze(0)
-            if not (ss_label == SleepStageDataset.get_labels().index("2") or ss_label == SleepStageDataset.get_labels().index("3")):
-                started = False
-                continue
-            else:
-                # Reset the model if we just got into an interesting sleep stage
-                if not started:
-                    h1 = torch.zeros((config['nb_rnn_layers'], 1, config['hidden_size']), device=device)
-                    started = True
+            # if not (ss_label == SleepStageDataset.get_labels().index("2") or ss_label == SleepStageDataset.get_labels().index("3")):
+            #     started = False
+            #     continue
+            # else:
+            #     # Reset the model if we just got into an interesting sleep stage
+            #     if not started:
+            #         h1 = torch.zeros((config['nb_rnn_layers'], 1, config['hidden_size']), device=device)
+            #         started = True
 
             adap_dataset.add_window(window_data, window_labels)
             
             window_data = window_data.to(device)
             window_labels = window_labels.to(device)
-
-            if index % 10000 == 0:
-                print(f"Doing index: {index}/{len(dataloader.sampler)}")
 
             # Get the output of the network
             output, h1, _ = net_copy(window_data, h1)
@@ -161,14 +168,24 @@ def run_adaptation(dataloader, net, device, config, train):
             n += 1
 
             # Get the predictions
-            output = (output >= 0.5)
+            output = (output >= 0.95)
 
-            # Concatenate the predictions
-            window_labels_total = torch.cat([window_labels_total, window_labels])
-            output_total = torch.cat([output_total, output])
+            # if output:
+            #     rms_score = RMS_score(window_data.squeeze(0).squeeze(0).cpu().numpy()[])
+
+            if skip:
+                if (ss_label == SleepStageDataset.get_labels().index("2") or ss_label == SleepStageDataset.get_labels().index("3")):  
+                    # Concatenate the predictions
+                    window_labels_total = torch.cat([window_labels_total, window_labels])
+                    output_total = torch.cat([output_total, output])
+                    assert window_labels_total.size() == output_total.size()
+            else:
+                window_labels_total = torch.cat([window_labels_total, window_labels])
+                output_total = torch.cat([output_total, output])
 
         # Training loop for the adaptation
-        if index % 100 == 0 and adap_dataset.has_samples() and train:
+        if index % 10 == 0 and adap_dataset.has_samples() and train:
+            print("training")
             train_sample, train_label = next(iter(adap_dataloader))
             train_sample = train_sample.to(device)
             train_label = train_label.to(device)
@@ -188,12 +205,39 @@ def run_adaptation(dataloader, net, device, config, train):
             loss.backward()
             optimizer.step()
 
-    print(adap_dataset.spindle_percentage())
-
     # Compute metrics
     loss /= n
 
     return output_total, window_labels_total, loss, net_copy
+
+
+def RMS_score(candidate, Fs=250, lowcut=11, highcut=16):
+
+    # Filter the signal
+    stopbbanAtt = 60  #stopband attenuation of 60 dB.
+    width = .5 #This sets the cutoff width in Hertz
+    nyq = 0.5 * Fs
+    ntaps, _ = kaiserord(stopbbanAtt, width/nyq)
+    atten = kaiser_atten(ntaps, width/nyq)
+    beta = kaiser_beta(atten)
+    a = 1.0
+    taps = firwin(ntaps, [lowcut, highcut], nyq=nyq, pass_zero=False,window=('kaiser', beta), scale=False)
+    filtered_signal = filtfilt(taps, a, candidate)
+
+    # Get the baseline and the detection window for the RMS
+    detect_index = len(candidate) // 2
+    size_window = 0.5 * Fs
+    baseline_idx = -2 * Fs # Index compared to the detection window
+    baseline = filtered_signal[detect_index + baseline_idx:detect_index + baseline_idx + size_window]
+    detection = filtered_signal[detect_index:detect_index + size_window]
+
+    # Calculate the RMS
+    baseline_rms = torch.sqrt(torch.mean(torch.square(baseline)))
+    detection_rms = torch.sqrt(torch.mean(torch.square(detection)))
+
+    score = detection_rms / baseline_rms
+    return score
+
 
 
 def parse_config():
@@ -210,12 +254,9 @@ def parse_config():
     return args
 
 
-def run_subject(net, subject_id, train):
+def run_subject(net, subject_id, train, labels, ss_labels):
     config['subject_id'] = subject_id
 
-    # Load the data
-    labels = read_spindle_trains_labels(config['old_dataset'])
-    ss_labels = read_sleep_staging_labels(config['path_dataset'])
     data = read_pretraining_dataset(config['MASS_dir'], patients_to_keep=[subject_id])
 
     assert subject_id in data.keys(), 'Subject not in the dataset'
@@ -236,8 +277,15 @@ def run_subject(net, subject_id, train):
     end = time.time()
     print('Time: ', end - start)
 
+    print("Distribution of the predictions:")
+    print(np.unique(output_total.cpu().numpy(), return_counts=True))
+    print("Distribution of the labels:")
+    print(np.unique(window_labels_total.cpu().numpy(), return_counts=True))
+
     # Get the metrics
     acc, f1, precision, recall = get_metrics(output_total, window_labels_total)
+
+
     return loss, acc, f1, precision, recall, net_copy
 
 
@@ -260,15 +308,34 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Run some testing on subject 1
-    loss, acc, f1, precision, recall, net = run_subject(net, '01-01-0001', False) 
-
-    # Print the results
-    print('Subject 1')
+    # Load the data
+    labels = read_spindle_trains_labels(config['old_dataset'])
+    ss_labels = read_sleep_staging_labels(config['path_dataset'])
+    f1s = []
+    # for index, patient_id in enumerate(ss_labels.keys()):
+    loss, acc, f1, precision, recall, net = run_subject(net, '01-02-0019', False, labels, ss_labels) 
+    # Average all the f1 scores
+    print('Subject ', '01-02-0019')
     print('Loss: ', loss)
     print('Accuracy: ', acc)
     print('F1: ', f1)
     print('Precision: ', precision)
     print('Recall: ', recall)
+    f1s.append(f1)
+
+    #     if index > 20:
+    #         break
+    
+    print('Average F1: ', sum(f1s) / len(f1s))
+
+
+    # # Print the results
+    # print('Subject 1')
+    # print('Loss: ', loss)
+    # print('Accuracy: ', acc)
+    # print('F1: ', f1)
+    # print('Precision: ', precision)
+    # print('Recall: ', recall)
 
     # # Run the adaptation on subject 2
     # loss, acc, f1, precision, recall, net = run_subject(net, '01-01-0002', True)

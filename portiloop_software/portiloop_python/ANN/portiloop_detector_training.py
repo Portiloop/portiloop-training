@@ -39,7 +39,7 @@ precision_validation_factor = 0.5
 # all classes and functions:
 
 
-def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation, threshold, recurrent=True):
+def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation, threshold, out_features, recurrent=True):
     """
     Runs a validation inference over a whole dataset and returns the loss and accuracy.
     Aslo returns fp, fn, tp, tn count for spindles
@@ -64,10 +64,15 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
             # Get the current batch data
             batch_samples_input1, _, _, batch_labels = batch_data
             batch_samples_input1 = batch_samples_input1.to(device=device).float()
-            batch_labels = batch_labels.to(device=device).float()
-            if classification:
+
+            # Get the labels for the batch
+            if out_features == 1:	
+                batch_labels = batch_labels.to(device=device).float()
+                output = output.view(-1) # (output > THRESHOLD)
                 batch_labels = (batch_labels > threshold)
                 batch_labels = batch_labels.float()
+            else:
+                batch_labels = batch_labels.to(device=device).long()
 
             # Run the model
             # h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
@@ -80,18 +85,17 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
             # MAX_H_SIZE = 100
             # if len(out_grus) > MAX_H_SIZE:
             #     out_grus.pop(0)
-
+        
             # Compute the loss
-            output = output.view(-1)
+            # output = output.view(-1)
             loss_py = criterion(output, batch_labels).mean()
             loss += loss_py.item()
 
             # Get the predictions
-            if not classification:
-                output = (output > threshold)
-                batch_labels = (batch_labels > threshold)
+            if out_features == 1:
+                output = (output >= threshold)
             else:
-                output = (output >= 0.5)
+                output = torch.argmax(output, dim=1)
 
             # Concatenate the predictions
             batch_labels_total = torch.cat([batch_labels_total, batch_labels])
@@ -163,6 +167,7 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
 
     window_size = int(window_size_s * fe)
     seq_stride = int(seq_stride_s * fe)
+    out_features = config_dict["out_features"]
 
     if device_val.startswith("cuda") or device_train.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
@@ -170,7 +175,10 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
     # Choose model type:
     net = copy.deepcopy(model)
 
-    criterion =  nn.BCELoss(reduction='none')
+    if out_features == 1:
+        criterion =  nn.BCELoss(reduction='none')
+    else:
+        criterion = nn.CrossEntropyLoss(reduction='none')
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
     best_loss_early_stopping = 1
     best_epoch_early_stopping = 0
@@ -212,7 +220,6 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
                 start = time.time()
                 batch_samples_input1, _, _,  batch_labels = batch_data
                 batch_samples_input1 = batch_samples_input1.to(device=device_train).float()
-                batch_labels = batch_labels.to(device=device_train).float()
 
                 optimizer.zero_grad()
 
@@ -222,11 +229,15 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
                 else: 
                     output = net(batch_samples_input1)
 
-                output = output.view(-1) # (output > THRESHOLD)
 
                 # Get the labels for the batch
-                batch_labels = (batch_labels > config_dict['threshold'])
-                batch_labels = batch_labels.float()
+                if config_dict['out_features'] == 1:	
+                    batch_labels = batch_labels.to(device=device_train).float()
+                    output = output.view(-1) # (output > THRESHOLD)
+                    batch_labels = (batch_labels > config_dict['threshold'])
+                    batch_labels = batch_labels.float()
+                else:
+                    batch_labels = batch_labels.to(device=device_train).long()
 
                 # Compute loss
                 loss = criterion(output, batch_labels)
@@ -238,7 +249,11 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
                 optimizer.step()
 
                 # Compute accuracy
-                output = (output >= 0.5)
+                if config_dict['out_features'] == 1:
+                    output = (output >= 0.5)
+                else:
+                    output = torch.argmax(output, dim=1)
+                    
                 accuracy_train += (output == batch_labels).float().mean()
                 end = time.time()
                 if n % 100 == 0:
@@ -263,7 +278,9 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
             classification,
             config_dict['batch_size_validation'], 
             config_dict['threshold'], 
+            config_dict['out_features'],
             recurrent=recurrent)
+
         accuracy_validation, f1_validation, precision_validation, recall_validation = get_metrics(output_validation, labels_validation)
 
         _t_stop = time.time()
