@@ -75,11 +75,12 @@ class SpindlePlotter:
         indexes = np.where((spindle_labels == 1) & (np.roll(spindle_labels, 1) == 0))[0]
         indexes = indexes[np.insert(np.diff(indexes) >= self.interval, 0, True)]
 
-        rms_scores = [self.scorer.get_score(self.signal[index - 1250:index + 1250]) for index in indexes if index - 1250 >= 0 and index + 1250 < len(self.signal)]
+        # rms_scores = [self.scorer.get_score(self.signal[index - 1250:index + 1250]) for index in indexes if index - 1250 >= 0 and index + 1250 < len(self.signal)]
+        rms_scores = []
 
         return indexes, rms_scores
 
-    def plot(self, index, model=False, time_before=10, time_after=5):
+    def plot(self, index, model=False, time_before=10, time_after=5, rms_score=False):
         """
         Plot the signal around the spindle at given index
         """
@@ -93,11 +94,15 @@ class SpindlePlotter:
             secondary_indexes = self.model_spindle_indexes
             rms_scores = self.rms_scores
 
-        print(f"RMS score: {rms_scores[index]}")
+        if rms_score:
+            index_signal = main_indexes[index]
+            score = self.scorer.get_score(self.signal[index_signal - 1250:index_signal + 1250])
+            print(f"RMS score: {score}")
 
         spindle_start = main_indexes[index]
         plot_start = spindle_start - time_before * self.freq
         plot_end = spindle_start + time_after * self.freq + 1 * self.freq # + 1 second to make sure to have the spindle and time after
+        plt.figure(figsize=(20,10))
 
         eeg_signal = self.signal[plot_start:plot_end]
         plt.plot(eeg_signal)
@@ -122,11 +127,11 @@ class SpindlePlotter:
 
         plt.show()
 
-        sleep_stages = np.unique(self.sleep_stage_labels[spindle_start])
-        if len(sleep_stages) == 1:
-            print("Sleep stage: ", SleepStageDataset.get_labels()[sleep_stages[0]])
-        else:
-            print("Sleep stages: ", [SleepStageDataset.get_labels()[sleep_stage] for sleep_stage in sleep_stages])
+        # sleep_stages = np.unique(self.sleep_stage_labels[spindle_start])
+        # if len(sleep_stages) == 1:
+        #     print("Sleep stage: ", SleepStageDataset.get_labels()[sleep_stages[0]])
+        # else:
+        #     print("Sleep stages: ", [SleepStageDataset.get_labels()[sleep_stage] for sleep_stage in sleep_stages])
 
 
     def num_spindles_labels(self):
@@ -230,48 +235,48 @@ def get_metrics(predictions, labels):
     """
     Compute the F1, precision and recall for spindles from a true positive count, false positive count and false negative count
     """
-    n_classes = len(torch.unique(labels))
+    # n_classes = len(torch.unique(labels))
 
-    tp = torch.zeros(n_classes)
-    tn = torch.zeros(n_classes)
-    fp = torch.zeros(n_classes)
-    fn = torch.zeros(n_classes)
+    # tp = torch.zeros(n_classes)
+    # tn = torch.zeros(n_classes)
+    # fp = torch.zeros(n_classes)
+    # fn = torch.zeros(n_classes)
 
-    for i in range(n_classes):
-        tp[i] = torch.sum((predictions == i) & (labels == i))
-        tn[i] = torch.sum((predictions != i) & (labels != i))
-        fp[i] = torch.sum((predictions == i) & (labels != i))
-        fn[i] = torch.sum((predictions != i) & (labels == i))
+    # for i in range(n_classes):
+    #     tp[i] = torch.sum((predictions == i) & (labels == i))
+    #     tn[i] = torch.sum((predictions != i) & (labels != i))
+    #     fp[i] = torch.sum((predictions == i) & (labels != i))
+    #     fn[i] = torch.sum((predictions != i) & (labels == i))
 
-    epsilon = 1e-7
-
-    accuracy = torch.sum(tp) / torch.sum(tp + tn + fp + fn)
-    recall = torch.mean(tp / (tp + fn + epsilon))
-    precision = torch.mean(tp / (tp + fp + epsilon))
-    f1_score = torch.mean(2 * precision * recall / (precision + recall + epsilon))
-
-    return accuracy, recall, precision, f1_score
-    # acc = (predictions == labels).float().mean()
-    # predictions = predictions.float()
-    # labels = labels.float()
-
-    # # Get the true positives, true negatives, false positives and false negatives
-    # tp = (labels * predictions)
-    # tn = ((1 - labels) * (1 - predictions))
-    # fp = ((1 - labels) * predictions)
-    # fn = (labels * (1 - predictions))
-
-    # tp_sum = tp.sum().to(torch.float32).item()
-    # fp_sum = fp.sum().to(torch.float32).item()
-    # fn_sum = fn.sum().to(torch.float32).item()
     # epsilon = 1e-7
 
-    # precision = tp_sum / (tp_sum + fp_sum + epsilon)
-    # recall = tp_sum / (tp_sum + fn_sum + epsilon)
+    # accuracy = torch.sum(tp) / torch.sum(tp + tn + fp + fn)
+    # recall = torch.mean(tp / (tp + fn + epsilon))
+    # precision = torch.mean(tp / (tp + fp + epsilon))
+    # f1_score = torch.mean(2 * precision * recall / (precision + recall + epsilon))
 
-    # f1 = 2 * (precision * recall) / (precision + recall + epsilon)
+    # return accuracy, recall, precision, f1_score
+    acc = (predictions == labels).float().mean()
+    predictions = predictions.float()
+    labels = labels.float()
 
-    # return acc, f1, precision, recall
+    # Get the true positives, true negatives, false positives and false negatives
+    tp = (labels * predictions)
+    tn = ((1 - labels) * (1 - predictions))
+    fp = ((1 - labels) * predictions)
+    fn = (labels * (1 - predictions))
+
+    tp_sum = tp.sum().to(torch.float32).item()
+    fp_sum = fp.sum().to(torch.float32).item()
+    fn_sum = fn.sum().to(torch.float32).item()
+    epsilon = 1e-7
+
+    precision = tp_sum / (tp_sum + fp_sum + epsilon)
+    recall = tp_sum / (tp_sum + fn_sum + epsilon)
+
+    f1 = 2 * (precision * recall) / (precision + recall + epsilon)
+
+    return acc, f1, precision, recall
 
 
 def get_final_model_config_dict(index=0, split_i=0):
