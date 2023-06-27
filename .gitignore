@@ -146,3 +146,5 @@ portiloop_software/models/*
 # Pytorch Lightning Checkpoints and files
 *.ckpt 
 *.yaml
+*.csv
+*.edf

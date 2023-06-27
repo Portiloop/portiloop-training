@@ -1,235 +1,251 @@
-from pathlib import Path
+import os
 import random
-import numpy as np
-import pandas as pd
+import time
+
 import pytorch_lightning as pl
-from sklearn.metrics import f1_score
-from sklearn.model_selection import train_test_split
-import torch.nn as nn
 import torch
-from portiloop_software.portiloop_python.ANN.data.mass_data import MassDataset, MassRandomSampler, SingleSubjectDataset, SingleSubjectSampler, read_pretraining_dataset, read_spindle_trains_labels
-from portiloop_software.portiloop_python.ANN.data.moda_data import RandomSampler, SignalDataset, ValidationSampler, get_class_idxs
-from portiloop_software.portiloop_python.ANN.models.lstm import PortiloopNetwork
-from torch.utils.data import DataLoader
+import torch.nn as nn
+import torch.nn.functional as F
 from pytorch_lightning.loggers import WandbLogger
-from portiloop_software.portiloop_python.ANN.utils import LoggerWandb, get_configs
+from sklearn.metrics import classification_report, confusion_matrix
+from torch.utils.data import DataLoader, Dataset, Sampler
+
+import wandb
+from portiloop_software.portiloop_python.ANN.data.mass_data import (
+    read_pretraining_dataset, read_sleep_staging_labels,
+    read_spindle_trains_labels)
+from portiloop_software.portiloop_python.ANN.data.sleepedf_data import get_sleepedf_loaders
+from portiloop_software.portiloop_python.ANN.models.sleep_staging_models import (
+    CNNBlock, TSNConv, TransformerEncoderWithCLS)
+from portiloop_software.portiloop_python.ANN.models.test_dsn import DeepSleepNet, TinySleepNet
+from portiloop_software.portiloop_python.ANN.utils import (get_configs,
+                                                           set_seeds)
 
 
-class LstmModel(pl.LightningModule):
-    def __init__(self, config):
-        super().__init__() # init the parent class
+class SleepStageDataset(Dataset):
+    def __init__(self, subjects, data, labels, seq_len, window_size, freq):
+        '''
+        This class takes in a list of subject, a path to the MASS directory 
+        and reads the files associated with the given subjects as well as the sleep stage annotations
+        '''
+        super().__init__()
+
+        self.seq_len = seq_len
+        self.window_size = window_size
+
+        # Get the sleep stage labels
+        self.full_signal = []
+        self.full_labels = []
+
+        self.subject_list = []
+        for subject in subjects:
+            if subject not in data.keys():
+                print(
+                    f"Subject {subject} not found in the pretraining dataset")
+                continue
+
+            # Get the signal for the given subject
+            signal = torch.tensor(data[subject]['signal'], dtype=torch.float)
+
+            # Get all the labels for the given subject
+            label = torch.tensor([SleepStageDataset.get_labels().index(
+                lab) for lab in labels[subject]]).type(torch.uint8)
+
+            # Repeat the labels freq times to match the signal using a pytorch function
+            label = torch.tensor(label).repeat_interleave(freq)
+
+            # Add some '?' padding at the end to make sure the length of signal and label match
+            missing = len(signal) - len(label)
+            label = torch.cat([label, torch.full(
+                (missing, ), SleepStageDataset.get_labels().index('?')).type(torch.uint8)])
+
+            # Make sure that the signal and the labels are the same length
+            assert len(signal) == len(label)
+
+            # Add to full signal and full label
+            self.full_labels.append(label)
+            self.full_signal.append(signal)
+            del data[subject], signal, label
+
+        self.full_signal = torch.cat(self.full_signal)
+        self.full_labels = torch.cat(self.full_labels)
+
+        # Make a dictionary of all the indexes of each class label
+        self.label_indexes = {}
+        for label in self.full_labels.unique():
+            self.label_indexes[int(label)] = (
+                self.full_labels == label).nonzero(as_tuple=False).reshape(-1)
+
+        total_samp_labels = sum([len(self.label_indexes[i]) for i in range(5)])
+        self.sampleable_weights = [
+            len(self.label_indexes[i]) / total_samp_labels for i in range(5)]
+
+    @staticmethod
+    def get_labels():
+        return ['1', '2', '3', 'R', 'W', '?']
+
+    def __getitem__(self, index):
+        # Get data and label at the given index
+        signal = self.full_signal[index -
+                                  (self.seq_len * self.window_size):index]
+        signal = signal.unfold(0, self.window_size, self.window_size)
+        signal = signal.unsqueeze(1)
+        label = self.full_labels[index]
+
+        return signal, label.type(torch.LongTensor)
+
+    def __len__(self):
+        return len(self.full_signal)
+
+
+class SleepStagingModel(pl.LightningModule):
+    def __init__(self, config, weights):
+        super().__init__()
+
+        # encoder = CNNBlock(1, config['embedding_size'])
+        encoder = TSNConv(config['freq'])
+
+        self.transformer = TransformerEncoderWithCLS(
+            encoder,
+            config['embedding_size'],
+            config['num_heads'],
+            config['num_layers'],
+            5,
+            dropout=config['dropout'],
+            cls=config['cls'])
+
+        # self.transformer = TinySleepNet(fs=config['freq'])
+
+        self.criterion = nn.CrossEntropyLoss(reduction='mean')
+        self.validation_outputs = []
+        self.validation_labels = []
         self.config = config
-        self.model = PortiloopNetwork(config)
-        self.loss = nn.BCELoss(reduction='none')
 
-        # Initialize arrays to keep predictions for validation
-        self.predictions = []
-        self.targets = []
+    def forward(self, x):
+        return self.transformer(x)
 
-    def forward(self, x, h=None):
-        return self.model(x, h)
-    
-    def training_step(self, batch, batch_idx):  
-        # Load the batch from the dataloader
-        x, _, _, y = batch
-        y = y.float()
-
-        # Forward pass
-        h1 = torch.zeros((self.config['nb_rnn_layers'], self.config['batch_size'], self.config['hidden_size']), device=x.device)
-        y_hat, h, _ = self.model(x, h1)
-        y_hat = y_hat.view(-1)
-        loss = self.loss(y_hat, y)
-        loss = loss.mean()
-        predictions = (y_hat >= 0.5)
-        acc = (predictions == y).float().mean()
-        self.log('train_loss', loss.item())
-        self.log('train_acc', acc)
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        loss = self.criterion(y_hat, y)
+        self.log("train_loss", loss.mean(), on_step=True,
+                 on_epoch=True, prog_bar=True, logger=True)
+        accuracy = y_hat.argmax(dim=1).eq(y).sum().float() / y.size(0)
+        self.log("train_acc", accuracy, on_step=True,
+                 on_epoch=True, prog_bar=True, logger=True)
         return loss
-    
+
     def validation_step(self, batch, batch_idx):
-        # Load the batch from the dataloader
-        x, _, _, y = batch
-        x = x.float()
-        y = y.float()
-
-        # assert  in [0, 1], f"y should be 0 or 1, but is {y}"
-
-        # Forward pass
-        if batch_idx == 0:
-            self.h1 = torch.zeros((self.config['nb_rnn_layers'], self.config['batch_size_validation'], self.config['hidden_size']), device=x.device)
-        y_hat, self.h1, _ = self.model(x, self.h1)
-        y_hat = y_hat.view(-1)
-        loss = self.loss(y_hat, y).mean()
-
-        predictions = (y_hat >= 0.5)
-        # acc = (predictions == y).float().mean()
-        # f1 = f1_score(y.cpu().numpy(), predictions.cpu().numpy())
-        self.log('val_loss', loss.item())
-
-        # Save the results
-        self.predictions.append(predictions)
-        self.targets.append(y)
+        x, y = batch
+        y_hat = self(x)
+        loss = self.criterion(y_hat, y)
+        self.log("val_loss", loss, on_step=True,
+                 on_epoch=True, prog_bar=True, logger=True)
+        prediction = y_hat.argmax(dim=1)
+        accuracy = prediction.eq(y).sum().float() / y.size(0)
+        self.log("val_acc", accuracy, on_step=True,
+                 on_epoch=True, prog_bar=True, logger=True)
+        self.validation_outputs.append(prediction.cpu())
+        self.validation_labels.append(y.cpu())
         return loss
-    
+
     def on_validation_epoch_end(self):
-        predictions = torch.cat(self.predictions)
-        targets = torch.cat(self.targets)
-        acc = (predictions == targets).float().mean()
-        f1 = f1_score(targets.cpu().numpy(), predictions.cpu().numpy())
-        self.log('val_acc', acc)
-        self.log('val_f1', f1)
+        y_pred = torch.stack(self.validation_outputs).flatten()
+        y_true = torch.stack(self.validation_labels).flatten()
 
-        self.predictions.clear()
-        self.targets.clear()
-    
+        # conf_mat = confusion_matrix(y_true, y_pred)
+        class_report = classification_report(
+            y_true, y_pred, target_names=SleepStageDataset.get_labels()[:-1], labels=[0, 1, 2, 3, 4], output_dict=True)
+
+        self.log('f1', class_report['macro avg']['f1-score'], logger=True)
+        self.log(
+            'precision', class_report['macro avg']['precision'], logger=True)
+        self.log('recall', class_report['macro avg']['recall'], logger=True)
+
+        self.validation_outputs.clear()
+        self.validation_labels.clear()
+
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config['lr_adam'], weight_decay=self.config['adam_w'])
-        return optimizer
-    
-
-class MODADataModule(pl.LightningDataModule):
-    def __init__(self, config):
-        super().__init__()
-        self.config = config
-        self.len_segment = config['len_segment_s'] * config['fe']
-        self.filename = config['filename_classification_dataset']
-
-        self.all_subject = pd.read_csv(Path(self.config['path_dataset']) / self.config['subject_list'], header=None, delim_whitespace=True).to_numpy()
-        p1_subject = pd.read_csv(Path(self.config['path_dataset']) / self.config['subject_list_p1'], header=None, delim_whitespace=True).to_numpy()
-        p2_subject = pd.read_csv(Path(self.config['path_dataset']) / self.config['subject_list_p2'], header=None, delim_whitespace=True).to_numpy()
-        train_subject_p1, validation_subject_p1 = train_test_split(p1_subject, train_size=0.8, random_state=self.config['split_idx'])
-        if config['test_set']:
-            test_subject_p1, validation_subject_p1 = train_test_split(validation_subject_p1, train_size=0.5, random_state=config['split_idx'])
-        
-        train_subject_p2, validation_subject_p2 = train_test_split(p2_subject, train_size=0.8, random_state=self.config['split_idx'])
-        if config['test_set']:
-            test_subject_p2, validation_subject_p2 = train_test_split(validation_subject_p2, train_size=0.5, random_state=config['split_idx'])
-        self.train_subject = np.array([s for s in self.all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
-        if config['test_set']:
-            self.test_subject = np.array([s for s in self.all_subject if s[0] in test_subject_p1[:, 0] or s[0] in test_subject_p2[:, 0]]).squeeze()
-        self.validation_subject = np.array(
-            [s for s in self.all_subject if s[0] in validation_subject_p1[:, 0] or s[0] in validation_subject_p2[:, 0]]).squeeze()
-        
-        self.nb_segment_validation = len(np.hstack([range(int(s[1]), int(s[2])) for s in self.validation_subject]))
-        self.batch_size_validation = len(list(range(0, (config['seq_stride'] // config['validation_network_stride']) * config['validation_network_stride'], config['validation_network_stride']))) * self.nb_segment_validation
-
-    def train_dataloader(self):
-        ds_train = SignalDataset(filename=self.filename,
-                                 path=config['path_dataset'],
-                                 window_size=config['window_size'],
-                                 fe=config['fe'],
-                                 seq_len=config['seq_len'],
-                                 seq_stride=config['seq_stride'],
-                                 list_subject=self.train_subject,
-                                 len_segment=self.len_segment,
-                                 threshold=config['threshold'])
-
-        
-        idx_true, idx_false = get_class_idxs(ds_train, config['distribution_mode'])
-        samp_train = RandomSampler(idx_true=idx_true,
-                                   idx_false=idx_false,
-                                   batch_size=config['batch_size'],
-                                   nb_batch=config['nb_batch_per_epoch'],
-                                   distribution_mode=config['distribution_mode'])
-
-        
-        train_loader = DataLoader(ds_train,
-                                  batch_size=config['batch_size'],
-                                  sampler=samp_train,
-                                  shuffle=False,
-                                  num_workers=0,
-                                  pin_memory=True)        
-        
-        return train_loader
-    
-    def val_dataloader(self):
-        ds_validation = SignalDataset(filename=self.filename,
-                                      path=config['path_dataset'],
-                                      window_size=config['window_size'],
-                                      fe=config['fe'],
-                                      seq_len=1,
-                                      seq_stride=1,  # just to be sure, fixed value
-                                      list_subject=self.validation_subject,
-                                      len_segment=self.len_segment,
-                                      threshold=config['threshold'])
-        
-        samp_validation = ValidationSampler(ds_validation,
-                                            seq_stride=config['seq_stride'],
-                                            len_segment=self.len_segment,
-                                            nb_segment=self.nb_segment_validation,
-                                            network_stride=config['validation_network_stride'])
-        validation_loader = DataLoader(ds_validation,
-                                       batch_size=self.batch_size_validation,
-                                       sampler=samp_validation,
-                                       num_workers=0,
-                                       pin_memory=True,
-                                       shuffle=False)
-        return validation_loader
-
-class MASSDataModule(pl.LightningDataModule):
-    def __init__(self, config):
-        super().__init__()
-        self.config = config
-
-    def prepare_data(self):
-        # Read all the subjects available in the dataset
-        self.labels = read_spindle_trains_labels(self.config['old_dataset']) 
-
-        # Divide the subjects into train and test sets
-        self.subjects = list(self.labels.keys())
-        random.shuffle(self.subjects)
-
-        # Read the pretraining dataset
-        self.data = read_pretraining_dataset(self.config['MASS_dir'], patients_to_keep=self.subjects)
-
-    def setup(self, stage=None):
-        # called on every GPU
-        # split train/val/test
-        # make assignments here (val/train/test split)
-        self.validation_subject = self.subjects[0]
-        self.train_subjects = self.subjects[1:]
-
-    def train_dataloader(self):
-        # Create the train and test datasets
-        train_dataset = MassDataset(self.train_subjects, self.data, self.labels, self.config)
-        # Create the train dataloader
-        train_dataloader = DataLoader(
-            train_dataset,
-            batch_size=self.config['batch_size'],
-            sampler=MassRandomSampler(train_dataset, self.config['batch_size'], nb_batch=self.config['nb_batch_per_epoch']),
-            pin_memory=True,
-            drop_last=True,
-            num_workers=4
-        )
-        return train_dataloader
-
-    def val_dataloader(self):
-        test_dataset = SingleSubjectDataset(self.validation_subject, self.data, self.labels, self.config)
-        test_dataloader = DataLoader(
-            test_dataset,
-            batch_size=1,
-            sampler=SingleSubjectSampler(len(test_dataset), self.config['seq_stride']),
-            pin_memory=True,
-            drop_last=True,
-        )
-        return test_dataloader
+        return torch.optim.AdamW(self.parameters(), lr=self.config['lr'], betas=(0.9, 0.999), weight_decay=1e-3)
 
 
 if __name__ == "__main__":
-    config = get_configs("Test", True, 0)
-    experiment_name = "Test"
-    wandb_project = f"full-dataset-public"
-    wandb_group = f"default"
-    logger = WandbLogger(
-        project=wandb_project,
-        name=experiment_name,
-    )
+    # Wandb stuff
+    os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
+    seed = 42
+    set_seeds(seed)
+    project_name = "sleep_staging_portiloop"
 
-    data = MODADataModule(config)
-    config['batch_size_validation'] = data.batch_size_validation
-    model = LstmModel(config)
-    trainer = pl.Trainer(
-        max_epochs=30,
-        logger=logger)
-    trainer.fit(model, data)
+    # Get the config
+    config = {
+        'batch_size': 64,
+        'freq': 100,
+        'inception': [16, 8, 16, 16, 32, 16],
+        'lr': 1e-3,
+        'num_heads': 8,
+        'num_layers': 1,
+        'noise_std': 0.1,
+        'dropout': 0.1,
+        'cls': False,
+        'window_size': 30 * 100,
+        'seq_len': 1,
+    }
 
+    config['embedding_size'] = 128
+
+    # Load the data
+    unfiltered_mass = "/project/portiloop_transformer/transformiloop/dataset/MASS_preds/"
+    path_dataset = "/project/portiloop-training/portiloop_software/dataset"
+
+    # ss_labels = read_sleep_staging_labels(path_dataset)
+    # # Divide subjects between test and validation
+    # max_subjects = -1
+    # subjects = list(ss_labels.keys()) if max_subjects == \
+    #     -1 else list(ss_labels.keys())[:max_subjects]
+
+    # random.shuffle(subjects)
+    # cutoff = int(len(subjects) * 0.8)
+    # test_subjects = subjects[:cutoff]
+    # val_subjects = subjects[cutoff:]
+
+    # data = read_pretraining_dataset(unfiltered_mass, patients_to_keep=subjects)
+
+    # dataset = SleepStageDataset(
+    #     test_subjects, data, ss_labels, config['seq_len'], config['window_size'], config['freq'])
+    # test_dataset = SleepStageDataset(
+    #     val_subjects, data, ss_labels, config['seq_len'], config['window_size'], config['freq'])
+    # sampler = SSValidationSampler(
+    #     dataset, 1000, config['batch_size'])
+    # test_sampler = SSValidationSampler(
+    #     test_dataset, 1000, config['batch_size'])
+
+    # loader = DataLoader(
+    #     dataset=dataset,
+    #     batch_size=config['batch_size'],
+    #     sampler=sampler,
+    #     num_workers=0,
+    #     pin_memory=True,
+    #     drop_last=True
+    # )
+
+    # test_loader = DataLoader(
+    #     dataset=test_dataset,
+    #     batch_size=config['batch_size'],
+    #     sampler=test_sampler,
+    #     num_workers=0,
+    #     pin_memory=True,
+    #     drop_last=True
+    # )
+
+    train_loader, test_loader, loss_weights = get_sleepedf_loaders(82, config)
+
+    # Add a timestamps to the name
+    experiment_name = f"Transformer+TNSEncoder_{int(time.time())}"
+
+    wandb_logger = WandbLogger(
+        project=project_name, config=config, id=experiment_name)
+    model = SleepStagingModel(config, loss_weights)
+    trainer = pl.Trainer(max_epochs=100, accelerator='gpu',
+                         logger=wandb_logger)  # , fast_dev_run=10
+
+    trainer.fit(model, train_loader, test_loader)
