@@ -1,11 +1,11 @@
-from portiloop_software.portiloop_python.ANN.portiloop_detector_training import train
-from portiloop_software.portiloop_python.ANN.models.test_models import PortiConvAtt
-from portiloop_software.portiloop_python.ANN.utils import LoggerWandb, get_configs, set_seeds
-from portiloop_software.portiloop_python.ANN.data.moda_data import generate_dataloader
-from portiloop_software.portiloop_python.ANN.data.mass_data import get_dataloaders_mass, get_dataloaders_sleep_stage
-from portiloop_software.portiloop_python.ANN.models.test_models import PortiResNet
+from portiloop_ml.portiloop_python.ANN.portiloop_detector_training import train
+from portiloop_ml.portiloop_python.ANN.models.test_models import PortiConvAtt
+from portiloop_ml.portiloop_python.ANN.utils import LoggerWandb, get_configs, set_seeds
+from portiloop_ml.portiloop_python.ANN.data.moda_data import generate_dataloader
+from portiloop_ml.portiloop_python.ANN.data.mass_data import get_dataloaders_mass, get_dataloaders_sleep_stage
+from portiloop_ml.portiloop_python.ANN.models.test_models import PortiResNet
 from torchsummary import summary
-from portiloop_software.portiloop_python.ANN.models.lstm import PortiloopNetwork
+from portiloop_ml.portiloop_python.ANN.models.lstm import PortiloopNetwork
 
 print("Setting up config...")
 experiment_name = 'OriginalModel_SleepStage1'
@@ -49,17 +49,18 @@ config_dict['lr_adam'] = 0.0005
 print("Starting logger...")
 wandb_project = f"full-dataset-public"
 wandb_group = 'DEFAULT'
-logger = LoggerWandb(experiment_name, config_dict, wandb_project, group=wandb_group)
+logger = LoggerWandb(experiment_name, config_dict,
+                     wandb_project, group=wandb_group)
 print("Done...")
 
 train(
-    train_loader, 
-    val_loader, 
-    model, 
-    recurrent, 
-    logger, 
-    save_model, 
-    unique_name, 
+    train_loader,
+    val_loader,
+    model,
+    recurrent,
+    logger,
+    save_model,
+    unique_name,
     config_dict
-    )
+)
 print("Done...")
