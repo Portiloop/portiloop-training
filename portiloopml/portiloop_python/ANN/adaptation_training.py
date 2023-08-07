@@ -6,9 +6,9 @@ from torch import nn
 from torch import optim
 import copy
 import numpy as np
-from portiloop_ml.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, SingleSubjectSampler, SleepStageDataset, read_pretraining_dataset, read_sleep_staging_labels, read_spindle_trains_labels
-from portiloop_ml.portiloop_python.ANN.models.lstm import get_trained_model
-from portiloop_ml.portiloop_python.ANN.utils import get_configs, get_metrics
+from portiloopml.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, SingleSubjectSampler, SleepStageDataset, read_pretraining_dataset, read_sleep_staging_labels, read_spindle_trains_labels
+from portiloopml.portiloop_python.ANN.models.lstm import get_trained_model
+from portiloopml.portiloop_python.ANN.utils import get_configs, get_metrics
 from scipy.signal import firwin, remez, kaiser_atten, kaiser_beta, kaiserord, filtfilt
 
 

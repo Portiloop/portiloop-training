@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 # import torch
-from portiloop_ml.portiloop_python.ANN.lightning_tests import SleepStagingModel
-from portiloop_ml.portiloop_python.ANN.data.sleepedf_data import get_sleepedf_loaders_keras
+from portiloopml.portiloop_python.ANN.lightning_tests import SleepStagingModel
+from portiloopml.portiloop_python.ANN.data.sleepedf_data import get_sleepedf_loaders_keras
 import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Conv1D, BatchNormalization, ReLU, MaxPooling1D, Dropout, LSTM, Dense, Softmax, Flatten

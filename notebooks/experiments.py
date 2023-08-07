@@ -1,11 +1,11 @@
-from portiloop_ml.portiloop_python.ANN.portiloop_detector_training import train
-from portiloop_ml.portiloop_python.ANN.models.test_models import PortiConvAtt
-from portiloop_ml.portiloop_python.ANN.utils import LoggerWandb, get_configs, set_seeds
-from portiloop_ml.portiloop_python.ANN.data.moda_data import generate_dataloader
-from portiloop_ml.portiloop_python.ANN.data.mass_data import get_dataloaders_mass, get_dataloaders_sleep_stage
-from portiloop_ml.portiloop_python.ANN.models.test_models import PortiResNet
+from portiloopml.portiloop_python.ANN.portiloop_detector_training import train
+from portiloopml.portiloop_python.ANN.models.test_models import PortiConvAtt
+from portiloopml.portiloop_python.ANN.utils import LoggerWandb, get_configs, set_seeds
+from portiloopml.portiloop_python.ANN.data.moda_data import generate_dataloader
+from portiloopml.portiloop_python.ANN.data.mass_data import get_dataloaders_mass, get_dataloaders_sleep_stage
+from portiloopml.portiloop_python.ANN.models.test_models import PortiResNet
 from torchsummary import summary
-from portiloop_ml.portiloop_python.ANN.models.lstm import PortiloopNetwork
+from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork
 
 print("Setting up config...")
 experiment_name = 'OriginalModel_SleepStage1'

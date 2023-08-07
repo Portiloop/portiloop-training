@@ -6,7 +6,7 @@ from random import seed
 import wandb
 from scipy.signal import firwin, remez, kaiser_atten, kaiser_beta, kaiserord, filtfilt
 import matplotlib.pyplot as plt
-from portiloop_ml.portiloop_python.ANN.data.mass_data import SleepStageDataset
+from portiloopml.portiloop_python.ANN.data.mass_data import SleepStageDataset
 
 
 class RMSScorer:

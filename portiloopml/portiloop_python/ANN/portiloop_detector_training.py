@@ -24,13 +24,13 @@ from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.sampler import Sampler
 
 import wandb
-from portiloop_ml.portiloop_python.ANN.data.mass_data import get_dataloaders_mass
-from portiloop_ml.portiloop_python.ANN.data.moda_data import (
+from portiloopml.portiloop_python.ANN.data.mass_data import get_dataloaders_mass
+from portiloopml.portiloop_python.ANN.data.moda_data import (
     generate_dataloader, generate_dataloader_unlabelled_offline)
-from portiloop_ml.portiloop_python.ANN.data.reg_balancing import (
+from portiloopml.portiloop_python.ANN.data.reg_balancing import (
     LabelDistributionSmoothing, SurpriseReweighting)
-from portiloop_ml.portiloop_python.ANN.models.lstm import PortiloopNetwork
-from portiloop_ml.portiloop_python.ANN.utils import LoggerWandb, get_configs, get_metrics, set_seeds
+from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork
+from portiloopml.portiloop_python.ANN.utils import LoggerWandb, get_configs, get_metrics, set_seeds
 
 
 recall_validation_factor = 0.5

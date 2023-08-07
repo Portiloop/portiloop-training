@@ -8,7 +8,7 @@ import pandas as pd
 from random import randint, seed
 import logging
 
-from portiloop_ml.portiloop_python.ANN.utils import get_configs
+from portiloopml.portiloop_python.ANN.utils import get_configs
 
 
 def generate_dataloader(config):

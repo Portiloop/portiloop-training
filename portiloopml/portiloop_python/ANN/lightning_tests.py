@@ -11,15 +11,15 @@ from sklearn.metrics import classification_report, confusion_matrix
 from torch.utils.data import DataLoader, Dataset, Sampler
 
 import wandb
-from portiloop_ml.portiloop_python.ANN.data.mass_data import (
+from portiloopml.portiloop_python.ANN.data.mass_data import (
     read_pretraining_dataset, read_sleep_staging_labels,
     read_spindle_trains_labels)
-from portiloop_ml.portiloop_python.ANN.data.sleepedf_data import get_sleepedf_loaders
-from portiloop_ml.portiloop_python.ANN.models.sleep_staging_models import (
+from portiloopml.portiloop_python.ANN.data.sleepedf_data import get_sleepedf_loaders
+from portiloopml.portiloop_python.ANN.models.sleep_staging_models import (
     CNNBlock, TSNConv, TransformerEncoderWithCLS)
-from portiloop_ml.portiloop_python.ANN.models.test_dsn import DeepSleepNet, TinySleepNet
-from portiloop_ml.portiloop_python.ANN.utils import (get_configs,
-                                                     set_seeds)
+from portiloopml.portiloop_python.ANN.models.test_dsn import DeepSleepNet, TinySleepNet
+from portiloopml.portiloop_python.ANN.utils import (get_configs,
+                                                    set_seeds)
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 

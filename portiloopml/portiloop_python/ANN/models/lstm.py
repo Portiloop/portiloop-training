@@ -10,9 +10,9 @@ import torch.nn as nn
 from torch.nn import functional as F
 from torchsummary import summary
 
-from portiloop_ml.portiloop_python.ANN.models.model_blocks import (
+from portiloopml.portiloop_python.ANN.models.model_blocks import (
     AttentionLayer, FullAttention, TransformerEncoderLayer)
-from portiloop_ml.portiloop_python.ANN.utils import get_configs
+from portiloopml.portiloop_python.ANN.utils import get_configs
 
 ABLATION = 0
 

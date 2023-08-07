@@ -9,9 +9,9 @@ import time
 
 import numpy as np
 
-from portiloop_ml.portiloop_python.ANN.utils import get_configs
+from portiloopml.portiloop_python.ANN.utils import get_configs
 
-from portiloop_ml.portiloop_python.ANN.data.mass_data import read_pretraining_dataset, read_sleep_staging_labels, read_spindle_trains_labels
+from portiloopml.portiloop_python.ANN.data.mass_data import read_pretraining_dataset, read_sleep_staging_labels, read_spindle_trains_labels
 import torch
 
 
