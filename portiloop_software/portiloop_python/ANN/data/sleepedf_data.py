@@ -59,6 +59,18 @@ class SSValidationSampler(Sampler):
         return self.limit
 
 
+def pytorch_generator_to_keras(generator):
+    generator = iter(generator)
+    while True:
+        batch = next(generator)
+        new_batch = []
+        for b in batch:
+            new_batch.append(b.numpy())
+        new_batch[0] = new_batch[0].reshape(-1, 3000, 1)
+        new_batch = tuple(new_batch)
+        yield tuple(new_batch)
+
+
 def get_sleepedf_loaders(num_subjects, config):
     assert num_subjects <= 82, "Only 82 subjects in the dataset."
     assert num_subjects > 1, "Need more than one subject."
@@ -71,7 +83,74 @@ def get_sleepedf_loaders(num_subjects, config):
     train_subjects = list(range(num_train_subjects))
     test_subjects = list(range(num_train_subjects, num_subjects))
 
-    path = '/project/tinysleepnet/data/sleepedf/sleep-cassette/eeg_fpz_cz'
+    path = '/home/ubuntu/portiloop-training/portiloop_software/dataset/eeg_fpz_cz'
+
+    # train_dataset = SeqDataset(
+    #     train_subjects, path, config['seq_len'])
+
+    # test_dataset = SeqDataset(
+    #     test_subjects, path, config['seq_len'])
+
+    # train_loader = DataLoader(
+    #     train_dataset,
+    #     batch_size=config['batch_size'],
+    #     sampler=RandomSampler(train_dataset),
+    #     num_workers=0,
+    #     pin_memory=True,
+    #     drop_last=True
+    # )
+
+    # test_loader = DataLoader(
+    #     test_dataset,
+    #     batch_size=config['batch_size'],
+    #     sampler=RandomSampler(test_dataset),
+    #     num_workers=0,
+    #     pin_memory=True,
+    #     drop_last=True
+    # )
+
+    train_dataset = SleepEDFDataset(
+        train_subjects, path, config['seq_len'], config['window_size'])
+
+    test_dataset = SleepEDFDataset(
+        test_subjects, path, config['seq_len'], config['window_size'])
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=config['batch_size'],
+        sampler=SleepStageSampler(
+            train_dataset, 10000, config['batch_size']),
+        num_workers=0,
+        pin_memory=True,
+        drop_last=True
+    )
+
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=config['batch_size'],
+        sampler=SSValidationSampler(
+            test_dataset, 10000, config['batch_size']),
+        num_workers=0,
+        pin_memory=True,
+        drop_last=True
+    )
+
+    return train_loader, test_loader, train_dataset.sampleable_weights
+
+
+def get_sleepedf_loaders_keras(num_subjects, config):
+    assert num_subjects <= 82, "Only 82 subjects in the dataset."
+    assert num_subjects > 1, "Need more than one subject."
+
+    num_train_subjects = int(math.ceil(num_subjects * 0.8))
+    num_val_subjects = num_subjects - num_train_subjects
+    if num_val_subjects == 0:
+        num_train_subjects -= 1
+
+    train_subjects = list(range(num_train_subjects))
+    test_subjects = list(range(num_train_subjects, num_subjects))
+
+    path = '/home/ubuntu/portiloop-training/portiloop_software/dataset/eeg_fpz_cz'
 
     train_dataset = SeqDataset(
         train_subjects, path, config['seq_len'])
@@ -81,7 +160,7 @@ def get_sleepedf_loaders(num_subjects, config):
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=config['batch_size'],
+        batch_size=1,
         sampler=RandomSampler(train_dataset),
         num_workers=0,
         pin_memory=True,
@@ -90,8 +169,8 @@ def get_sleepedf_loaders(num_subjects, config):
 
     test_loader = DataLoader(
         test_dataset,
-        batch_size=config['batch_size'],
-        sampler=RandomSampler(test_dataset),
+        batch_size=1,
+        # sampler=RandomSampler(test_dataset, num_samples=64 * 1000),
         num_workers=0,
         pin_memory=True,
         drop_last=True
@@ -105,9 +184,9 @@ def get_sleepedf_loaders(num_subjects, config):
 
     # train_loader = DataLoader(
     #     train_dataset,
-    #     batch_size=config['batch_size'],
-    #     sampler=SSValidationSampler(
-    #         train_dataset, 10000, config['batch_size']),
+    #     batch_size=1,
+    #     sampler=SleepStageSampler(
+    #         train_dataset, 10000000000000, 1),
     #     num_workers=0,
     #     pin_memory=True,
     #     drop_last=True
@@ -115,14 +194,18 @@ def get_sleepedf_loaders(num_subjects, config):
 
     # test_loader = DataLoader(
     #     test_dataset,
-    #     batch_size=config['batch_size'],
-    #     sampler=SSValidationSampler(test_dataset, 10000, config['batch_size']),
+    #     batch_size=1,
+    #     sampler=SSValidationSampler(
+    #         test_dataset, 64 * 1000, 1),
     #     num_workers=0,
     #     pin_memory=True,
     #     drop_last=True
     # )
 
-    return train_loader, test_loader, train_dataset.sampleable_weights
+    train_loader = pytorch_generator_to_keras(train_loader)
+    test_loader = pytorch_generator_to_keras(test_loader)
+
+    return train_loader, test_loader
 
 
 class SeqDataset(Dataset):
@@ -297,8 +380,8 @@ if __name__ == "__main__":
         test = dataset[i]
         assert test[0].shape == (seq_len, 1, window_size)
 
-    train_loader, test_loader, weights = get_sleepedf_loaders(
-        2, {'batch_size': 32, 'seq_len': 1})
+    train_loader, test_loader, weights = get_sleepedf_loaders_keras(
+        2, {'batch_size': 32, 'seq_len': 50, 'window_size': 30 * 100})
 
     test = next(iter(train_loader))
 

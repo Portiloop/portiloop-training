@@ -20,6 +20,7 @@ from portiloop_software.portiloop_python.ANN.models.sleep_staging_models import 
 from portiloop_software.portiloop_python.ANN.models.test_dsn import DeepSleepNet, TinySleepNet
 from portiloop_software.portiloop_python.ANN.utils import (get_configs,
                                                            set_seeds)
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 
 class SleepStageDataset(Dataset):
@@ -103,18 +104,18 @@ class SleepStagingModel(pl.LightningModule):
         super().__init__()
 
         # encoder = CNNBlock(1, config['embedding_size'])
-        encoder = TSNConv(config['freq'])
+        # encoder = TSNConv(config['freq'])
 
-        self.transformer = TransformerEncoderWithCLS(
-            encoder,
-            config['embedding_size'],
-            config['num_heads'],
-            config['num_layers'],
-            5,
-            dropout=config['dropout'],
-            cls=config['cls'])
+        # self.transformer = TransformerEncoderWithCLS(
+        #     encoder,
+        #     config['embedding_size'],
+        #     config['num_heads'],
+        #     config['num_layers'],
+        #     5,
+        #     dropout=config['dropout'],
+        #     cls=config['cls'])
 
-        # self.transformer = TinySleepNet(fs=config['freq'])
+        self.transformer = TinySleepNet(fs=config['freq'])
 
         self.criterion = nn.CrossEntropyLoss(reduction='mean')
         self.validation_outputs = []
@@ -188,7 +189,7 @@ if __name__ == "__main__":
         'dropout': 0.1,
         'cls': False,
         'window_size': 30 * 100,
-        'seq_len': 1,
+        'seq_len': 50,
     }
 
     config['embedding_size'] = 128
@@ -237,15 +238,26 @@ if __name__ == "__main__":
     #     drop_last=True
     # )
 
+    print("Loading data...")
     train_loader, test_loader, loss_weights = get_sleepedf_loaders(82, config)
+    print("done...")
 
     # Add a timestamps to the name
-    experiment_name = f"Transformer+TNSEncoder_{int(time.time())}"
+    experiment_name = f"TSN_again_{int(time.time())}"
+
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=os.getcwd(),
+        filename=f'{experiment_name}' + '-{epoch:02d}-{f1:.2f}',
+        save_top_k=5,
+        verbose=True,
+        monitor='f1',
+        mode='max',
+    )
 
     wandb_logger = WandbLogger(
         project=project_name, config=config, id=experiment_name)
     model = SleepStagingModel(config, loss_weights)
     trainer = pl.Trainer(max_epochs=100, accelerator='gpu',
-                         logger=wandb_logger)  # , fast_dev_run=10
+                         logger=wandb_logger, callbacks=[checkpoint_callback])  # , fast_dev_run=10
 
     trainer.fit(model, train_loader, test_loader)
