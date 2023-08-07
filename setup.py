@@ -19,7 +19,7 @@ install_requires = [
     'einops'
 ]
 
-setup(name='portiloop-training',
+setup(name='portiloop_training',
       packages=[package for package in find_packages()],
       version='0.0.2',
       license='MIT',
