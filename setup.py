@@ -16,7 +16,8 @@ install_requires = [
     'matplotlib',
     'requests',
     'pyinstrument',
-    'einops'
+    'einops',
+    'pytorch-lightning'
 ]
 
 setup(name='portiloopml',
