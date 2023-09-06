@@ -148,3 +148,4 @@ portiloop_software/models/*
 *.yaml
 *.csv
 *.edf
+*.zip

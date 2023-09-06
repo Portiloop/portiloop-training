@@ -11,7 +11,7 @@ import numpy as np
 from portiloopml.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, SingleSubjectSampler, SleepStageDataset, read_pretraining_dataset, read_sleep_staging_labels, read_spindle_trains_labels
 from portiloopml.portiloop_python.ANN.lightning_tests import load_model
 from portiloopml.portiloop_python.ANN.models.lstm import get_trained_model
-from portiloopml.portiloop_python.ANN.utils import get_configs, get_metrics
+from portiloopml.portiloop_python.ANN.utils import get_configs, get_metrics, set_seeds
 from scipy.signal import firwin, remez, kaiser_atten, kaiser_beta, kaiserord, filtfilt
 
 
@@ -273,9 +273,31 @@ def parse_config():
                         default='test', help='Name of the model')
     parser.add_argument('--seed', type=int, default=-1,
                         help='Seed for the experiment')
+    parser.add_argument('--worker_id', type=int, default=0,
+                        help='Id of the worker')
+    parser.add_argument('--num_workers', type=int, default=1,
+                        help='Total number of workers used to compute which arguments to run')
     args = parser.parse_args()
 
     return args
+
+
+def parse_worker_subject_div(subjects, total_workers, worker_id):
+    # Calculate the number of subjects per worker
+    subjects_per_worker = len(subjects) // total_workers
+
+    # Calculate the range of subjects for this worker
+    start_index = worker_id * subjects_per_worker
+    end_index = (worker_id + 1) * subjects_per_worker
+
+    # Ensure the last worker handles any remaining subjects
+    if worker_id == total_workers - 1:
+        end_index = len(subjects)
+
+    # Extract the subjects for this worker based on the calculated range
+    worker_subjects = subjects[start_index:end_index]
+
+    return worker_subjects
 
 
 def run_subject(net, subject_id, train, labels, ss_labels, skip_ss=False):
@@ -327,6 +349,8 @@ if __name__ == "__main__":
     else:
         seed = args.seed
 
+    set_seeds(seed)
+
     config = get_configs(args.experiment_name, False, seed)
     # config['nb_conv_layers'] = 4
     # config['hidden_size'] = 64
@@ -370,6 +394,16 @@ if __name__ == "__main__":
     random.seed(seed)
     random.shuffle(all_subjects)
     all_subjects = all_subjects[:NUM_SUBJECTS]
+
+    print(f"ALL SUBJECTS: {all_subjects}")
+    # Each worker only does its subjects
+    worker_id = args.worker_id
+    my_subjects_indexes = parse_worker_subject_div(all_subjects, args.num_workers, worker_id) 
+    # Now, you can use worker_subjects in your script for experiments
+    for subject in my_subjects_indexes:
+        # Perform experiments for the current subject
+        print(f"Worker {worker_id} is working on {subject}")
+    exit()
 
     # all_subjects = ['01-01-0009']
 
