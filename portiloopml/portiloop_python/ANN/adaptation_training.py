@@ -1,12 +1,15 @@
 import argparse
+import json
 import random
 import time
+from scipy import signal
 import torch
 from torch import nn
 from torch import optim
 import copy
 import numpy as np
 from portiloopml.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, SingleSubjectSampler, SleepStageDataset, read_pretraining_dataset, read_sleep_staging_labels, read_spindle_trains_labels
+from portiloopml.portiloop_python.ANN.lightning_tests import load_model
 from portiloopml.portiloop_python.ANN.models.lstm import get_trained_model
 from portiloopml.portiloop_python.ANN.utils import get_configs, get_metrics
 from scipy.signal import firwin, remez, kaiser_atten, kaiser_beta, kaiserord, filtfilt
@@ -88,7 +91,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         return len(self.spindle_indexes) > 0 and len(self.non_spindle_indexes) > 0
 
 
-def run_adaptation(dataloader, net, device, config, train, skip=False):
+def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     """
     Goes over the dataset and learns at every step.
     Returns the accuracy and loss as well as fp, fn, tp, tn count for spindles
@@ -106,7 +109,6 @@ def run_adaptation(dataloader, net, device, config, train, skip=False):
     # Initialize All the necessary variables
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
-    net_copy = net_copy.train()
 
     # Initialize optimizer and criterion
     optimizer = optim.AdamW(net_copy.parameters(
@@ -129,12 +131,12 @@ def run_adaptation(dataloader, net, device, config, train, skip=False):
 
     counter = 0
     for index, info in enumerate(dataloader):
-
+        net_copy.eval()
         with torch.no_grad():
             # if index > 10000:
             #     break
-            if index % 10000 == 0:
-                print(f"Doing index: {index}/{len(dataloader.sampler)}")
+            # if index % 10000 == 0:
+            #     print(f"Doing index: {index}/{len(dataloader.sampler)}")
 
             # if counter % 715 == 0:
             #     h1 = torch.zeros((config['nb_rnn_layers'], 1, config['hidden_size']), device=device)
@@ -176,7 +178,7 @@ def run_adaptation(dataloader, net, device, config, train, skip=False):
             # if output:
             #     rms_score = RMS_score(window_data.squeeze(0).squeeze(0).cpu().numpy()[])
 
-            if skip:
+            if skip_ss:
                 if (ss_label == SleepStageDataset.get_labels().index("2") or ss_label == SleepStageDataset.get_labels().index("3")):
                     # Concatenate the predictions
                     window_labels_total = torch.cat(
@@ -189,8 +191,8 @@ def run_adaptation(dataloader, net, device, config, train, skip=False):
                 output_total = torch.cat([output_total, output])
 
         # Training loop for the adaptation
+        net_copy.train()
         if index % 10 == 0 and adap_dataset.has_samples() and train:
-            print("training")
             train_sample, train_label = next(iter(adap_dataloader))
             train_sample = train_sample.to(device)
             train_label = train_label.to(device)
@@ -265,7 +267,7 @@ def parse_config():
     return args
 
 
-def run_subject(net, subject_id, train, labels, ss_labels):
+def run_subject(net, subject_id, train, labels, ss_labels, skip_ss=False):
     config['subject_id'] = subject_id
 
     data = read_pretraining_dataset(
@@ -287,19 +289,23 @@ def run_subject(net, subject_id, train, labels, ss_labels):
     start = time.time()
     # run_adaptation(dataloader, net, device, config)
     output_total, window_labels_total, loss, net_copy = run_adaptation(
-        dataloader, net, device, config, train)
+        dataloader, net, device, config, train, skip_ss=skip_ss)
     end = time.time()
-    print('Time: ', end - start)
+    # print('Time: ', end - start)
 
+    # Get the distribution of the predictions and the labels
+    dist_preds = np.unique(output_total.cpu().numpy(), return_counts=True)
+    dist_labels = np.unique(
+        window_labels_total.cpu().numpy(), return_counts=True)
     print("Distribution of the predictions:")
-    print(np.unique(output_total.cpu().numpy(), return_counts=True))
+    print(dist_preds)
     print("Distribution of the labels:")
-    print(np.unique(window_labels_total.cpu().numpy(), return_counts=True))
+    print(dist_labels)
 
     # Get the metrics
     acc, f1, precision, recall = get_metrics(output_total, window_labels_total)
 
-    return loss, acc, f1, precision, recall, net_copy
+    return loss, acc, f1, precision, recall, dist_preds, dist_labels, net_copy
 
 
 if __name__ == "__main__":
@@ -317,6 +323,8 @@ if __name__ == "__main__":
 
     # Load the model
     net = get_trained_model(config, config['path_models'] / args.model_path)
+    # ss_net = load_model('Original_params_1692894764.8012033')
+    # ss_net.cuda().eval()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -324,48 +332,63 @@ if __name__ == "__main__":
     # Load the data
     labels = read_spindle_trains_labels(config['old_dataset'])
     ss_labels = read_sleep_staging_labels(config['path_dataset'])
-    f1s = []
-    # for index, patient_id in enumerate(ss_labels.keys()):
-    loss, acc, f1, precision, recall, net = run_subject(
-        net, '01-02-0019', False, labels, ss_labels)
-    # Average all the f1 scores
-    print('Subject ', '01-02-0019')
-    print('Loss: ', loss)
-    print('Accuracy: ', acc)
-    print('F1: ', f1)
-    print('Precision: ', precision)
-    print('Recall: ', recall)
-    f1s.append(f1)
 
-    #     if index > 20:
-    #         break
+    # run_ss(ss_net, '01-02-0019', ss_labels)
 
-    print('Average F1: ', sum(f1s) / len(f1s))
+    # Experiment parameters:
+    params = [
+        # (Train, Skip SS)
+        (False, True),
+        (False, False),
+        (True, False),
+        (True, True)
+    ]
 
-    # # Print the results
-    # print('Subject 1')
-    # print('Loss: ', loss)
-    # print('Accuracy: ', acc)
-    # print('F1: ', f1)
-    # print('Precision: ', precision)
-    # print('Recall: ', recall)
+    # Number of subjects to run each experiment over
+    NUM_SUBJECTS = 40
 
-    # # Run the adaptation on subject 2
-    # loss, acc, f1, precision, recall, net = run_subject(net, '01-01-0002', True)
+    experiment_results = {}
+    all_subjects = [subject for subject in labels.keys()
+                    if subject in ss_labels.keys()]
 
-    # # Print the results
-    # print('Subject 2')
-    # print('Loss: ', loss)
-    # print('Accuracy: ', acc)
-    # print('F1: ', f1)
-    # print('Precision: ', precision)
-    # print('Recall: ', recall)
+    for subject in all_subjects:
+        assert subject in labels.keys(), 'Subject not in the dataset'
+        assert subject in ss_labels.keys(), 'Subject not in the dataset'
 
-    # # Run some testing on subject 1
-    # loss, acc, f1, precision, recall, net = run_subject(net, '01-01-0001', False)
-    # print('Subject 1 - Post subject 2')
-    # print('Loss: ', loss)
-    # print('Accuracy: ', acc)
-    # print('F1: ', f1)
-    # print('Precision: ', precision)
-    # print('Recall: ', recall)
+    # Randomly select the subjects
+    random.seed(seed)
+    random.shuffle(all_subjects)
+    all_subjects = all_subjects[:NUM_SUBJECTS]
+
+    for exp_index, param in enumerate(params):
+        train, skip_ss = param
+        print('Experiment ', exp_index)
+        print('Train: ', train)
+        print('Skip SS: ', skip_ss)
+
+        experiment_results[exp_index] = {}
+
+        for index, patient_id in enumerate(all_subjects):
+            print('Subject ', patient_id)
+            experiment_results[exp_index][patient_id] = {}
+            loss, acc, f1, precision, recall, dist_preds, dist_labels, _ = run_subject(
+                net, patient_id, train, labels, ss_labels, skip_ss)
+            # Average all the f1 scores
+            print('Loss: ', loss)
+            print('Accuracy: ', acc)
+            print('F1: ', f1)
+            print('Precision: ', precision)
+            print('Recall: ', recall)
+
+            experiment_results[exp_index][patient_id]['acc'] = acc.item()
+            experiment_results[exp_index][patient_id]['f1'] = f1
+            experiment_results[exp_index][patient_id]['precision'] = precision
+            experiment_results[exp_index][patient_id]['recall'] = recall
+            experiment_results[exp_index][patient_id]['dist_preds'] = [
+                i.tolist() for i in dist_preds]
+            experiment_results[exp_index][patient_id]['dist_labels'] = [
+                i.tolist() for i in dist_labels]
+
+    # Save the results to json file with indentation
+    with open('adaptation_results.json', 'w') as f:
+        json.dump(experiment_results, f, indent=4)

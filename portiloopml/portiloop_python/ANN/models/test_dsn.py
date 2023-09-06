@@ -65,7 +65,7 @@ class TinySleepNet(nn.Module):
 
         self.classifier = nn.Linear(128, 5)
 
-    def forward(self, x):
+    def forward(self, x, h):
         """
         :param x: [bs, seq_len, 1, 7500]
         """
@@ -76,11 +76,11 @@ class TinySleepNet(nn.Module):
         x = self.feature_3(x)
         x = self.feature_4(x)
         x = rearrange(x, '(b s) e -> b s e', b=batch_size)
-        x, _ = self.rnn(x)
+        x, h = self.rnn(x, h)
         x = F.relu(x)
         x = x[:, -1, :]
         x = self.classifier(x)
-        return x
+        return x, h
 
 
 class DeepSleepNet(nn.Module):

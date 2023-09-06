@@ -83,7 +83,7 @@ def get_sleepedf_loaders(num_subjects, config):
     train_subjects = list(range(num_train_subjects))
     test_subjects = list(range(num_train_subjects, num_subjects))
 
-    path = '/home/ubuntu/portiloop-training/portiloop_software/dataset/eeg_fpz_cz'
+    path = '/home/ubuntu/portiloop-training/portiloopml/dataset/eeg_fpz_cz'
 
     # train_dataset = SeqDataset(
     #     train_subjects, path, config['seq_len'])
@@ -119,7 +119,7 @@ def get_sleepedf_loaders(num_subjects, config):
         train_dataset,
         batch_size=config['batch_size'],
         sampler=SleepStageSampler(
-            train_dataset, 10000, config['batch_size']),
+            train_dataset, config['batches_per_epoch'], config['batch_size']),
         num_workers=0,
         pin_memory=True,
         drop_last=True
@@ -129,7 +129,7 @@ def get_sleepedf_loaders(num_subjects, config):
         test_dataset,
         batch_size=config['batch_size'],
         sampler=SSValidationSampler(
-            test_dataset, 10000, config['batch_size']),
+            test_dataset, config['batches_per_epoch'], config['batch_size']),
         num_workers=0,
         pin_memory=True,
         drop_last=True
@@ -150,7 +150,7 @@ def get_sleepedf_loaders_keras(num_subjects, config):
     train_subjects = list(range(num_train_subjects))
     test_subjects = list(range(num_train_subjects, num_subjects))
 
-    path = '/home/ubuntu/portiloop-training/portiloop_software/dataset/eeg_fpz_cz'
+    path = '/home/ubuntu/portiloop-training/portiloopml/dataset/eeg_fpz_cz'
 
     train_dataset = SeqDataset(
         train_subjects, path, config['seq_len'])

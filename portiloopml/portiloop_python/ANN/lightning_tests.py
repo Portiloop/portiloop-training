@@ -1,6 +1,8 @@
 import os
+from pathlib import Path
 import random
 import time
+from matplotlib import pyplot as plt
 
 import pytorch_lightning as pl
 import torch
@@ -102,6 +104,7 @@ class SleepStageDataset(Dataset):
 class SleepStagingModel(pl.LightningModule):
     def __init__(self, config, weights):
         super().__init__()
+        self.save_hyperparameters()
 
         # encoder = CNNBlock(1, config['embedding_size'])
         # encoder = TSNConv(config['freq'])
@@ -122,8 +125,8 @@ class SleepStagingModel(pl.LightningModule):
         self.validation_labels = []
         self.config = config
 
-    def forward(self, x):
-        return self.transformer(x)
+    def forward(self, x, h=None):
+        return self.transformer(x, h)
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -170,6 +173,20 @@ class SleepStagingModel(pl.LightningModule):
         return torch.optim.AdamW(self.parameters(), lr=self.config['lr'], betas=(0.9, 0.999), weight_decay=1e-3)
 
 
+def load_model(run_id, user='milosobral', project='sleep_staging_portiloop', version='best'):
+    checkpoint_reference = f"{user}/{project}/model-{run_id}:{version}"
+    # download checkpoint locally (if not already cached)
+    run = wandb.init(project=project)
+    artifact = run.use_artifact(checkpoint_reference, type="model")
+    artifact_dir = artifact.download()
+
+    # load checkpoint
+    model = SleepStagingModel.load_from_checkpoint(
+        Path(artifact_dir) / "model.ckpt")
+
+    return model
+
+
 if __name__ == "__main__":
     # Wandb stuff
     os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
@@ -179,24 +196,25 @@ if __name__ == "__main__":
 
     # Get the config
     config = {
-        'batch_size': 64,
+        'batch_size': 15,
         'freq': 100,
-        'inception': [16, 8, 16, 16, 32, 16],
-        'lr': 1e-3,
+        # 'inception': [16, 8, 16, 16, 32, 16],
+        'lr': 1e-4,
         'num_heads': 8,
         'num_layers': 1,
         'noise_std': 0.1,
-        'dropout': 0.1,
+        'dropout': 0.2,
         'cls': False,
         'window_size': 30 * 100,
-        'seq_len': 50,
+        'seq_len': 20,
+        'batches_per_epoch': 10000,
     }
 
     config['embedding_size'] = 128
 
     # Load the data
     unfiltered_mass = "/project/portiloop_transformer/transformiloop/dataset/MASS_preds/"
-    path_dataset = "/project/portiloop-training/portiloop_software/dataset"
+    path_dataset = "/project/portiloop-training/portiloopml/dataset"
 
     # ss_labels = read_sleep_staging_labels(path_dataset)
     # # Divide subjects between test and validation
@@ -243,11 +261,11 @@ if __name__ == "__main__":
     print("done...")
 
     # Add a timestamps to the name
-    experiment_name = f"TSN_again_{int(time.time())}"
+    experiment_name = f"Original_params_{time.time()}"
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=os.getcwd(),
-        filename=f'{experiment_name}' + '-{epoch:02d}-{f1:.2f}',
+        # dirpath=os.getcwd(),
+        # filename=f'{experiment_name}' + '-{epoch:02d}-{f1:.2f}',
         save_top_k=5,
         verbose=True,
         monitor='f1',
@@ -255,9 +273,12 @@ if __name__ == "__main__":
     )
 
     wandb_logger = WandbLogger(
-        project=project_name, config=config, id=experiment_name)
+        project=project_name, config=config, id=experiment_name, log_model="all")
     model = SleepStagingModel(config, loss_weights)
     trainer = pl.Trainer(max_epochs=100, accelerator='gpu',
                          logger=wandb_logger, callbacks=[checkpoint_callback])  # , fast_dev_run=10
 
     trainer.fit(model, train_loader, test_loader)
+
+    # model = load_model('Original_params_1692894764.8012033')
+    # model.train()
