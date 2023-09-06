@@ -30,16 +30,22 @@ class AdaptationSampler(torch.utils.data.Sampler):
             toss = random.random()
             if toss > 0.5:
                 # Get a random index from the spindle indexes
-                yield random.choice(self.dataset.spindle_indexes)
+                choice = random.choice(self.dataset.spindle_indexes)
+                # remove the index from the spindle indexes
+                self.dataset.spindle_indexes.remove(choice)
+                yield choice
             else:
-                yield random.choice(self.dataset.non_spindle_indexes)
+                choice = random.choice(self.dataset.non_spindle_indexes)
+                self.dataset.non_spindle_indexes.remove(choice)
+                yield choice
 
 
 class AdaptationDataset(torch.utils.data.Dataset):
-    def __init__(self, config):
+    def __init__(self, config, batch_size):
         """
         Store items from a dataset 
         """
+        self.batch_size = batch_size
         self.samples = []
         self.window_buffer = []
         self.label_buffer = []
@@ -51,7 +57,8 @@ class AdaptationDataset(torch.utils.data.Dataset):
         """
         Returns a sample from the dataset
         """
-        return self.samples[index]
+        sample_to_return = self.samples[index]
+        return sample_to_return
 
     def __len__(self):
         """
@@ -76,6 +83,8 @@ class AdaptationDataset(torch.utils.data.Dataset):
         """
         Adds a window to the window buffer to make it a sample when enough windows have arrived
         """
+        # TODO: Determine the label of the window here instead of taking it as input
+
         self.window_buffer.append(window)
         self.label_buffer.append(label)
         # If we have enough windows to create a new sample, we add it to the dataset
@@ -88,7 +97,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         return sum_spindles / len(self)
 
     def has_samples(self):
-        return len(self.spindle_indexes) > 0 and len(self.non_spindle_indexes) > 0
+        return len(self.spindle_indexes) > self.batch_size and len(self.non_spindle_indexes) > self.batch_size
 
 
 def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
@@ -97,11 +106,12 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     Returns the accuracy and loss as well as fp, fn, tp, tn count for spindles
     Also returns the updated model
     """
+    batch_size = 4
     # Initialize adaptation dataset stuff
-    adap_dataset = AdaptationDataset(config)
+    adap_dataset = AdaptationDataset(config, batch_size)
     adap_dataloader = torch.utils.data.DataLoader(
         adap_dataset,
-        batch_size=32,
+        batch_size=batch_size,
         sampler=AdaptationSampler(adap_dataset),
         num_workers=0)
     # sampler = AdaptationSampler(adap_dataset)
@@ -112,7 +122,7 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
 
     # Initialize optimizer and criterion
     optimizer = optim.AdamW(net_copy.parameters(
-    ), lr=config['lr_adam'], weight_decay=config['adam_w'])
+    ), lr=0.00005, weight_decay=config['adam_w'])
     criterion = nn.BCELoss(reduction='none')
 
     loss = 0
@@ -125,9 +135,8 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
                      config['hidden_size']), device=device)
 
     # Run through the dataloader
-    out_grus = None
     out_loss = 0
-    started = False
+    train_iterations = 0
 
     counter = 0
     for index, info in enumerate(dataloader):
@@ -193,6 +202,7 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
         # Training loop for the adaptation
         net_copy.train()
         if index % 10 == 0 and adap_dataset.has_samples() and train:
+            train_iterations += 1
             train_sample, train_label = next(iter(adap_dataloader))
             train_sample = train_sample.to(device)
             train_label = train_label.to(device)
@@ -207,14 +217,15 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
             # Compute the loss
             output = output.squeeze(-1)
             train_label = train_label.squeeze(-1).float()
-            loss = criterion(output, train_label)
+            loss_step = criterion(output, train_label)
 
-            loss = loss.mean()
-            loss.backward()
+            loss_step = loss_step.mean()
+            loss_step.backward()
             optimizer.step()
 
     # Compute metrics
     loss /= n
+    print(train_iterations)
 
     return output_total, window_labels_total, loss, net_copy
 
@@ -338,10 +349,10 @@ if __name__ == "__main__":
     # Experiment parameters:
     params = [
         # (Train, Skip SS)
-        (False, True),
+        # (False, True),
         (False, False),
         (True, False),
-        (True, True)
+        # (True, True)
     ]
 
     # Number of subjects to run each experiment over
@@ -359,6 +370,8 @@ if __name__ == "__main__":
     random.seed(seed)
     random.shuffle(all_subjects)
     all_subjects = all_subjects[:NUM_SUBJECTS]
+
+    # all_subjects = ['01-01-0009']
 
     for exp_index, param in enumerate(params):
         train, skip_ss = param
@@ -390,5 +403,5 @@ if __name__ == "__main__":
                 i.tolist() for i in dist_labels]
 
     # Save the results to json file with indentation
-    with open('adaptation_results.json', 'w') as f:
+    with open('adap_results.json', 'w') as f:
         json.dump(experiment_results, f, indent=4)
