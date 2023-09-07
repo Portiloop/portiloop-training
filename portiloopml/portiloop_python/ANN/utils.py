@@ -355,8 +355,8 @@ def get_configs(exp_name, test_set, seed_exp):
 
     config = {
         # Path info'
-        'old_dataset': Path("/project/portiloop-training/portiloop_software/dataset"),
-        'MASS_dir': Path("/project/portiloop-training/portiloop_software/dataset/MASS"),
+        'old_dataset': Path(__file__).absolute().parent.parent.parent / 'dataset',
+        'MASS_dir': Path(__file__).absolute().parent.parent.parent / 'dataset' / 'MASS',
         'path_models': Path(__file__).absolute().parent.parent.parent / 'models',
         'path_dataset': Path(__file__).absolute().parent.parent.parent / 'dataset',
         'filename_regression_dataset': f"dataset_regression_full_big_250_matlab_standardized_envelope_pf.txt",
