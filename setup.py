@@ -17,7 +17,9 @@ install_requires = [
     'requests',
     'pyinstrument',
     'einops',
-    'pytorch-lightning'
+    'pytorch-lightning',
+    'PyWavelets',
+    'torchsummary'
 ]
 
 setup(name='portiloopml',
