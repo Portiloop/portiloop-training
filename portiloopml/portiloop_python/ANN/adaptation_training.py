@@ -374,22 +374,13 @@ if __name__ == "__main__":
     params = [
         # (Train, Skip SS)
         # (False, True),
-        # (False, False),
-        (True, False),
-        (True, False),
-        (True, False),
-        (True, False),
-        (True, False),
-        (True, False),
-        (True, False),
-        (True, False),
-        (True, False),
+        (False, False),
         (True, False),
         # (True, True)
     ]
 
     # Number of subjects to run each experiment over
-    NUM_SUBJECTS = 20
+    NUM_SUBJECTS = 1
 
     experiment_results = {}
     all_subjects = [subject for subject in labels.keys()
@@ -400,21 +391,20 @@ if __name__ == "__main__":
         assert subject in ss_labels.keys(), 'Subject not in the dataset'
 
     # Randomly select the subjects
-    random.seed(42)
-    random.shuffle(all_subjects)
-    all_subjects = all_subjects[:NUM_SUBJECTS]
+    # random.seed(42)
+    # random.shuffle(all_subjects)
+    # all_subjects = all_subjects[:NUM_SUBJECTS]
 
     print(f"ALL SUBJECTS: {all_subjects}")
     # Each worker only does its subjects
     worker_id = args.worker_id
-    my_subjects_indexes = parse_worker_subject_div(
-        all_subjects, args.num_workers, worker_id)
+    # my_subjects_indexes = parse_worker_subject_div(
+    #     all_subjects, args.num_workers, worker_id)
+    my_subjects_indexes = ["01-01-0022"]
     # Now, you can use worker_subjects in your script for experiments
     for subject in my_subjects_indexes:
         # Perform experiments for the current subject
         print(f"Worker {worker_id} is working on {subject}")
-
-    # all_subjects = ['01-01-0009']
 
     for exp_index, param in enumerate(params):
         train, skip_ss = param
