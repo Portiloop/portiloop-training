@@ -419,26 +419,24 @@ if __name__ == "__main__":
 
         for index, patient_id in enumerate(my_subjects_indexes):
             print('Subject ', patient_id)
-            # experiment_results[exp_index][patient_id] = {}
-            # loss, acc, f1, precision, recall, dist_preds, dist_labels, _ = run_subject(
-            #     net, patient_id, train, labels, ss_labels, skip_ss)
-            # # Average all the f1 scores
-            # print('Loss: ', loss)
-            # print('Accuracy: ', acc)
-            # print('F1: ', f1)
-            # print('Precision: ', precision)
-            # print('Recall: ', recall)
-
-            # experiment_results[exp_index][patient_id]['acc'] = acc.item()
-            # experiment_results[exp_index][patient_id]['f1'] = f1
-            # experiment_results[exp_index][patient_id]['precision'] = precision
-            # experiment_results[exp_index][patient_id]['recall'] = recall
-            # experiment_results[exp_index][patient_id]['dist_preds'] = [
-            #     i.tolist() for i in dist_preds]
-            # experiment_results[exp_index][patient_id]['dist_labels'] = [
-            #     i.tolist() for i in dist_labels]
             experiment_results[exp_index][patient_id] = {}
-            experiment_results[exp_index][patient_id]['acc'] = 0.99999
+            loss, acc, f1, precision, recall, dist_preds, dist_labels, _ = run_subject(
+                net, patient_id, train, labels, ss_labels, skip_ss)
+            # Average all the f1 scores
+            print('Loss: ', loss)
+            print('Accuracy: ', acc)
+            print('F1: ', f1)
+            print('Precision: ', precision)
+            print('Recall: ', recall)
+
+            experiment_results[exp_index][patient_id]['acc'] = acc.item()
+            experiment_results[exp_index][patient_id]['f1'] = f1
+            experiment_results[exp_index][patient_id]['precision'] = precision
+            experiment_results[exp_index][patient_id]['recall'] = recall
+            experiment_results[exp_index][patient_id]['dist_preds'] = [
+                i.tolist() for i in dist_preds]
+            experiment_results[exp_index][patient_id]['dist_labels'] = [
+                i.tolist() for i in dist_labels]
 
     # Save the results to json file with indentation
     with open(f'adap_results_{worker_id}.json', 'w') as f:
