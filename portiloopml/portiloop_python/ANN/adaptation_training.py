@@ -349,7 +349,7 @@ if __name__ == "__main__":
     else:
         seed = args.seed
 
-    set_seeds(seed)
+    # set_seeds(seed)
 
     config = get_configs(args.experiment_name, False, seed)
     # config['nb_conv_layers'] = 4
@@ -374,13 +374,22 @@ if __name__ == "__main__":
     params = [
         # (Train, Skip SS)
         # (False, True),
-        (False, False),
+        # (False, False),
+        (True, False),
+        (True, False),
+        (True, False),
+        (True, False),
+        (True, False),
+        (True, False),
+        (True, False),
+        (True, False),
+        (True, False),
         (True, False),
         # (True, True)
     ]
 
     # Number of subjects to run each experiment over
-    NUM_SUBJECTS = 40
+    NUM_SUBJECTS = 20
 
     experiment_results = {}
     all_subjects = [subject for subject in labels.keys()
@@ -391,7 +400,7 @@ if __name__ == "__main__":
         assert subject in ss_labels.keys(), 'Subject not in the dataset'
 
     # Randomly select the subjects
-    random.seed(seed)
+    random.seed(42)
     random.shuffle(all_subjects)
     all_subjects = all_subjects[:NUM_SUBJECTS]
 
