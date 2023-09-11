@@ -275,6 +275,8 @@ def parse_config():
                         help='Seed for the experiment')
     parser.add_argument('--worker_id', type=int, default=0,
                         help='Id of the worker')
+    parser.add_argument('--job_id', type=int, default=0,
+                        help='Id of the job used for the output file naming scheme')
     parser.add_argument('--num_workers', type=int, default=1,
                         help='Total number of workers used to compute which arguments to run')
     args = parser.parse_args()
@@ -438,5 +440,5 @@ if __name__ == "__main__":
                 i.tolist() for i in dist_labels]
 
     # Save the results to json file with indentation
-    with open(f'adap_results_{worker_id}.json', 'w') as f:
+    with open(f'adap_results_{args.job_id}_{worker_id}.json', 'w') as f:
         json.dump(experiment_results, f, indent=4)
