@@ -269,7 +269,20 @@ def get_metrics(predictions, labels):
     # precision = torch.mean(tp / (tp + fp + epsilon))
     # f1_score = torch.mean(2 * precision * recall / (precision + recall + epsilon))
 
+    use_leniant = True
+
     # return accuracy, recall, precision, f1_score
+    leniant_labels = labels.clone()
+    indexes = torch.cat([torch.nonzero(leniant_labels == 1)-1,
+                        torch.nonzero(leniant_labels == 1)+1])
+    filtered_indexes = indexes[(indexes >= 0) & (
+        indexes < len(leniant_labels))].unique()
+
+    leniant_labels[filtered_indexes] = 1
+
+    if use_leniant:
+        labels = leniant_labels
+
     acc = (predictions == labels).float().mean()
     predictions = predictions.float()
     labels = labels.float()

@@ -57,7 +57,7 @@ def read_pretraining_dataset(dataset_path, patients_to_keep=None):
 
     # Remove all patients whose signal is not in dataset
     dataset = {patient_id: patient_details for (patient_id, patient_details) in patient_info.items()
-        if 'signal' in patient_info[patient_id].keys()}
+               if 'signal' in patient_info[patient_id].keys()}
 
     return dataset
 
@@ -122,10 +122,12 @@ class PretrainingDataset(Dataset):
 
         # Masking probabilities
         prob_not_masked = 1 - config['ratio_masked']
-        prob_masked = config['ratio_masked'] * (1 - (config['ratio_replaced'] + config['ratio_kept']))
+        prob_masked = config['ratio_masked'] * \
+            (1 - (config['ratio_replaced'] + config['ratio_kept']))
         prob_replaced = config['ratio_masked'] * config['ratio_replaced']
         prob_kept = config['ratio_masked'] * config['ratio_kept']
-        self.mask_probs = torch.tensor([prob_not_masked, prob_masked, prob_replaced, prob_kept])
+        self.mask_probs = torch.tensor(
+            [prob_not_masked, prob_masked, prob_replaced, prob_kept])
         self.mask_cum_probs = self.mask_probs.cumsum(0)
 
     def __len__(self):
@@ -142,22 +144,25 @@ class PretrainingDataset(Dataset):
         # TODO: double-check
         x_gender = self.genders[idx + self.window_size - 1]
         x_age = self.ages[idx + self.window_size - 1]  # TODO: double-check
-        
+
         # Get random mask from given probabilities:
-        mask = torch.searchsorted(self.mask_cum_probs, torch.rand(self.seq_len))
+        mask = torch.searchsorted(
+            self.mask_cum_probs, torch.rand(self.seq_len))
 
         # Get the sequence for masked sequence modeling
         masked_seq = x_data.clone()
         for seq_idx, mask_token in enumerate(mask):
             # No mask or skip mask or MASK token (which is done later)
-            if mask_token in [0, 1, 3]: 
+            if mask_token in [0, 1, 3]:
                 continue
             elif mask_token == 2:
                 # Replace token with replacement
-                random_idx = int(torch.randint(high=len(self)-self.window_size, size=(1, )))
+                random_idx = int(torch.randint(
+                    high=len(self)-self.window_size, size=(1, )))
                 masked_seq[seq_idx] = self.full_signal[random_idx: random_idx+self.window_size]
             else:
-                raise RuntimeError("Issue with masks, shouldn't get a value not in {0, 1, 2, 3}")
+                raise RuntimeError(
+                    "Issue with masks, shouldn't get a value not in {0, 1, 2, 3}")
 
         return x_data, x_gender, x_age, mask, masked_seq
 
@@ -183,7 +188,7 @@ def get_dataloaders_sleep_stage(config):
     - Create the train and test datasets and dataloaders
     """
     # Read all the subjects available in the dataset
-    labels = read_sleep_staging_labels(config['path_dataset']) 
+    labels = read_sleep_staging_labels(config['path_dataset'])
 
     # Divide the subjects into train and test sets
     subjects = list(labels.keys())
@@ -208,14 +213,14 @@ def get_dataloaders_sleep_stage(config):
     )
 
     sampler = MassValidationSampler(
-        subject_list=test_dataset.subject_list, 
-        seq_stride=config['seq_stride'], 
+        subject_list=test_dataset.subject_list,
+        seq_stride=config['seq_stride'],
         window_size=config['window_size'],
-        total_len=len(test_dataset), 
+        total_len=len(test_dataset),
         past_signal_len=test_dataset.past_signal_len,
         max_batch_size=config['batch_size_validation'],
         max_segment_len=15000)
-    
+
     test_dataloader = DataLoader(
         test_dataset,
         batch_size=config['batch_size_validation'],
@@ -231,7 +236,7 @@ def read_sleep_staging_labels(MASS_dir):
     '''
     Read the sleep_staging.csv file in the given directory and stores info in a dictionary
     '''
-    # Read the sleep_staging.csv file 
+    # Read the sleep_staging.csv file
     sleep_staging_file = os.path.join(MASS_dir, 'sleep_staging.csv')
     with open(sleep_staging_file, 'r') as f:
         reader = csv.reader(f)
@@ -241,24 +246,27 @@ def read_sleep_staging_labels(MASS_dir):
     sleep_stages = {}
     for i in range(len(sleep_staging)):
         subject = sleep_staging[i][0]
-        sleep_stages[subject] = [stage for stage in sleep_staging[i][1:] if stage != '']
+        sleep_stages[subject] = [
+            stage for stage in sleep_staging[i][1:] if stage != '']
 
     return sleep_stages
-    
+
 
 class SleepStageSampler(Sampler):
     def __init__(self, dataset, config):
         self.dataset = dataset
         self.window_size = config['window_size']
-        self.max_len = len(dataset) - self.dataset.past_signal_len - self.window_size
+        self.max_len = len(dataset) - \
+            self.dataset.past_signal_len - self.window_size
         self.limit = config['nb_batch_per_epoch'] * config['batch_size']
 
     def __iter__(self):
-        for i in range(self.limit): 
+        for i in range(self.limit):
             while True:
                 index = random.randint(0, self.max_len - 1)
                 # Make sure that the label at the end of the window is not '?'
-                label = self.dataset.full_labels[index + self.dataset.past_signal_len + self.window_size - 1]
+                label = self.dataset.full_labels[index +
+                                                 self.dataset.past_signal_len + self.window_size - 1]
                 if label != SleepStageDataset.get_labels().index('?'):
                     break
             yield index
@@ -289,22 +297,25 @@ class SleepStageDataset(Dataset):
         self.subject_list = []
         for subject in subjects:
             if subject not in data.keys():
-                print(f"Subject {subject} not found in the pretraining dataset")
+                print(
+                    f"Subject {subject} not found in the pretraining dataset")
                 continue
 
             # Keeps track of the first index of the signal for the given subject
             self.subject_list.append(sum([len(i) for i in self.full_signal]))
 
-            # assert subject in data.keys(), f"Subject {subject} not found in the pretraining dataset" 
+            # assert subject in data.keys(), f"Subject {subject} not found in the pretraining dataset"
             signal = torch.tensor(
                 data[subject]['signal'], dtype=torch.float)
             # Get all the labels for the given subject
             label = []
             for lab in labels[subject]:
-                label += [SleepStageDataset.get_labels().index(lab)] * self.config['fe']
-            
+                label += [SleepStageDataset.get_labels().index(lab)] * \
+                    self.config['fe']
+
             # Add some '?' padding at the end to make sure the length of signal and label match
-            label += [SleepStageDataset.get_labels().index('?')] * (len(signal) - len(label))
+            label += [SleepStageDataset.get_labels().index('?')] * \
+                (len(signal) - len(label))
 
             # Make sure that the signal and the labels are the same length
             assert len(signal) == len(label)
@@ -313,7 +324,7 @@ class SleepStageDataset(Dataset):
             self.full_labels.append(torch.tensor(label, dtype=torch.uint8))
             self.full_signal.append(signal)
             del data[subject], signal, label
-        
+
         self.full_signal = torch.cat(self.full_signal)
         self.full_labels = torch.cat(self.full_labels)
 
@@ -349,13 +360,14 @@ def generate_spindle_trains_dataset(raw_dataset_path, output_file, electrode='Cz
     for subject_dir in os.listdir(os.path.join(raw_dataset_path, "subject_info")):
         subset = subject_dir[5:8]
         # Get the spindle info file where the subset is in the filename
-        spindle_info_file = [f for f in spindle_infos if subset in f and electrode in f][0]
+        spindle_info_file = [
+            f for f in spindle_infos if subset in f and electrode in f][0]
 
         # Read the spindle info file
-        train_ds_ss = read_spindle_train_info(\
-            os.path.join(raw_dataset_path, "subject_info", subject_dir), \
-                os.path.join(raw_dataset_path, "spindle_info", spindle_info_file))
-        
+        train_ds_ss = read_spindle_train_info(
+            os.path.join(raw_dataset_path, "subject_info", subject_dir),
+            os.path.join(raw_dataset_path, "spindle_info", spindle_info_file))
+
         # Append the data
         data.update(train_ds_ss)
 
@@ -383,7 +395,7 @@ def read_spindle_train_info(subject_dir, spindle_info_file):
     for index, row in spindle_info.iterrows():
         if index != 0 and row['onsets'] < spindle_info.iloc[index-1]['onsets']:
             subject_counter += 1
-    
+
     assert subject_counter == len(subject_names), \
         f"The number of subjects in the subject_info file and the spindle_info file should be the same, \
             found {len(subject_names)} and {subject_counter} respectively"
@@ -408,7 +420,8 @@ def read_spindle_train_info(subject_dir, spindle_info_file):
             data[subject_names[subject_names_counter]][h].append(row[h])
 
     for subj in subject_names:
-        assert len(data[subj][headers[0]]) == len(data[subj][headers[1]]) == len(data[subj][headers[2]]), "The number of onsets, offsets and labels should be the same"
+        assert len(data[subj][headers[0]]) == len(data[subj][headers[1]]) == len(
+            data[subj][headers[2]]), "The number of onsets, offsets and labels should be the same"
 
     return data
 
@@ -420,7 +433,7 @@ def get_dataloaders_spindle_trains(config):
     - Create the train and test datasets and dataloaders
     """
     # Read all the subjects available in the dataset
-    labels = read_spindle_trains_labels(config['old_dataset']) 
+    labels = read_spindle_trains_labels(config['old_dataset'])
 
     # Divide the subjects into train and test sets
     subjects = list(labels.keys())
@@ -461,7 +474,7 @@ def get_dataloaders_mass(config):
     - Create the train and test datasets and dataloaders
     """
     # Read all the subjects available in the dataset
-    labels = read_spindle_trains_labels(config['old_dataset']) 
+    labels = read_spindle_trains_labels(config['old_dataset'])
 
     # Divide the subjects into train and test sets
     subjects = list(labels.keys())
@@ -472,7 +485,8 @@ def get_dataloaders_mass(config):
     test_subjects = subjects[int(len(subjects) * 0.8):]
 
     # Read the pretraining dataset
-    data = read_pretraining_dataset(config['MASS_dir'], patients_to_keep=train_subjects + test_subjects)
+    data = read_pretraining_dataset(
+        config['MASS_dir'], patients_to_keep=train_subjects + test_subjects)
 
     # Create the train and test datasets
     train_dataset = MassDataset(train_subjects, data, labels, config)
@@ -483,7 +497,8 @@ def get_dataloaders_mass(config):
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=config['batch_size'],
-        sampler=MassRandomSampler(train_dataset, config['batch_size'], nb_batch=config['nb_batch_per_epoch']),
+        sampler=MassRandomSampler(
+            train_dataset, config['batch_size'], nb_batch=config['nb_batch_per_epoch']),
         pin_memory=True,
         drop_last=True
     )
@@ -504,14 +519,14 @@ def get_dataloaders_mass(config):
     #     drop_last=True
     # )
     validation_sampler = MassValidationSampler(
-        subject_list=test_dataset.subject_list, 
-        seq_stride=config['seq_stride'], 
+        subject_list=test_dataset.subject_list,
+        seq_stride=config['seq_stride'],
         window_size=config['window_size'],
-        total_len=len(test_dataset), 
+        total_len=len(test_dataset),
         past_signal_len=test_dataset.past_signal_len,
         max_batch_size=config['batch_size_validation'],
         max_segment_len=15000)
-    
+
     val_dataloader = DataLoader(
         test_dataset,
         batch_size=validation_sampler.get_validation_batch_size(),
@@ -527,10 +542,12 @@ class MassRandomSampler(Sampler):
     def __init__(self, dataset, batch_size, nb_batch=1000):
         self.dataset = dataset
 
-        self.all_spindles = self.dataset.spindle_labels_iso + self.dataset.spindle_labels_first + self.dataset.spindle_labels_train
+        self.all_spindles = self.dataset.spindle_labels_iso + \
+            self.dataset.spindle_labels_first + self.dataset.spindle_labels_train
         self.all_spindles = np.array(self.all_spindles)
         self.max_spindle_index = len(self.all_spindles)
-        self.max_index = len(self.dataset) - self.dataset.past_signal_len - self.dataset.window_size + 1
+        self.max_index = len(
+            self.dataset) - self.dataset.past_signal_len - self.dataset.window_size + 1
         self.spindle_index = 0
         self.length = nb_batch * batch_size
 
@@ -551,7 +568,7 @@ class MassRandomSampler(Sampler):
                 index_to_yield = index - self.dataset.past_signal_len - self.dataset.window_size + 1
                 assert self.dataset.full_labels[index] != 0, "The label should not be 0"
                 yield index_to_yield
-    
+
     def __len__(self):
         return self.length
 
@@ -600,7 +617,7 @@ class SpindleTrainRandomSampler(Sampler):
                     self.train_index = 0
                 assert index in self.dataset.spindle_labels_train, "Spindle index not found in list"
                 yield index - self.dataset.past_signal_len - self.dataset.window_size + 1
-            
+
     def __len__(self):
         return len(self.dataset.full_signal)
 
@@ -630,11 +647,11 @@ class SpindleTrainDataset(Dataset):
         self.seq_stride = config['seq_stride']
         self.in_channels = config['in_channels']
         self.wavelet = 'morl'
-        fs = 250 # Sampling frequency in hz
+        fs = 250  # Sampling frequency in hz
         frequencies = [i for i in range(10, 21)]
-        frequencies_norm = np.array(frequencies) / fs # normalize
+        frequencies_norm = np.array(frequencies) / fs  # normalize
         self.scales = pywt.frequency2scale(self.wavelet, frequencies_norm)
-        
+
         # signal needed before the last window
         self.past_signal_len = (self.seq_len - 1) * self.seq_stride
         self.min_signal_len = self.past_signal_len + self.window_size
@@ -651,7 +668,8 @@ class SpindleTrainDataset(Dataset):
         self.subject_list = []
         for subject in subjects:
             if subject not in data.keys():
-                print(f"Subject {subject} not found in the pretraining dataset")
+                print(
+                    f"Subject {subject} not found in the pretraining dataset")
                 continue
 
             # Keeps track of the first index of the signal for the given subject
@@ -661,12 +679,13 @@ class SpindleTrainDataset(Dataset):
             signal = torch.tensor(
                 data[subject]['signal'], dtype=torch.float)
 
-            print(f"Number of spindles for subject {subject}: {len(labels[subject]['onsets'])}")
+            print(
+                f"Number of spindles for subject {subject}: {len(labels[subject]['onsets'])}")
 
             # Get all the labels for the given subject
             label = torch.zeros_like(signal, dtype=torch.uint8)
             for index, (onset, offset, l) in enumerate(zip(labels[subject]['onsets'], labels[subject]['offsets'], labels[subject]['labels_num'])):
-                
+
                 # Some of the spindles in the dataset overlap with the previous spindle
                 # If that is the case, we need to make sure that the onset is at least the offset of the previous spindle
                 if onset < labels[subject]['offsets'][index - 1]:
@@ -675,7 +694,8 @@ class SpindleTrainDataset(Dataset):
                 label[onset:offset] = l
                 # Make a separate list with the indexes of all the spindle labels so that sampling is easier
                 to_add = list(range(accumulator + onset, accumulator + offset))
-                assert offset < len(signal), f"Offset {offset} is greater than the length of the signal {len(signal)} for subject {subject}"
+                assert offset < len(
+                    signal), f"Offset {offset} is greater than the length of the signal {len(signal)} for subject {subject}"
                 if l == 1:
                     self.spindle_labels_iso += to_add
                 elif l == 2:
@@ -683,7 +703,8 @@ class SpindleTrainDataset(Dataset):
                 elif l == 3:
                     self.spindle_labels_train += to_add
                 else:
-                    raise ValueError(f"Unknown label {l} for subject {subject}")
+                    raise ValueError(
+                        f"Unknown label {l} for subject {subject}")
             # increment the accumulator
             accumulator += len(signal)
 
@@ -694,7 +715,7 @@ class SpindleTrainDataset(Dataset):
             self.full_labels.append(label)
             self.full_signal.append(signal)
             del data[subject], signal, label
-        
+
         # Concatenate the full signal and the full labels into one continuous tensor
         self.full_signal = torch.cat(self.full_signal)
         self.full_labels = torch.cat(self.full_labels)
@@ -706,12 +727,14 @@ class SpindleTrainDataset(Dataset):
         random.shuffle(self.spindle_labels_train)
         end = time.time()
         print(f"Shuffling took {end - start} seconds")
-        print(f"Number of spindle labels: {len(self.spindle_labels_iso) + len(self.spindle_labels_first) + len(self.spindle_labels_train)}")
+        print(
+            f"Number of spindle labels: {len(self.spindle_labels_iso) + len(self.spindle_labels_first) + len(self.spindle_labels_train)}")
 
         # Get the wavelet transform of the whole signal
         if self.in_channels != 1:
             start = time.time()
-            self.full_signal_wt, _ = pywt.cwt(self.full_signal.numpy(), self.scales, self.wavelet)
+            self.full_signal_wt, _ = pywt.cwt(
+                self.full_signal.numpy(), self.scales, self.wavelet)
             self.full_signal_wt = torch.from_numpy(self.full_signal_wt)
             end = time.time()
             print(f"Wavelet transform took {end - start} seconds")
@@ -730,7 +753,7 @@ class SpindleTrainDataset(Dataset):
 
         # Make sure that the last index of the signal is the same as the label
         # assert signal[-1, -1] == self.full_signal[index + self.window_size - 1], "Issue with the data and the labels"
-        label = label.type(torch.LongTensor)            
+        label = label.type(torch.LongTensor)
 
         return signal, label
 
@@ -784,10 +807,11 @@ class MassValidationSampler(Sampler):
 
         # Check that the max_segment_len is smaller than the smallest sequence size
         self.subject_lengths = [self.subject_indices[i+1] - (self.subject_indices[i] + self.past_signal_len) for i in range(len(self.subject_indices)-1)]\
-                                + [self.total_len - (self.subject_indices[-1] + self.past_signal_len)]
+            + [self.total_len -
+                (self.subject_indices[-1] + self.past_signal_len)]
         smallest_subject = min(self.subject_lengths)
         assert max_segment_len < smallest_subject, f"Max segment length {max_segment_len} is greater than the smallest subject length {smallest_subject}"
-        
+
         self.max_length = self.max_segment_len // self.seq_stride
         self.segment_starts = self.select_sequences()
         self.indexes = list(self.get_iterator())
@@ -809,9 +833,10 @@ class MassValidationSampler(Sampler):
 
             # Get the starting point for this subject
             start_index = self.subject_indices[subject_index]
-            
+
             # Get a random valid point for this subject
-            start = random.randint(start_index + self.past_signal_len, start_index + (self.subject_lengths[subject_index] - self.max_segment_len))
+            start = random.randint(start_index + self.past_signal_len, start_index + (
+                self.subject_lengths[subject_index] - self.max_segment_len))
             seg_starts.append(start)
 
             assert start + self.max_segment_len < self.total_len, "The selected sequence is too long"
@@ -819,9 +844,9 @@ class MassValidationSampler(Sampler):
         # This is now a batch_size length list of random starting points for sampling sequences spread around the subjects
         return seg_starts
 
-    def get_validation_batch_size(self): 
+    def get_validation_batch_size(self):
         return len(self.segment_starts)
-            
+
     def __iter__(self):
         """
         Send an index in the right order.
@@ -855,7 +880,7 @@ class SingleSubjectSampler(Sampler):
 
 
 class SingleSubjectDataset(Dataset):
-    def __init__(self, subject_id, data, labels, config, ss_labels=None):
+    def __init__(self, subject_id, data, labels, config, ss_labels=None, delete=True):
         '''
         This class takes in a list of subject, a path to the MASS directory 
         and reads the files associated with the given subjects as well as the sleep stage annotations
@@ -866,13 +891,14 @@ class SingleSubjectDataset(Dataset):
         self.window_size = config['window_size']
         self.seq_len = 1
         self.seq_stride = config['seq_stride']
-        
+
         # Get the sleep stage labels
         self.full_signal = []
         self.full_labels = []
         self.spindle_labels = []
 
-        assert subject_id in data.keys(), f"Subject {subject_id} not found in the pretraining dataset"
+        assert subject_id in data.keys(
+        ), f"Subject {subject_id} not found in the pretraining dataset"
 
         # Get the signal for the given subject
         signal = torch.tensor(
@@ -883,7 +909,7 @@ class SingleSubjectDataset(Dataset):
         # Get all the spindle labels for the given subject
         label = torch.zeros_like(signal, dtype=torch.uint8)
         for index, (onset, offset, l) in enumerate(zip(labels[subject_id]['onsets'], labels[subject_id]['offsets'], labels[subject_id]['labels_num'])):
-            
+
             # Some of the spindles in the dataset overlap with the previous spindle
             # If that is the case, we need to make sure that the onset is at least the offset of the previous spindle
             if onset < labels[subject_id]['offsets'][index - 1]:
@@ -894,7 +920,8 @@ class SingleSubjectDataset(Dataset):
 
             # Make a separate list with the indexes of all the spindle labels so that sampling is easier
             to_add = list(range(onset, offset))
-            assert offset < len(signal), f"Offset {offset} is greater than the length of the signal {len(signal)} for subject {subject_id}"
+            assert offset < len(
+                signal), f"Offset {offset} is greater than the length of the signal {len(signal)} for subject {subject_id}"
             if l in [1, 2, 3]:
                 self.spindle_labels += to_add
             else:
@@ -903,10 +930,12 @@ class SingleSubjectDataset(Dataset):
         # Get all the sleep stage labels for the given subject
         ss_label = []
         for lab in ss_labels[subject_id]:
-            ss_label += [SleepStageDataset.get_labels().index(lab)] * self.config['fe']
-        
+            ss_label += [SleepStageDataset.get_labels().index(lab)] * \
+                self.config['fe']
+
         # Add some '?' padding at the end to make sure the length of signal and label match
-        ss_label += [SleepStageDataset.get_labels().index('?')] * (len(signal) - len(ss_label))
+        ss_label += [SleepStageDataset.get_labels().index('?')] * \
+            (len(signal) - len(ss_label))
 
         # Make sure that the signal and the labels are the same length
         assert len(signal) == len(ss_label)
@@ -918,8 +947,9 @@ class SingleSubjectDataset(Dataset):
         self.full_labels = label
         self.full_signal = signal
         self.full_ss_labels = ss_label
-        del data[subject_id], signal, label, ss_label
-        
+        if delete:
+            del data[subject_id], signal, label, ss_label
+
         print(f"Number of spindle labels: {len(self.spindle_labels)}")
         print(f"len of full signal: {len(self.full_signal)}")
 
@@ -951,34 +981,35 @@ if __name__ == "__main__":
     # generate_spindle_trains_dataset(dataset_path / 'SpindleTrains_raw_data', dataset_path / 'spindle_trains_annots.json')
     config = get_configs("Test", False, 0)
     config['batch_size_validation'] = 64
-    subjects = ['01-02-0019'] # , '01-01-0002', '01-01-0003']
+    subjects = ['01-02-0019']  # , '01-01-0002', '01-01-0003']
 
-    data = read_pretraining_dataset(config['MASS_dir'], patients_to_keep=subjects)
-    labels = read_spindle_trains_labels(config['old_dataset']) 
+    data = read_pretraining_dataset(
+        config['MASS_dir'], patients_to_keep=subjects)
+    labels = read_spindle_trains_labels(config['old_dataset'])
     ss_labels = read_sleep_staging_labels(config['path_dataset'])
 
     # dataset = SingleSubjectDataset(subjects[0], data, labels, config, ss_labels=ss_labels)
     # sampler = SingleSubjectSampler(len(dataset), config['seq_stride'])
     # dataloader = torch.utils.data.DataLoader(
-    #     dataset, 
-    #     batch_size=1, 
-    #     sampler=sampler, 
+    #     dataset,
+    #     batch_size=1,
+    #     sampler=sampler,
     #     num_workers=0)
 
     # item = next(iter(dataloader))
-    
+
     dataset = SleepStageDataset(subjects, data, ss_labels, config)
 
     # Get the dataloader
     sampler = MassValidationSampler(
-        subject_list=dataset.subject_list, 
-        seq_stride=config['seq_stride'], 
+        subject_list=dataset.subject_list,
+        seq_stride=config['seq_stride'],
         window_size=config['window_size'],
-        total_len=len(dataset), 
+        total_len=len(dataset),
         past_signal_len=dataset.past_signal_len,
         max_batch_size=4000,
         max_segment_len=15000)
-    
+
     batch_size = sampler.get_validation_batch_size()
     print(f"Number of batches {len(sampler)}")
     print(f"batch_size: {batch_size}")
@@ -999,4 +1030,3 @@ if __name__ == "__main__":
 
     batches = torch.tensor(list(sampler)).reshape(-1, batch_size)
     print(batches[-1, :])
-

@@ -1,0 +1,319 @@
+import numpy as np
+from scipy.signal import fftconvolve
+
+
+def detect_wamsley(data, mask, sampling_rate=250):
+    frequency = (12, 15)
+    duration = (0.3, 3)
+    wavelet_options = {'f0': np.mean(frequency),
+                       'sd': .8,
+                       'dur': 1.,
+                       'output': 'complex'
+                       }
+    smooth_duration = .1
+    det_thresh = 4.5
+    merge_thresh = 0.3
+    tolerance = 0
+    min_interval = 0
+
+    # First, we transform the signal using wavelet transform
+    if mask is None:
+        data_detect = data
+    else:
+        data_detect = data[mask]
+
+    # If the data is too short, return an empty array
+    if len(data_detect) <= 30 * 250:
+        print("Exploitable points too short")
+        return np.array([])
+    else:
+        print("Exploitable points long enough")
+
+    if mask is None:
+        timestamps = np.arange(0, len(data)) / sampling_rate
+    else:
+        timestamps = (np.arange(0, len(data)) / sampling_rate)[mask]
+    assert len(data_detect) == len(timestamps)
+    data_detect = morlet_transform(data_detect, sampling_rate, wavelet_options)
+    data_detect = np.real(data_detect ** 2) ** 2
+
+    # Then we smoothen out the signal
+    data_detect = smooth(data_detect, sampling_rate, smooth_duration)
+
+    # Then, we define the threshold
+    threshold = det_thresh * np.mean(data_detect)
+
+    # Then we find the peaks
+    peaks = data_detect >= threshold
+
+    # Get the start, end and peak power index of each spindle
+    events = _detect_start_end(peaks)
+    # add the location of the peak in the middle
+    events = np.insert(events, 1, 0, axis=1)
+    for i in events:
+        i[1] = i[0] + np.argmax(data_detect[i[0]:i[2]])
+
+    # Merge the events that are too close
+    events = _merge_close(data_detect, events, timestamps, tolerance)
+    # Filter the events based on duration
+    events = within_duration(events, timestamps, duration)
+    events = _merge_close(data_detect, events, timestamps, min_interval)
+    # Remove the events that straddle a stitch
+    events = remove_straddlers(events, timestamps, sampling_rate)
+
+    # Get the real indexes back
+    def to_index(point):
+        return timestamps[point] * sampling_rate
+
+    events = np.vectorize(to_index)(events)
+
+    return events.astype(int)
+
+
+def merge_events(start_indexes, end_indexes, timestamps, threshold):
+    merged_start_indexes = []
+    merged_end_indexes = []
+
+    # Sort the events based on timestamps
+    events = list(zip(start_indexes, end_indexes))
+
+    # Iterate over the sorted events and merge if close enough
+    prev_start, prev_end = events[0]
+    for start, end in events[1:]:
+        if timestamps[start] - timestamps[prev_end] <= threshold:
+            # Merge the events
+            prev_end = end
+        else:
+            # Append the merged event
+            merged_start_indexes.append(prev_start)
+            merged_end_indexes.append(prev_end)
+            # Update the previous event
+            prev_start, prev_end = start, end
+
+    # Append the last merged event
+    merged_start_indexes.append(prev_start)
+    merged_end_indexes.append(prev_end)
+
+    return np.array(merged_start_indexes), np.array(merged_end_indexes)
+
+
+def filter_events_time(start_indexes, end_indexes, timestamps, min_length, max_length):
+    filtered_start_indexes = []
+    filtered_end_indexes = []
+
+    for start, end in zip(start_indexes, end_indexes):
+        event_length = timestamps[end] - timestamps[start]
+
+        if min_length <= event_length <= max_length:
+            filtered_start_indexes.append(start)
+            filtered_end_indexes.append(end)
+
+    return np.array(filtered_start_indexes), np.array(filtered_end_indexes)
+
+
+def _detect_start_end(true_values):
+    """From ndarray of bool values, return intervals of True values.
+
+    Parameters
+    ----------
+    true_values : ndarray (dtype='bool')
+        array with bool values
+
+    Returns
+    -------
+    ndarray (dtype='int')
+        N x 2 matrix with starting and ending times.
+    """
+    neg = np.zeros((1), dtype='bool')
+    int_values = np.asarray(np.concatenate((neg, true_values[:-1], neg)),
+                            dtype='int')
+    # must discard last value to avoid axis out of bounds
+    cross_threshold = np.diff(int_values)
+
+    event_starts = np.where(cross_threshold == 1)[0]
+    event_ends = np.where(cross_threshold == -1)[0]
+
+    if len(event_starts):
+        events = np.vstack((event_starts, event_ends)).T
+
+    else:
+        events = None
+
+    return events
+
+
+def _merge_close(dat, events, time, min_interval):
+    """Merge together events separated by less than a minimum interval.
+
+    Parameters
+    ----------
+    dat : ndarray (dtype='float')
+        vector with the data after selection-transformation
+    events : ndarray (dtype='int')
+        N x 3 matrix with start, peak, end samples
+    time : ndarray (dtype='float')
+        vector with time points
+    min_interval : float
+        minimum delay between consecutive events, in seconds
+
+    Returns
+    -------
+    ndarray (dtype='int')
+        N x 3 matrix with start, peak, end samples
+    """
+    if not events.any():
+        return events
+
+    no_merge = time[events[1:, 0] - 1] - time[events[:-1, 2]] >= min_interval
+
+    if no_merge.any():
+        begs = np.concatenate([[events[0, 0]], events[1:, 0][no_merge]])
+        ends = np.concatenate([events[:-1, 2][no_merge], [events[-1, 2]]])
+
+        new_events = np.vstack((begs, ends)).T
+    else:
+        new_events = np.asarray([[events[0, 0], events[-1, 2]]])
+
+    # add the location of the peak in the middle
+    new_events = np.insert(new_events, 1, 0, axis=1)
+    for i in new_events:
+        if i[2] - i[0] >= 1:
+            i[1] = i[0] + np.argmax(dat[i[0]:i[2]])
+
+    return new_events
+
+
+def within_duration(events, time, limits):
+    """Check whether event is within time limits.
+
+    Parameters
+    ----------
+    events : ndarray (dtype='int')
+        N x M matrix with start sample first and end samples last on M
+    time : ndarray (dtype='float')
+        vector with time points
+    limits : tuple of float
+        low and high limit for spindle duration
+
+    Returns
+    -------
+    ndarray (dtype='int')
+        N x M matrix with start sample first and end samples last on M
+    """
+    min_dur = max_dur = np.ones(events.shape[0], dtype=bool)
+
+    if limits[0] is not None:
+        min_dur = time[events[:, -1] - 1] - time[events[:, 0]] >= limits[0]
+
+    if limits[1] is not None:
+        max_dur = time[events[:, -1] - 1] - time[events[:, 0]] <= limits[1]
+
+    return events[min_dur & max_dur, :]
+
+
+def remove_straddlers(events, time, s_freq, tolerance=0.1):
+    """Reject an event if it straddles a stitch, by comparing its 
+    duration to its timespan.
+
+    Parameters
+    ----------
+    events : ndarray (dtype='int')
+        N x M matrix with start, ..., end samples
+    time : ndarray (dtype='float')
+        vector with time points
+    s_freq : float
+        sampling frequency
+    tolerance : float, def=0.1
+        maximum tolerated difference between event duration and timespan
+
+    Returns
+    -------
+    ndarray (dtype='int')
+        N x M matrix with start , ..., end samples
+    """
+    dur = (events[:, -1] - 1 - events[:, 0]) / s_freq
+    continuous = time[events[:, -1] - 1] - time[events[:, 0]] - dur < tolerance
+
+    return events[continuous, :]
+
+
+def morlet_transform(data, s_freq, morlet_options):
+    """ Adapted from Wonambi
+    Computes the morlet transform of the data
+    """
+    f0 = morlet_options['f0']
+    sd = morlet_options['sd']
+    dur = morlet_options['dur']
+    output = morlet_options['output']
+
+    wm = _wmorlet(f0, sd, s_freq, dur)
+    data = fftconvolve(data, wm, mode='same')
+    if 'absolute' == output:
+        data = np.absolute(data)
+
+    return data
+
+
+def _wmorlet(f0, sd, sampling_rate, ns=5):
+    """Adapted from nitime
+
+    Returns a complex morlet wavelet in the time domain
+
+    Parameters
+    ----------
+        f0 : center frequency
+        sd : standard deviation of frequency
+        sampling_rate : samplingrate
+        ns : window length in number of standard deviations
+
+    Returns
+    -------
+    ndarray
+        complex morlet wavelet in the time domain
+    """
+    st = 1. / (2. * np.pi * sd)
+    w_sz = float(int(ns * st * sampling_rate))  # half time window size
+    t = np.arange(-w_sz, w_sz + 1, dtype=float) / sampling_rate
+    w = (np.exp(-t ** 2 / (2. * st ** 2)) * np.exp(2j * np.pi * f0 * t) /
+         np.sqrt(np.sqrt(np.pi) * st * sampling_rate))
+    return w
+
+
+def smooth(data, dur, s_freq):
+    """ Adapted from Wonambi
+    Smoothen the data using a flat window
+    """
+    flat = np.ones(int(dur * s_freq))
+    H = flat / sum(flat)
+    data = fftconvolve(data, H, mode='same')
+    return data
+
+
+def RMS_score(candidate, Fs=250, lowcut=11, highcut=16):
+
+    # Filter the signal
+    stopbbanAtt = 60  # stopband attenuation of 60 dB.
+    width = .5  # This sets the cutoff width in Hertz
+    nyq = 0.5 * Fs
+    ntaps, _ = kaiserord(stopbbanAtt, width/nyq)
+    atten = kaiser_atten(ntaps, width/nyq)
+    beta = kaiser_beta(atten)
+    a = 1.0
+    taps = firwin(ntaps, [lowcut, highcut], nyq=nyq,
+                  pass_zero=False, window=('kaiser', beta), scale=False)
+    filtered_signal = filtfilt(taps, a, candidate)
+
+    # Get the baseline and the detection window for the RMS
+    detect_index = len(candidate) // 2
+    size_window = 0.5 * Fs
+    baseline_idx = -2 * Fs  # Index compared to the detection window
+    baseline = filtered_signal[detect_index +
+                               baseline_idx:detect_index + baseline_idx + size_window]
+    detection = filtered_signal[detect_index:detect_index + size_window]
+
+    # Calculate the RMS
+    baseline_rms = torch.sqrt(torch.mean(torch.square(baseline)))
+    detection_rms = torch.sqrt(torch.mean(torch.square(detection)))
+
+    score = detection_rms / baseline_rms
+    return score
