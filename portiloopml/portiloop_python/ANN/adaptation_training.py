@@ -16,7 +16,7 @@ from portiloopml.portiloop_python.ANN.models.lstm import get_trained_model
 from portiloopml.portiloop_python.ANN.utils import get_configs, get_metrics, set_seeds
 from scipy.signal import firwin, remez, kaiser_atten, kaiser_beta, kaiserord, filtfilt
 
-from portiloopml.portiloop_python.ANN.wamsley_utils import _detect_start_end, _merge_close, detect_wamsley, morlet_transform, remove_straddlers, smooth, within_duration
+from portiloopml.portiloop_python.ANN.wamsley_utils import _detect_start_end, _merge_close, binary_f1_score, detect_wamsley, morlet_transform, remove_straddlers, smooth, within_duration
 
 
 class AdaptationSampler(torch.utils.data.Sampler):
@@ -52,8 +52,9 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.real_index = 0  # Used to keep track of the real index of the sample in the buffer
         # Used to keep track of all the spindles found by online wamsley
         self.total_spindles = []
-        # Arbitrarily chose 10 minutes of signal to be the max length of the buffer
-        self.buffer_max_len = 250 * 60 * 10
+        self.wamsley_thresholds = []
+        # Arbitrarily chose 10 minutes of signal to be the interval on which we run Wamsley
+        self.wamsley_interval = 250 * 60 * 10
         self.batch_size = batch_size
         self.samples = []
         self.window_buffer = []
@@ -62,9 +63,13 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.non_spindle_indexes = []
         self.seq_len = config['seq_len']
         self.seq_stride = config['seq_stride']
-        self.wamsley_threshold = 0.0
-        self.wamsley_buffer = deque(maxlen=self.buffer_max_len)
-        self.ss_mask_buffer = deque(maxlen=self.buffer_max_len)
+        self.wamsley_buffer = []
+        self.ss_mask_buffer = []
+
+        # Used for tests:
+        self.used_thresholds = []
+        self.total_sequence = []
+        self.last_wamsley_run = 0
 
     def __getitem__(self, index):
         """
@@ -92,48 +97,53 @@ class AdaptationDataset(torch.utils.data.Dataset):
         else:
             self.non_spindle_indexes.append(len(self.samples) - 1)
 
-    def add_window(self, window, ss_label):
+    def add_window(self, window, ss_label, model_pred):
         """
         Adds a window to the buffers to make it a sample when enough windows have arrived
         """
         # Check if we are in one of the right sleep stages for the Wamsley Mask
         if (ss_label == SleepStageDataset.get_labels().index("2") or ss_label == SleepStageDataset.get_labels().index("3")):
-            ss_label = 1
+            ss_label = True
         else:
-            ss_label = 0
+            ss_label = False
 
         # Add to the buffers
-        if len(self.wamsley_buffer) == 0:
-            self.wamsley_buffer.extend(window.squeeze().tolist())
-            self.ss_mask_buffer.extend(
-                [ss_label] * len(window.squeeze().tolist()))
-        else:
-            points_to_add = window.squeeze().tolist()[
-                -self.seq_stride:]
-            ss_mask_to_add = [ss_label] * len(points_to_add)
-            self.wamsley_buffer.extend(points_to_add)
-            self.ss_mask_buffer.extend(ss_mask_to_add)
+        points_to_add = window.squeeze().tolist() if len(
+            self.wamsley_buffer) == 0 else window.squeeze().tolist()[-self.seq_stride:]
+        ss_mask_to_add = [ss_label] * len(points_to_add)
+        self.wamsley_buffer += points_to_add
+        self.ss_mask_buffer += ss_mask_to_add
+
+        # Update the last wamsley run counter
+        self.last_wamsley_run += len(points_to_add)
 
         assert len(self.ss_mask_buffer) == len(
             self.wamsley_buffer), "Buffers are not the same length"
 
-        # Check if we have reached the max length of the buffer
-        if len(self.wamsley_buffer) == self.buffer_max_len:
+        # Check if we have reached the Wamsley interval
+        if self.last_wamsley_run >= self.wamsley_interval:
+            # Reset the counter to 0
+            self.last_wamsley_run = 0
+
             # Run Wamsley on the buffer
-            mask = np.array(self.ss_mask_buffer) == 1
-            wamsley_spindles = detect_wamsley(
-                np.array(self.wamsley_buffer), mask)
+            usable_buffer = self.wamsley_buffer[-self.wamsley_interval:]
+            usable_mask = self.ss_mask_buffer[-self.wamsley_interval:]
 
-            # Empty the buffers
-            self.wamsley_buffer.clear()
-            self.ss_mask_buffer.clear()
+            wamsley_spindles, threshold, used_threshold = detect_wamsley(
+                np.array(usable_buffer), np.array(usable_mask), thresholds=self.wamsley_thresholds)
 
-            wamsley_spindles = [(i[0] + self.real_index, i[1] + self.real_index,
-                                 i[2] + self.real_index) for i in wamsley_spindles]
+            if threshold is not None:
+                self.wamsley_thresholds.append(threshold)
+                self.used_thresholds.append(used_threshold)
 
-            self.real_index += self.buffer_max_len
+            index_diff = len(self.wamsley_buffer) - self.wamsley_interval
+            wamsley_spindles = [(i[0] + index_diff, i[1] + index_diff,
+                                 i[2] + index_diff) for i in wamsley_spindles]
 
             self.total_spindles += wamsley_spindles
+            # TODO: Add the spindle to the ampleable dataset
+            # We want to learn in priority from things we got wrong (aka false negatives and false positives)
+            # Need to find a smart way to sample those intelligently
 
     def spindle_percentage(self):
         sum_spindles = sum([i[1] for i in self.samples if i[1] == 1])
@@ -190,31 +200,31 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
             # Get the data and labels
             window_data, _, _, window_labels, ss_label = info
 
-            # Add the window to the adaptation dataset if the sleep stage is N2 or N3
+            window_data = window_data.to(device)
+            window_labels = window_labels.to(device)
+
+            # Get the output of the network
+            output, h1, _ = net_copy(window_data, h1)
+
+            # Compute the loss
+            output = output.squeeze(-1)
+            window_labels = window_labels.float()
+
+            # Update the loss
+            inf_loss_step = criterion(output, window_labels).mean().item()
+            inference_loss.append(inf_loss_step)
+            n += 1
+
+            # Add the window to the adaptation dataset given the sleep stage
             # This should eventually be replaced with a real sleep staging model
-            adap_dataset.add_window(window_data, ss_label)
+            adap_dataset.add_window(window_data, ss_label, output)
 
-            # window_data = window_data.to(device)
-            # window_labels = window_labels.to(device)
+            # Get the predictions
+            output = (output >= 0.82)
 
-            # # Get the output of the network
-            # output, h1, _ = net_copy(window_data, h1)
-
-            # # Compute the loss
-            # output = output.squeeze(-1)
-            # window_labels = window_labels.float()
-
-            # # Update the loss
-            # inf_loss_step = criterion(output, window_labels).mean().item()
-            # inference_loss.append(inf_loss_step)
-            # n += 1
-
-            # # Get the predictions
-            # output = (output >= 0.82)
-
-            # window_labels_total = torch.cat(
-            #     [window_labels_total, window_labels])
-            # output_total = torch.cat([output_total, output])
+            window_labels_total = torch.cat(
+                [window_labels_total, window_labels])
+            output_total = torch.cat([output_total, output])
 
         # Training loop for the adaptation
         if index % 10 == 0 and adap_dataset.has_samples() and train:
@@ -244,8 +254,15 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     # Compute metrics
     # inf_loss = sum(inference_loss)
     # inf_loss /= n
+    inf_loss = 0.0
 
-    return output_total, window_labels_total, inf_loss, net_copy, inference_loss, training_losses
+    print(len(adap_dataset.wamsley_buffer))
+    print(len(dataloader.dataset.full_signal))
+
+    baseline_signal = dataloader.dataset.full_signal
+    buffer_signal = adap_dataset.wamsley_buffer
+
+    return output_total, window_labels_total, inf_loss, net_copy, inference_loss, training_losses, adap_dataset.total_spindles
 
 
 def parse_config():
@@ -304,15 +321,17 @@ def run_subject(net, subject_id, train, labels, ss_labels, skip_ss=False):
 
     mask = (np.array(pre_dataset.full_ss_labels) == SleepStageDataset.get_labels().index(
         "3")) | (np.array(pre_dataset.full_ss_labels) == SleepStageDataset.get_labels().index("2"))
-    live_wamsley_spindles = detect_wamsley(
+
+    all_wamsley_spindles, all_threshold, _merge_close = detect_wamsley(
         pre_dataset.full_signal, mask)
+
     spindle_info = {}
     spindle_info[subject_id] = {
         'onsets': [],
         'offsets': [],
         'labels_num': []
     }
-    for spindle in live_wamsley_spindles:
+    for spindle in all_wamsley_spindles:
         spindle_info[subject_id]['onsets'].append(spindle[0])
         spindle_info[subject_id]['offsets'].append(spindle[2])
         spindle_info[subject_id]['labels_num'].append(1)
@@ -331,14 +350,14 @@ def run_subject(net, subject_id, train, labels, ss_labels, skip_ss=False):
     start = time.time()
 
     # run_adaptation(dataloader, net, device, config)
-    output_total, window_labels_total, loss, net_copy, inf_losses, train_losses = run_adaptation(
+    output_total, window_labels_total, loss, net_copy, inf_losses, train_losses, online_spindles = run_adaptation(
         dataloader, net, device, config, train, skip_ss=skip_ss)
 
-    plt.plot(train_losses)
-    plt.savefig(f"train_losses_{subject_id}.png")
-
-    plt.plot(inf_losses)
-    plt.savefig(f"inf_losses_{subject_id}.png")
+    # Compare the online spindles to the ground truth
+    gt_spindles_onsets = [spindle[0] for spindle in all_wamsley_spindles]
+    online_spindles_onsets = [spindle[0] for spindle in online_spindles]
+    precision, recall, f1 = binary_f1_score(
+        gt_spindles_onsets, online_spindles_onsets, threshold=125)
 
     # Get the distribution of the predictions and the labels
     dist_preds = np.unique(output_total.cpu().numpy(), return_counts=True)

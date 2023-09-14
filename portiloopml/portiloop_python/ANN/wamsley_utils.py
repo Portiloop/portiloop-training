@@ -2,7 +2,44 @@ import numpy as np
 from scipy.signal import fftconvolve
 
 
-def detect_wamsley(data, mask, sampling_rate=250):
+def binary_f1_score(baseline_index, model_index, threshold=125):
+    tp = 0
+    fp = 0
+    fn = 0
+    closest = []
+
+    for index in baseline_index:
+        # How many in model are within a threshold distance of the baseline
+        similarity = len(np.where(np.abs(model_index - index) < threshold)[0])
+        closest.append(np.min(np.abs(model_index - index)))
+        # If none, we have a false negative
+        if similarity == 0:
+            fn += 1
+        # If one or more, we have a true positive
+        else:
+            tp += 1
+
+    # To get the false positive, we take the number of indexes in model that are not in baseline
+    fp = len(model_index) - tp
+
+    assert tp + fp == len(model_index)
+    assert tp + fn == len(baseline_index)
+
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+    f1 = 2 * (precision * recall) / (precision + recall)
+    print(f"Precision: {precision}, Recall: {recall}, F1: {f1}")
+    return precision, recall, f1
+
+
+def detect_wamsley(data, mask, sampling_rate=250, thresholds=None):
+    """
+    Detect spindles in the data using the method described in Wamsley et al. 2012
+    :param data: The data to detect spindles in
+    :param mask: The mask to apply to the data to keep only N2, N3 sleep
+    :param sampling_rate: The sampling rate of the data
+    :param thresholds: The past thresholds to use for the moving average
+    """
     frequency = (12, 15)
     duration = (0.3, 3)
     wavelet_options = {'f0': np.mean(frequency),
@@ -13,8 +50,7 @@ def detect_wamsley(data, mask, sampling_rate=250):
     smooth_duration = .1
     det_thresh = 4.5
     merge_thresh = 0.3
-    tolerance = 0
-    min_interval = 0
+    min_interval = 0.5  # minimum time in seconds between events
 
     # First, we transform the signal using wavelet transform
     if mask is None:
@@ -24,15 +60,12 @@ def detect_wamsley(data, mask, sampling_rate=250):
 
     # If the data is too short, return an empty array
     if len(data_detect) <= 30 * 250:
-        print("Exploitable points too short")
-        return np.array([])
-    else:
-        print("Exploitable points long enough")
+        return np.array([]), None, None
 
     if mask is None:
         timestamps = np.arange(0, len(data)) / sampling_rate
     else:
-        timestamps = (np.arange(0, len(data)) / sampling_rate)[mask]
+        timestamps = (np.arange(0, len(data)))[mask] / sampling_rate
     assert len(data_detect) == len(timestamps)
     data_detect = morlet_transform(data_detect, sampling_rate, wavelet_options)
     data_detect = np.real(data_detect ** 2) ** 2
@@ -41,7 +74,12 @@ def detect_wamsley(data, mask, sampling_rate=250):
     data_detect = smooth(data_detect, sampling_rate, smooth_duration)
 
     # Then, we define the threshold
-    threshold = det_thresh * np.mean(data_detect)
+    _threshold = det_thresh * np.mean(data_detect)
+    if thresholds is None:
+        threshold = _threshold
+    else:
+        thresholds.append(_threshold)
+        threshold = np.mean(thresholds)
 
     # Then we find the peaks
     peaks = data_detect >= threshold
@@ -54,10 +92,9 @@ def detect_wamsley(data, mask, sampling_rate=250):
         i[1] = i[0] + np.argmax(data_detect[i[0]:i[2]])
 
     # Merge the events that are too close
-    events = _merge_close(data_detect, events, timestamps, tolerance)
+    events = _merge_close(data_detect, events, timestamps, min_interval)
     # Filter the events based on duration
     events = within_duration(events, timestamps, duration)
-    events = _merge_close(data_detect, events, timestamps, min_interval)
     # Remove the events that straddle a stitch
     events = remove_straddlers(events, timestamps, sampling_rate)
 
@@ -65,9 +102,12 @@ def detect_wamsley(data, mask, sampling_rate=250):
     def to_index(point):
         return timestamps[point] * sampling_rate
 
+    if len(events) == 0:
+        return np.array([]), None, None
+
     events = np.vectorize(to_index)(events)
 
-    return events.astype(int)
+    return events.astype(int), _threshold, threshold
 
 
 def merge_events(start_indexes, end_indexes, timestamps, threshold):
