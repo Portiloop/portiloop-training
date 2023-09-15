@@ -25,23 +25,52 @@ class AdaptationSampler(torch.utils.data.Sampler):
         Sample random items from a dataset
         """
         self.dataset = dataset
+        self.stats = {
+            'true_positives': 0,
+            'false_positives': 0,
+            'false_negatives': 0,
+            'true_negatives': 0
+        }
 
     def __iter__(self):
         """
         Returns an iterator over the dataset
         """
         while True:
-            toss = random.random()
-            if toss > 0.5:
-                # Get a random index from the spindle indexes
-                choice = random.choice(self.dataset.spindle_indexes)
-                # remove the index from the spindle indexes
-                self.dataset.spindle_indexes.remove(choice)
-                yield choice
+            # Choose between one of the 4 types of samples
+            sample_type = random.randint(0, 3)
+            if sample_type == 0:
+                # We pick a true positive
+                if len(self.dataset.sampleable_found_spindles) > 0:
+                    index = random.choice(
+                        self.dataset.sampleable_found_spindles)
+                    # We remove the index from the sampleable list
+                    self.stats['true_positives'] += 1
+            elif sample_type == 1:
+                # We pick a false positive
+                if len(self.dataset.sampleable_false_spindles) > 0:
+                    index = random.choice(
+                        self.dataset.sampleable_false_spindles)
+                    self.stats['false_positives'] += 1
+            elif sample_type == 2:
+                # We pick a false negative
+                if len(self.dataset.sampleable_missed_spindles) > 0:
+                    index = random.choice(
+                        self.dataset.sampleable_missed_spindles)
+                    self.stats['false_negatives'] += 1
             else:
-                choice = random.choice(self.dataset.non_spindle_indexes)
-                self.dataset.non_spindle_indexes.remove(choice)
-                yield choice
+                # We pick a true negative
+                index = random.randint(
+                    0, len(self.dataset.wamsley_buffer) - 1)
+                self.stats['true_negatives'] += 1
+
+            # Check if the index is far enough from the begginins of the buffer
+            if index < self.dataset.min_signal_len:
+                continue
+
+            label = 1 if sample_type == 0 or sample_type == 2 else 0
+
+            yield index - self.dataset.past_signal_len - self.dataset.window_size + 1, label
 
 
 class AdaptationDataset(torch.utils.data.Dataset):
@@ -61,41 +90,57 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.label_buffer = []
         self.spindle_indexes = []
         self.non_spindle_indexes = []
+        self.pred_threshold = 0.80
+
+        # signal needed before the last window
         self.seq_len = config['seq_len']
         self.seq_stride = config['seq_stride']
+        self.window_size = config['window_size']
+        self.past_signal_len = (self.seq_len - 1) * self.seq_stride
+        self.min_signal_len = self.past_signal_len + self.window_size
+
+        # Buffers
         self.wamsley_buffer = []
         self.ss_mask_buffer = []
+        self.prediction_buffer = []
+        self.last_wamsley_run = 0
+
+        # Sampleable lists
+        # Indexes of false negatives that can be sampled
+        self.sampleable_missed_spindles = []
+        # Indexes of false positives that can be sampled
+        self.sampleable_false_spindles = []
+        # Indexes of true positives that can be sampled
+        self.sampleable_found_spindles = []
+        # We assume that the true negatives are just all the rest given that they are majority
 
         # Used for tests:
         self.used_thresholds = []
-        self.total_sequence = []
-        self.last_wamsley_run = 0
 
     def __getitem__(self, index):
         """
         Returns a sample from the dataset
         """
-        sample_to_return = self.samples[index]
-        return sample_to_return
+        # Get the index and the sample type
+        index, label = index
+
+        # Get data
+        index = index + self.past_signal_len
+        signal = torch.Tensor(self.wamsley_buffer[index - self.past_signal_len:index + self.window_size]).unfold(
+            0, self.window_size, self.seq_stride)
+
+        # Make sure that the last index of the signal is the same as the label
+        # assert signal[-1, -1] == self.full_signal[index + self.window_size - 1], "Issue with the data and the labels"
+        label = torch.Tensor([label]).type(torch.LongTensor)
+        signal = signal.unsqueeze(1)
+
+        return signal, label
 
     def __len__(self):
         """
         Returns the length of the dataset
         """
-        return len(self.samples)
-
-    def add_sample(self, sample, label):
-        """
-        Takes a list of windows and adds them to the dataset
-        """
-        sample = torch.stack(sample)
-        sample = sample.reshape(sample.size(0), sample.size(-1))
-        sample = sample.unsqueeze(1)
-        self.samples.append((sample, label))
-        if label == 1:
-            self.spindle_indexes.append(len(self.samples) - 1)
-        else:
-            self.non_spindle_indexes.append(len(self.samples) - 1)
+        return len(self.wamsley_buffer) - self.min_signal_len
 
     def add_window(self, window, ss_label, model_pred):
         """
@@ -111,13 +156,18 @@ class AdaptationDataset(torch.utils.data.Dataset):
         points_to_add = window.squeeze().tolist() if len(
             self.wamsley_buffer) == 0 else window.squeeze().tolist()[-self.seq_stride:]
         ss_mask_to_add = [ss_label] * len(points_to_add)
+        preds_to_add = [bool(model_pred.cpu() >= self.pred_threshold)] * \
+            len(points_to_add)
         self.wamsley_buffer += points_to_add
         self.ss_mask_buffer += ss_mask_to_add
+        self.prediction_buffer += preds_to_add
 
         # Update the last wamsley run counter
         self.last_wamsley_run += len(points_to_add)
 
         assert len(self.ss_mask_buffer) == len(
+            self.wamsley_buffer), "Buffers are not the same length"
+        assert len(self.prediction_buffer) == len(
             self.wamsley_buffer), "Buffers are not the same length"
 
         # Check if we have reached the Wamsley interval
@@ -128,6 +178,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
             # Run Wamsley on the buffer
             usable_buffer = self.wamsley_buffer[-self.wamsley_interval:]
             usable_mask = self.ss_mask_buffer[-self.wamsley_interval:]
+            usable_preds = self.prediction_buffer[-self.wamsley_interval:]
 
             wamsley_spindles, threshold, used_threshold = detect_wamsley(
                 np.array(usable_buffer), np.array(usable_mask), thresholds=self.wamsley_thresholds)
@@ -136,21 +187,42 @@ class AdaptationDataset(torch.utils.data.Dataset):
                 self.wamsley_thresholds.append(threshold)
                 self.used_thresholds.append(used_threshold)
 
+            if len(wamsley_spindles) == 0:
+                return
+
+            # Get the indexes of the spindles predictions
+            spindle_indexes = np.where(np.array(usable_preds) == 1)[
+                0]
+            events_array = np.array(wamsley_spindles)
+            event_ranges = np.concatenate([np.arange(start, stop)
+                                           for start, stop in zip(events_array[:, 0], events_array[:, 2])])
+            gt_indexes = np.hstack(event_ranges)
+
+            # Get the difference in indexes between the buffer we studied and the total buffer
             index_diff = len(self.wamsley_buffer) - self.wamsley_interval
+
+            # Get the intersection of the two
+            true_positives = np.intersect1d(
+                spindle_indexes, gt_indexes) + index_diff
+            false_positives = np.setdiff1d(
+                spindle_indexes, gt_indexes) + index_diff
+            false_negatives = np.setdiff1d(
+                gt_indexes, spindle_indexes) + index_diff
+
             wamsley_spindles = [(i[0] + index_diff, i[1] + index_diff,
                                  i[2] + index_diff) for i in wamsley_spindles]
 
             self.total_spindles += wamsley_spindles
-            # TODO: Add the spindle to the ampleable dataset
-            # We want to learn in priority from things we got wrong (aka false negatives and false positives)
-            # Need to find a smart way to sample those intelligently
+            self.sampleable_missed_spindles += false_negatives.tolist()
+            self.sampleable_false_spindles += false_positives.tolist()
+            self.sampleable_found_spindles += true_positives.tolist()
 
     def spindle_percentage(self):
         sum_spindles = sum([i[1] for i in self.samples if i[1] == 1])
         return sum_spindles / len(self)
 
     def has_samples(self):
-        return len(self.spindle_indexes) > self.batch_size and len(self.non_spindle_indexes) > self.batch_size
+        return len(self.sampleable_false_spindles) > 0 or len(self.sampleable_found_spindles) > 0 or len(self.sampleable_missed_spindles) > 0
 
 
 def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
@@ -159,15 +231,15 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     Returns the accuracy and loss as well as fp, fn, tp, tn count for spindles
     Also returns the updated model
     """
-    batch_size = 4
+    batch_size = 32
     # Initialize adaptation dataset stuff
     adap_dataset = AdaptationDataset(config, batch_size)
+    sampler = AdaptationSampler(adap_dataset)
     adap_dataloader = torch.utils.data.DataLoader(
         adap_dataset,
         batch_size=batch_size,
-        sampler=AdaptationSampler(adap_dataset),
+        sampler=sampler,
         num_workers=0)
-    # sampler = AdaptationSampler(adap_dataset)
 
     # Initialize All the necessary variables
     net_copy = copy.deepcopy(net)
@@ -227,29 +299,29 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
             output_total = torch.cat([output_total, output])
 
         # Training loop for the adaptation
-        if index % 10 == 0 and adap_dataset.has_samples() and train:
-            net_copy.train()
+        if adap_dataset.has_samples():
+            # net_copy.train()
             train_iterations += 1
             train_sample, train_label = next(iter(adap_dataloader))
-            train_sample = train_sample.to(device)
-            train_label = train_label.to(device)
+            # train_sample = train_sample.to(device)
+            # train_label = train_label.to(device)
 
-            optimizer.zero_grad()
+            # optimizer.zero_grad()
 
-            # Get the output of the network
-            h_zero = torch.zeros((config['nb_rnn_layers'], train_sample.size(
-                0), config['hidden_size']), device=device)
-            output, _, _ = net_copy(train_sample, h_zero)
+            # # Get the output of the network
+            # h_zero = torch.zeros((config['nb_rnn_layers'], train_sample.size(
+            #     0), config['hidden_size']), device=device)
+            # output, _, _ = net_copy(train_sample, h_zero)
 
-            # Compute the loss
-            output = output.squeeze(-1)
-            train_label = train_label.squeeze(-1).float()
-            loss_step = criterion(output, train_label)
+            # # Compute the loss
+            # output = output.squeeze(-1)
+            # train_label = train_label.squeeze(-1).float()
+            # loss_step = criterion(output, train_label)
 
-            loss_step = loss_step.mean()
-            loss_step.backward()
-            optimizer.step()
-            training_losses.append(loss_step.item())
+            # loss_step = loss_step.mean()
+            # loss_step.backward()
+            # optimizer.step()
+            # training_losses.append(loss_step.item())
 
     # Compute metrics
     # inf_loss = sum(inference_loss)
@@ -262,7 +334,7 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     baseline_signal = dataloader.dataset.full_signal
     buffer_signal = adap_dataset.wamsley_buffer
 
-    return output_total, window_labels_total, inf_loss, net_copy, inference_loss, training_losses, adap_dataset.total_spindles
+    return output_total, window_labels_total, inf_loss, net_copy, inference_loss, training_losses, adap_dataset
 
 
 def parse_config():
