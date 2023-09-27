@@ -2,11 +2,40 @@ import numpy as np
 from scipy.signal import fftconvolve
 
 
+def get_spindle_onsets(indexes, sampling_rate=250, min_label_time=0.4):
+    '''
+    Given a list of positive indexes, return the start index of every spindle.
+
+    :param positive_indexes: An array of size of signal with 1 at the index of the spindle and 0 elsewhere
+    '''
+
+    if len(indexes) == 0:
+        return np.array([])
+
+    # Calculate the minimum interval between two spindles
+    interval = int(min_label_time * sampling_rate)
+
+    indexes = np.array(indexes)
+    # Create a shifted version of the array to check for the "0 followed by 1" condition
+    shifted_indexes = np.roll(indexes, shift=1)
+
+    # Find the indexes where 0 is followed by 1
+    indexes = np.where((shifted_indexes == False) & (indexes == True))[0]
+
+    # Remove the indexes that are too close together
+    indexes = indexes[np.insert(np.diff(indexes) >= interval, 0, True)]
+
+    return indexes
+
+
 def binary_f1_score(baseline_index, model_index, threshold=125):
     tp = 0
     fp = 0
     fn = 0
     closest = []
+
+    if len(baseline_index) == 0 or len(model_index) == 0:
+        return 0, 0, 0, tp, fp, fn, closest
 
     for index in baseline_index:
         # How many in model are within a threshold distance of the baseline
@@ -28,8 +57,8 @@ def binary_f1_score(baseline_index, model_index, threshold=125):
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
     f1 = 2 * (precision * recall) / (precision + recall)
-    print(f"Precision: {precision}, Recall: {recall}, F1: {f1}")
-    return precision, recall, f1
+
+    return precision, recall, f1, tp, fp, fn, closest
 
 
 def detect_wamsley(data, mask, sampling_rate=250, thresholds=None):
@@ -86,6 +115,11 @@ def detect_wamsley(data, mask, sampling_rate=250, thresholds=None):
 
     # Get the start, end and peak power index of each spindle
     events = _detect_start_end(peaks)
+
+    # If no events are found, return an empty array
+    if events is None:
+        return np.array([]), None, None
+
     # add the location of the peak in the middle
     events = np.insert(events, 1, 0, axis=1)
     for i in events:

@@ -10,13 +10,14 @@ from torch import nn
 from torch import optim
 import copy
 import numpy as np
+from tqdm import tqdm
 from portiloopml.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, SingleSubjectSampler, SleepStageDataset, read_pretraining_dataset, read_sleep_staging_labels, read_spindle_trains_labels
 from portiloopml.portiloop_python.ANN.lightning_tests import load_model
-from portiloopml.portiloop_python.ANN.models.lstm import get_trained_model
+from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork, get_trained_model
 from portiloopml.portiloop_python.ANN.utils import get_configs, get_metrics, set_seeds
 from scipy.signal import firwin, remez, kaiser_atten, kaiser_beta, kaiserord, filtfilt
 
-from portiloopml.portiloop_python.ANN.wamsley_utils import _detect_start_end, _merge_close, binary_f1_score, detect_wamsley, morlet_transform, remove_straddlers, smooth, within_duration
+from portiloopml.portiloop_python.ANN.wamsley_utils import binary_f1_score, detect_wamsley, get_spindle_onsets
 
 
 class AdaptationSampler(torch.utils.data.Sampler):
@@ -39,25 +40,32 @@ class AdaptationSampler(torch.utils.data.Sampler):
         while True:
             # Choose between one of the 4 types of samples
             sample_type = random.randint(0, 3)
+            # sample_type = 0
             if sample_type == 0:
+                # We pick a false negative
+                if len(self.dataset.sampleable_missed_spindles) > 0:
+                    index = random.choice(
+                        self.dataset.sampleable_missed_spindles)
+                    self.stats['false_negatives'] += 1
+                else:
+                    index = -1
+            elif sample_type == 1:
                 # We pick a true positive
                 if len(self.dataset.sampleable_found_spindles) > 0:
                     index = random.choice(
                         self.dataset.sampleable_found_spindles)
                     # We remove the index from the sampleable list
                     self.stats['true_positives'] += 1
-            elif sample_type == 1:
+                else:
+                    index = -1
+            elif sample_type == 2:
                 # We pick a false positive
                 if len(self.dataset.sampleable_false_spindles) > 0:
                     index = random.choice(
                         self.dataset.sampleable_false_spindles)
                     self.stats['false_positives'] += 1
-            elif sample_type == 2:
-                # We pick a false negative
-                if len(self.dataset.sampleable_missed_spindles) > 0:
-                    index = random.choice(
-                        self.dataset.sampleable_missed_spindles)
-                    self.stats['false_negatives'] += 1
+                else:
+                    index = -1
             else:
                 # We pick a true negative
                 index = random.randint(
@@ -231,7 +239,7 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     Returns the accuracy and loss as well as fp, fn, tp, tn count for spindles
     Also returns the updated model
     """
-    batch_size = 32
+    batch_size = 8
     # Initialize adaptation dataset stuff
     adap_dataset = AdaptationDataset(config, batch_size)
     sampler = AdaptationSampler(adap_dataset)
@@ -247,7 +255,7 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
 
     # Initialize optimizer and criterion
     optimizer = optim.AdamW(net_copy.parameters(
-    ), lr=0.00005, weight_decay=config['adam_w'])
+    ), lr=0.0001, weight_decay=config['adam_w'])
     criterion = nn.BCELoss(reduction='none')
 
     training_losses = []
@@ -264,7 +272,11 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     train_iterations = 0
 
     counter = 0
-    for index, info in enumerate(dataloader):
+    for index, info in enumerate(tqdm(dataloader)):
+
+        # if index > 10000:
+        #     break
+
         net_copy.eval()
         with torch.no_grad():
             counter += 1
@@ -299,40 +311,33 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
             output_total = torch.cat([output_total, output])
 
         # Training loop for the adaptation
-        if adap_dataset.has_samples():
-            # net_copy.train()
+        if adap_dataset.has_samples() and train and index % 100 == 0:
+            net_copy.train()
             train_iterations += 1
             train_sample, train_label = next(iter(adap_dataloader))
-            # train_sample = train_sample.to(device)
-            # train_label = train_label.to(device)
+            train_sample = train_sample.to(device)
+            train_label = train_label.to(device)
 
-            # optimizer.zero_grad()
+            optimizer.zero_grad()
 
-            # # Get the output of the network
-            # h_zero = torch.zeros((config['nb_rnn_layers'], train_sample.size(
-            #     0), config['hidden_size']), device=device)
-            # output, _, _ = net_copy(train_sample, h_zero)
+            # Get the output of the network
+            h_zero = torch.zeros((config['nb_rnn_layers'], train_sample.size(
+                0), config['hidden_size']), device=device)
+            output, _, _ = net_copy(train_sample, h_zero)
 
-            # # Compute the loss
-            # output = output.squeeze(-1)
-            # train_label = train_label.squeeze(-1).float()
-            # loss_step = criterion(output, train_label)
+            # Compute the loss
+            output = output.squeeze(-1)
+            train_label = train_label.squeeze(-1).float()
+            loss_step = criterion(output, train_label)
 
-            # loss_step = loss_step.mean()
-            # loss_step.backward()
-            # optimizer.step()
-            # training_losses.append(loss_step.item())
+            loss_step = loss_step.mean()
+            loss_step.backward()
+            optimizer.step()
+            training_losses.append(loss_step.item())
 
     # Compute metrics
-    # inf_loss = sum(inference_loss)
-    # inf_loss /= n
-    inf_loss = 0.0
-
-    print(len(adap_dataset.wamsley_buffer))
-    print(len(dataloader.dataset.full_signal))
-
-    baseline_signal = dataloader.dataset.full_signal
-    buffer_signal = adap_dataset.wamsley_buffer
+    inf_loss = sum(inference_loss)
+    inf_loss /= n
 
     return output_total, window_labels_total, inf_loss, net_copy, inference_loss, training_losses, adap_dataset
 
@@ -422,28 +427,67 @@ def run_subject(net, subject_id, train, labels, ss_labels, skip_ss=False):
     start = time.time()
 
     # run_adaptation(dataloader, net, device, config)
-    output_total, window_labels_total, loss, net_copy, inf_losses, train_losses, online_spindles = run_adaptation(
+    output_total, window_labels_total, loss, net_copy, inf_losses, train_losses, adap_dataset = run_adaptation(
         dataloader, net, device, config, train, skip_ss=skip_ss)
+
+    end = time.time()
+    print(f"Time to run the adaptation: {end - start}")
 
     # Compare the online spindles to the ground truth
     gt_spindles_onsets = [spindle[0] for spindle in all_wamsley_spindles]
-    online_spindles_onsets = [spindle[0] for spindle in online_spindles]
-    precision, recall, f1 = binary_f1_score(
+    online_spindles_onsets = get_spindle_onsets(
+        adap_dataset.prediction_buffer)
+    precision, recall, f1, tp, fp, fn, closest = binary_f1_score(
         gt_spindles_onsets, online_spindles_onsets, threshold=125)
 
-    # Get the distribution of the predictions and the labels
-    dist_preds = np.unique(output_total.cpu().numpy(), return_counts=True)
-    dist_labels = np.unique(
-        window_labels_total.cpu().numpy(), return_counts=True)
-    print("Distribution of the predictions:")
-    print(dist_preds)
-    print("Distribution of the labels:")
-    print(dist_labels)
+    print(
+        f"Found {len(online_spindles_onsets)} spindles, expected {len(gt_spindles_onsets)} spindles")
+    print(f"Precision: {precision}")
+    print(f"Recall: {recall}")
+    print(f"F1: {f1}")
+    print(f"TP: {tp}")
+    print(f"FP: {fp}")
+    print(f"FN: {fn}")
+    if closest != []:
+        print(f"Average Distance: {sum(closest) / len(closest)}")
 
-    # Get the metrics
-    acc, f1, precision, recall = get_metrics(output_total, window_labels_total)
+    # Show the loss graph
+    plt.plot(train_losses)
+    plt.title('Training Loss')
+    plt.xlabel('Training step')
+    plt.ylabel('Loss')
+    plt.savefig(f'adaptation_training_loss_{subject_id}_{train}.png')
+    plt.clf()
 
-    return loss, acc, f1, precision, recall, dist_preds, dist_labels, net_copy
+    # Compute the moving average of the inference loss
+    inf_losses = np.array(inf_losses)
+    inf_losses = np.convolve(inf_losses, np.ones(
+        (100,)) / 100, mode='valid')
+    plt.plot(inf_losses)
+    plt.title('Inference Loss')
+    plt.xlabel('Inference step')
+    plt.ylabel('Loss')
+    plt.savefig(f'adaptation_inference_loss_{subject_id}_{train}.png')
+    plt.clf()
+
+    # Save all metrics to a dictionary
+    metrics = {
+        'loss': loss,
+        'f1': f1,
+        'precision': precision,
+        'recall': recall,
+        'tp': tp,
+        'fp': fp,
+        'fn': fn,
+        'closest': closest,
+        'gt_spindles_onsets': gt_spindles_onsets,
+        'online_spindles_onsets': online_spindles_onsets,
+        'train_losses': train_losses,
+        'inf_losses': inf_losses,
+        'used_thresholds': adap_dataset.used_thresholds,
+    }
+
+    return metrics
 
 
 if __name__ == "__main__":
@@ -453,8 +497,8 @@ if __name__ == "__main__":
         seed = random.randint(0, 100000)
     else:
         seed = args.seed
-
-    # set_seeds(seed)
+    seed = 42
+    set_seeds(seed)
 
     config = get_configs(args.experiment_name, False, seed)
     # config['nb_conv_layers'] = 4
@@ -462,9 +506,14 @@ if __name__ == "__main__":
     # config['nb_rnn_layers'] = 4
 
     # Load the model
+
     net = get_trained_model(config, config['path_models'] / args.model_path)
-    # ss_net = load_model('Original_params_1692894764.8012033')
+    # net = PortiloopNetwork(config)
     # ss_net.cuda().eval()
+
+    for name, param in net.named_parameters():
+        if name not in ['fc.weight', 'fc.bias']:
+            param.requires_grad = False
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -480,7 +529,7 @@ if __name__ == "__main__":
         # (Train, Skip SS)
         # (False, True),
         (False, False),
-        # (True, False),
+        (True, False),
         # (True, True)
     ]
 
@@ -500,12 +549,11 @@ if __name__ == "__main__":
     # random.shuffle(all_subjects)
     # all_subjects = all_subjects[:NUM_SUBJECTS]
 
-    print(f"ALL SUBJECTS: {all_subjects}")
     # Each worker only does its subjects
     worker_id = args.worker_id
-    # my_subjects_indexes = parse_worker_subject_div(
-    #     all_subjects, args.num_workers, worker_id)
-    my_subjects_indexes = ["01-01-0022"]
+    my_subjects_indexes = parse_worker_subject_div(
+        all_subjects, args.num_workers, worker_id)
+    # my_subjects_indexes = ["01-02-0019"]
     # Now, you can use worker_subjects in your script for experiments
     for subject in my_subjects_indexes:
         # Perform experiments for the current subject
@@ -524,24 +572,11 @@ if __name__ == "__main__":
         for index, patient_id in enumerate(my_subjects_indexes):
             print('Subject ', patient_id)
             experiment_results[exp_index][patient_id] = {}
-            loss, acc, f1, precision, recall, dist_preds, dist_labels, _ = run_subject(
+            metrics = run_subject(
                 net, patient_id, train, labels, ss_labels, skip_ss)
-            # Average all the f1 scores
-            print('Loss: ', loss)
-            print('Accuracy: ', acc)
-            print('F1: ', f1)
-            print('Precision: ', precision)
-            print('Recall: ', recall)
 
-            experiment_results[exp_index][patient_id]['acc'] = acc.item()
-            experiment_results[exp_index][patient_id]['f1'] = f1
-            experiment_results[exp_index][patient_id]['precision'] = precision
-            experiment_results[exp_index][patient_id]['recall'] = recall
-            experiment_results[exp_index][patient_id]['dist_preds'] = [
-                i.tolist() for i in dist_preds]
-            experiment_results[exp_index][patient_id]['dist_labels'] = [
-                i.tolist() for i in dist_labels]
+            experiment_results[exp_index][patient_id] = metrics
 
     # Save the results to json file with indentation
-    with open(f'adap_results_{args.job_id}_{worker_id}.json', 'w') as f:
-        json.dump(experiment_results, f, indent=4)
+    # with open(f'adap_results_{args.job_id}_{worker_id}.json', 'w') as f:
+    #     json.dump(experiment_results, f, indent=4)
