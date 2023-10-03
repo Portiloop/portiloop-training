@@ -282,8 +282,8 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     counter = 0
     for index, info in enumerate(tqdm(dataloader)):
 
-        # if index > 10000:
-        #     break
+        if index > 10000:
+            break
 
         net_copy.eval()
         with torch.no_grad():
@@ -533,7 +533,7 @@ if __name__ == "__main__":
         # (Train, Skip SS)
         # (False, True),
         (False, False),
-        (True, False),
+        # (True, False),
         # (True, True)
     ]
 
@@ -557,7 +557,7 @@ if __name__ == "__main__":
     worker_id = args.worker_id
     my_subjects_indexes = parse_worker_subject_div(
         all_subjects, args.num_workers, worker_id)
-    # my_subjects_indexes = ["01-01-0019"]
+    my_subjects_indexes = ["01-01-0019"]
     # Now, you can use worker_subjects in your script for experiments
     for subject in my_subjects_indexes:
         # Perform experiments for the current subject
@@ -581,6 +581,16 @@ if __name__ == "__main__":
 
             experiment_results[exp_index][patient_id] = metrics
 
+    class NpEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            if isinstance(obj, np.floating):
+                return float(obj)
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            return super(NpEncoder, self).default(obj)
+
     # Save the results to json file with indentation
-    with open(f'adap_results_{args.job_id}_{worker_id}.json', 'w') as f:
-        json.dump(experiment_results, f, indent=4)
+    with open(f'adap_results_{args.job_id}-{worker_id}.json', 'w') as f:
+        json.dump(experiment_results, f, indent=4, cls=NpEncoder)

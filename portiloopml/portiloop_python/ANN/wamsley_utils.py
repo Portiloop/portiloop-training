@@ -56,7 +56,7 @@ def binary_f1_score(baseline_index, model_index, threshold=125):
 
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
-    f1 = 2 * (precision * recall) / (precision + recall)
+    f1 = 2 * (precision * recall) / ((precision + recall) + 1e-8)
 
     return precision, recall, f1, tp, fp, fn, closest
 
