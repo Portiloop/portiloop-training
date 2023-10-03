@@ -47,6 +47,8 @@ class AdaptationSampler(torch.utils.data.Sampler):
                     index = random.choice(
                         self.dataset.sampleable_missed_spindles)
                     self.stats['false_negatives'] += 1
+                    # We remove the index from the sampleable list
+                    self.dataset.sampleable_missed_spindles.remove(index)
                 else:
                     index = -1
             elif sample_type == 1:
@@ -56,6 +58,8 @@ class AdaptationSampler(torch.utils.data.Sampler):
                         self.dataset.sampleable_found_spindles)
                     # We remove the index from the sampleable list
                     self.stats['true_positives'] += 1
+                    # We remove the index from the sampleable list
+                    self.dataset.sampleable_found_spindles.remove(index)
                 else:
                     index = -1
             elif sample_type == 2:
@@ -64,6 +68,8 @@ class AdaptationSampler(torch.utils.data.Sampler):
                     index = random.choice(
                         self.dataset.sampleable_false_spindles)
                     self.stats['false_positives'] += 1
+                    # We remove the index from the sampleable list
+                    self.dataset.sampleable_false_spindles.remove(index)
                 else:
                     index = -1
             else:
@@ -76,7 +82,7 @@ class AdaptationSampler(torch.utils.data.Sampler):
             if index < self.dataset.min_signal_len:
                 continue
 
-            label = 1 if sample_type == 0 or sample_type == 2 else 0
+            label = 1 if sample_type == 0 or sample_type == 1 else 0
 
             yield index - self.dataset.past_signal_len - self.dataset.window_size + 1, label
 
@@ -98,7 +104,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.label_buffer = []
         self.spindle_indexes = []
         self.non_spindle_indexes = []
-        self.pred_threshold = 0.80
+        self.pred_threshold = 0.70
 
         # signal needed before the last window
         self.seq_len = config['seq_len']
@@ -230,7 +236,9 @@ class AdaptationDataset(torch.utils.data.Dataset):
         return sum_spindles / len(self)
 
     def has_samples(self):
-        return len(self.sampleable_false_spindles) > 0 or len(self.sampleable_found_spindles) > 0 or len(self.sampleable_missed_spindles) > 0
+        return len(self.sampleable_false_spindles) > self.batch_size\
+              and len(self.sampleable_found_spindles) > self.batch_size \
+                and len(self.sampleable_missed_spindles) > self.batch_size
 
 
 def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
@@ -239,7 +247,7 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     Returns the accuracy and loss as well as fp, fn, tp, tn count for spindles
     Also returns the updated model
     """
-    batch_size = 8
+    batch_size = 4
     # Initialize adaptation dataset stuff
     adap_dataset = AdaptationDataset(config, batch_size)
     sampler = AdaptationSampler(adap_dataset)
@@ -255,7 +263,7 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
 
     # Initialize optimizer and criterion
     optimizer = optim.AdamW(net_copy.parameters(
-    ), lr=0.0001, weight_decay=config['adam_w'])
+    ), lr=0.00003, weight_decay=config['adam_w'])
     criterion = nn.BCELoss(reduction='none')
 
     training_losses = []
@@ -304,14 +312,14 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
             adap_dataset.add_window(window_data, ss_label, output)
 
             # Get the predictions
-            output = (output >= 0.82)
+            output = (output >= 0.75)
 
             window_labels_total = torch.cat(
                 [window_labels_total, window_labels])
             output_total = torch.cat([output_total, output])
 
         # Training loop for the adaptation
-        if adap_dataset.has_samples() and train and index % 100 == 0:
+        if adap_dataset.has_samples() and train:
             net_copy.train()
             train_iterations += 1
             train_sample, train_label = next(iter(adap_dataloader))
@@ -497,7 +505,7 @@ if __name__ == "__main__":
         seed = random.randint(0, 100000)
     else:
         seed = args.seed
-    seed = 42
+    # seed = 42
     set_seeds(seed)
 
     config = get_configs(args.experiment_name, False, seed)
@@ -508,8 +516,6 @@ if __name__ == "__main__":
     # Load the model
 
     net = get_trained_model(config, config['path_models'] / args.model_path)
-    # net = PortiloopNetwork(config)
-    # ss_net.cuda().eval()
 
     for name, param in net.named_parameters():
         if name not in ['fc.weight', 'fc.bias']:
@@ -522,8 +528,6 @@ if __name__ == "__main__":
     labels = read_spindle_trains_labels(config['old_dataset'])
     ss_labels = read_sleep_staging_labels(config['path_dataset'])
 
-    # run_ss(ss_net, '01-02-0019', ss_labels)
-
     # Experiment parameters:
     params = [
         # (Train, Skip SS)
@@ -534,7 +538,7 @@ if __name__ == "__main__":
     ]
 
     # Number of subjects to run each experiment over
-    NUM_SUBJECTS = 1
+    NUM_SUBJECTS = 40
 
     experiment_results = {}
     all_subjects = [subject for subject in labels.keys()
@@ -545,15 +549,15 @@ if __name__ == "__main__":
         assert subject in ss_labels.keys(), 'Subject not in the dataset'
 
     # Randomly select the subjects
-    # random.seed(42)
-    # random.shuffle(all_subjects)
-    # all_subjects = all_subjects[:NUM_SUBJECTS]
+    random.seed(42)
+    random.shuffle(all_subjects)
+    all_subjects = all_subjects[:NUM_SUBJECTS]
 
     # Each worker only does its subjects
     worker_id = args.worker_id
     my_subjects_indexes = parse_worker_subject_div(
         all_subjects, args.num_workers, worker_id)
-    # my_subjects_indexes = ["01-02-0019"]
+    # my_subjects_indexes = ["01-01-0019"]
     # Now, you can use worker_subjects in your script for experiments
     for subject in my_subjects_indexes:
         # Perform experiments for the current subject
@@ -578,5 +582,5 @@ if __name__ == "__main__":
             experiment_results[exp_index][patient_id] = metrics
 
     # Save the results to json file with indentation
-    # with open(f'adap_results_{args.job_id}_{worker_id}.json', 'w') as f:
-    #     json.dump(experiment_results, f, indent=4)
+    with open(f'adap_results_{args.job_id}_{worker_id}.json', 'w') as f:
+        json.dump(experiment_results, f, indent=4)
