@@ -530,7 +530,7 @@ if __name__ == "__main__":
         # (Train, Skip SS)
         # (False, True),
         (False, False),
-        # (True, False),
+        (True, False),
         # (True, True)
     ]
 
