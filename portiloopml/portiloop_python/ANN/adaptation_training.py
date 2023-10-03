@@ -282,9 +282,6 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     counter = 0
     for index, info in enumerate(tqdm(dataloader)):
 
-        if index > 10000:
-            break
-
         net_copy.eval()
         with torch.no_grad():
             counter += 1
