@@ -28,6 +28,7 @@ def merge_results(directory):
 if __name__ == '__main__':
     # Get command line parameters for the directory
     parser = argparse.ArgumentParser()
-    parser.add_argument('directory', help='Directory containing the results')
+    parser.add_argument('directory', help='Directory containing the results', \
+                        default='/home/ubuntu/portiloop-training/experiment_results')
     args = parser.parse_args()
     merge_results(args.directory)

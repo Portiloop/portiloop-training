@@ -554,7 +554,7 @@ if __name__ == "__main__":
     worker_id = args.worker_id
     my_subjects_indexes = parse_worker_subject_div(
         all_subjects, args.num_workers, worker_id)
-    my_subjects_indexes = ["01-01-0019"]
+    # my_subjects_indexes = ["01-01-0019"]
     # Now, you can use worker_subjects in your script for experiments
     for subject in my_subjects_indexes:
         # Perform experiments for the current subject
