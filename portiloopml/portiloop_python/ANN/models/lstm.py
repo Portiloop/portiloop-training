@@ -164,6 +164,10 @@ class PortiloopNetwork(nn.Module):
             in_fc = fc_features * 2
         elif self.after == "cnn":
             in_fc = fc_features + out_cnn_size_after_rnn
+        elif self.after == "hidden":
+            in_fc = fc_features
+            self.hidden_fc = nn.Linear(in_features=fc_features,
+                                       out_features=fc_features)
         else:
             in_fc = fc_features
 
@@ -205,6 +209,9 @@ class PortiloopNetwork(nn.Module):
         elif self.after == "cnn":
             out = out_gru
             # Add CNN experiment
+        elif self.after == "hidden":
+            out = self.hidden_fc(out_gru)
+            out = torch.relu(out)
         else:
             out = out_gru
 
@@ -275,9 +282,11 @@ if __name__ == "__main__":
     # config['nb_conv_layers'] = 4
     # config['hidden_size'] = 64
     # config['nb_rnn_layers'] = 4
+    config['hidden_size'] = 64
+    config['after_rnn'] = 'hidden'
 
     model = PortiloopNetwork(config).to(config["device_train"])
-    summary(model)
+    # summary(model)
 
     window_size = int(config['window_size_s'] * config['fe'])
     x = torch.randn(config['batch_size'], config['seq_len'],

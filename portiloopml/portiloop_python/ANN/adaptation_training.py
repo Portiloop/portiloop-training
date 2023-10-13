@@ -247,7 +247,7 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     Returns the accuracy and loss as well as fp, fn, tp, tn count for spindles
     Also returns the updated model
     """
-    batch_size = 4
+    batch_size = 32
     # Initialize adaptation dataset stuff
     adap_dataset = AdaptationDataset(config, batch_size)
     sampler = AdaptationSampler(adap_dataset)
@@ -310,7 +310,7 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
             adap_dataset.add_window(window_data, ss_label, output)
 
             # Get the predictions
-            output = (output >= 0.75)
+            output = (output >= 0.70)
 
             window_labels_total = torch.cat(
                 [window_labels_total, window_labels])
@@ -556,7 +556,7 @@ if __name__ == "__main__":
     worker_id = args.worker_id
     my_subjects_indexes = parse_worker_subject_div(
         all_subjects, args.num_workers, worker_id)
-    my_subjects_indexes = ["01-05-0015"]
+    # my_subjects_indexes = ["01-05-0015"]
     # Now, you can use worker_subjects in your script for experiments
     for subject in my_subjects_indexes:
         # Perform experiments for the current subject
