@@ -413,9 +413,9 @@ def get_configs(exp_name, test_set, seed_exp):
         'dilation_pool': 1,
 
         # RNN stuff
-        'nb_rnn_layers': 1,
+        'nb_rnn_layers': 3,
         'nb_out': 18,
-        'hidden_size': 7,
+        'hidden_size': 64,
         'nb_channel': 31,
         'in_channels': 1,
 

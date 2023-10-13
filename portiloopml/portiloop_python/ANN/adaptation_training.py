@@ -237,8 +237,8 @@ class AdaptationDataset(torch.utils.data.Dataset):
 
     def has_samples(self):
         return len(self.sampleable_false_spindles) > self.batch_size\
-              and len(self.sampleable_found_spindles) > self.batch_size \
-                and len(self.sampleable_missed_spindles) > self.batch_size
+            and len(self.sampleable_found_spindles) > self.batch_size \
+            and len(self.sampleable_missed_spindles) > self.batch_size
 
 
 def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
@@ -262,8 +262,9 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     net_copy = net_copy.to(device)
 
     # Initialize optimizer and criterion
-    optimizer = optim.AdamW(net_copy.parameters(
-    ), lr=0.00003, weight_decay=config['adam_w'])
+    optimizer = optim.AdamW(net_copy.parameters(),
+                            lr=0.000005, weight_decay=config['adam_w'])
+    # optimizer = optim.SGD(net_copy.parameters(), lr=0.000003, momentum=0.9)
     criterion = nn.BCELoss(reduction='none')
 
     training_losses = []
@@ -354,7 +355,7 @@ def parse_config():
     parser = argparse.ArgumentParser(description='Argument parser')
     parser.add_argument('--subject_id', type=str, default='01-01-0001',
                         help='Subject on which to run the experiment')
-    parser.add_argument('--model_path', type=str, default='no_att_baseline',
+    parser.add_argument('--model_path', type=str, default='larger_and_hidden_on_loss',
                         help='Model for the starting point of the model')
     parser.add_argument('--experiment_name', type=str,
                         default='test', help='Name of the model')
@@ -507,15 +508,16 @@ if __name__ == "__main__":
 
     config = get_configs(args.experiment_name, False, seed)
     # config['nb_conv_layers'] = 4
-    # config['hidden_size'] = 64
-    # config['nb_rnn_layers'] = 4
+    config['hidden_size'] = 64
+    config['nb_rnn_layers'] = 3
+    config['after_rnn'] = 'hidden'
 
     # Load the model
 
     net = get_trained_model(config, config['path_models'] / args.model_path)
 
     for name, param in net.named_parameters():
-        if name not in ['fc.weight', 'fc.bias']:
+        if name not in ['fc.weight', 'fc.bias', 'hidden_fc.weight', 'hidden_fc.bias']:
             param.requires_grad = False
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -554,7 +556,7 @@ if __name__ == "__main__":
     worker_id = args.worker_id
     my_subjects_indexes = parse_worker_subject_div(
         all_subjects, args.num_workers, worker_id)
-    # my_subjects_indexes = ["01-01-0019"]
+    my_subjects_indexes = ["01-05-0015"]
     # Now, you can use worker_subjects in your script for experiments
     for subject in my_subjects_indexes:
         # Perform experiments for the current subject

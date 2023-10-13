@@ -70,7 +70,7 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
             # Get the labels for the batch
             if out_features == 1:
                 batch_labels = batch_labels.to(device=device).float()
-                output = output.view(-1)  # (output > THRESHOLD)
+                # output = output.view(-1)  # (output > THRESHOLD)
                 batch_labels = (batch_labels > threshold)
                 batch_labels = batch_labels.float()
             else:
@@ -89,7 +89,7 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
             #     out_grus.pop(0)
 
             # Compute the loss
-            # output = output.view(-1)
+            output = output.view(-1)
             loss_py = criterion(output, batch_labels).mean()
             loss += loss_py.item()
 
@@ -761,6 +761,9 @@ if __name__ == "__main__":
     test_set = args.test_set
     set_seeds(seed)
     config_dict = get_configs(exp_name, test_set, seed)
+    config_dict['hidden_size'] = 128
+    config_dict['nb_rnn_layers'] = 3
+    config_dict['after_rnn'] = 'hidden'
 
     # Run experiment
     WANDB_PROJECT_RUN = f"full-dataset-public"

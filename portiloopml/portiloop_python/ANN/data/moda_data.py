@@ -222,6 +222,8 @@ class SignalDataset(Dataset):
         label = torch.tensor(
             self.data[3][idx + self.window_size - 1], dtype=torch.float)
 
+        signal_seq = signal_seq.unsqueeze(1)
+
         return signal_seq, envelope_seq, ratio_pf, label
 
     def is_spindle(self, idx):
