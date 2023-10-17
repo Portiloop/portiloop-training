@@ -164,7 +164,7 @@ class PortiloopNetwork(nn.Module):
             in_fc = fc_features * 2
         elif self.after == "cnn":
             in_fc = fc_features + out_cnn_size_after_rnn
-        elif self.after == "hidden":
+``        elif self.after == "hidden":
             in_fc = fc_features
             self.hidden_fc = nn.Linear(in_features=fc_features,
                                        out_features=fc_features)

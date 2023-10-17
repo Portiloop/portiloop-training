@@ -104,7 +104,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.label_buffer = []
         self.spindle_indexes = []
         self.non_spindle_indexes = []
-        self.pred_threshold = 0.70
+        self.pred_threshold = 0.82
 
         # signal needed before the last window
         self.seq_len = config['seq_len']
