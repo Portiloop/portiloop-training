@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+import matplotlib as mpl
 import csv
 import json
 import logging
@@ -6,12 +8,15 @@ import pathlib
 import random
 import time
 import einops
+from matplotlib import pyplot as plt
 import pywt
 import numpy as np
 import pandas as pd
 import pyedflib
 import torch
 from torch.utils.data import DataLoader, Dataset, Sampler
+
+from portiloopml.portiloop_python.ANN.wamsley_utils import detect_wamsley
 
 # from portiloop_software.portiloop_python.ANN.utils import get_configs
 
@@ -475,7 +480,7 @@ def get_dataloaders_mass(config):
     """
     # Read all the subjects available in the dataset
     labels = read_spindle_trains_labels(config['old_dataset'])
-
+    ss_labels = read_sleep_staging_labels(config['path_dataset'])
     # Divide the subjects into train and test sets
     subjects = list(labels.keys())
     random.shuffle(subjects)
@@ -489,9 +494,9 @@ def get_dataloaders_mass(config):
         config['MASS_dir'], patients_to_keep=train_subjects + test_subjects)
 
     # Create the train and test datasets
-    train_dataset = MassDataset(train_subjects, data, labels, config)
-    # test_dataset = MassDataset(test_subjects, data, labels, config)
-    test_dataset = MassDataset(test_subjects, data, labels, config)
+    train_dataset = MassDataset(
+        train_subjects, data, labels, ss_labels, config)
+    test_dataset = MassDataset(test_subjects, data, labels, ss_labels, config)
 
     # Create the train and test dataloaders
     train_dataloader = DataLoader(
@@ -634,7 +639,7 @@ def read_spindle_trains_labels(ds_dir):
 
 
 class SpindleTrainDataset(Dataset):
-    def __init__(self, subjects, data, labels, config):
+    def __init__(self, subjects, data, spindle_labels, ss_labels, config):
         '''
         This class takes in a list of subject, a path to the MASS directory 
         and reads the files associated with the given subjects as well as the sleep stage annotations
@@ -679,8 +684,42 @@ class SpindleTrainDataset(Dataset):
             signal = torch.tensor(
                 data[subject]['signal'], dtype=torch.float)
 
+            ss_label = []
+            for lab in ss_labels[subject]:
+                ss_label += [SleepStageDataset.get_labels().index(lab)] * \
+                    self.config['fe']
+
+            # Add some '?' padding at the end to make sure the length of signal and label match
+            ss_label += [SleepStageDataset.get_labels().index('?')] * \
+                (len(signal) - len(ss_label))
+
+            mask = (np.array(ss_label) == SleepStageDataset.get_labels().index(
+                "3")) | (np.array(ss_label) == SleepStageDataset.get_labels().index("2"))
+
+            # Use our implementation to find the number of spindles
+            all_wamsley_spindles, all_threshold, _merge_close = detect_wamsley(
+                signal, mask)
             print(
-                f"Number of spindles for subject {subject}: {len(labels[subject]['onsets'])}")
+                f"Number of spindles for subject {subject}:\ndataset: {len(spindle_labels[subject]['onsets'])}\nOur Wamsley: {len(all_wamsley_spindles)}")
+
+            # Decide if we use the dataset or the computed spindle labels
+            use_labels = False
+
+            spindle_info = {}
+            spindle_info[subject] = {
+                'onsets': [],
+                'offsets': [],
+                'labels_num': []
+            }
+            for spindle in all_wamsley_spindles:
+                spindle_info[subject]['onsets'].append(spindle[0])
+                spindle_info[subject]['offsets'].append(spindle[2])
+                spindle_info[subject]['labels_num'].append(1)
+
+            if use_labels:
+                labels = spindle_labels
+            else:
+                labels = spindle_info
 
             # Get all the labels for the given subject
             label = torch.zeros_like(signal, dtype=torch.uint8)
@@ -975,58 +1014,163 @@ class SingleSubjectDataset(Dataset):
         return len(self.full_signal) - self.window_size
 
 
+def generate_entire_dataset_MASS(subjects, spindle_labels, ss_labels):
+
+    new_data = {}
+
+    for subject in subjects:
+        new_data[subject] = {}
+
+    print(f"Doing the following subjects: {subjects}")
+    # List to keep track of where each subject data starts and ends
+    for subject in subjects:
+
+        # Get the signal for the given subject
+        data = read_pretraining_dataset(
+            "/home/ubuntu/portiloop-training/portiloopml/dataset/MASS",
+            patients_to_keep=[subject])
+        filt_signal = np.array(
+            data[subject]['signal'])
+        unfiltered_data = read_pretraining_dataset(
+            "/project/portiloop_transformer/transformiloop/dataset/MASS_preds/",
+            patients_to_keep=[subject])
+
+        mass_signal = np.array(
+            unfiltered_data[subject]['signal'])
+
+        new_data[subject]['age'] = data[subject]['age']
+        new_data[subject]['gender'] = data[subject]['gender']
+        new_data[subject]['signal_mass'] = mass_signal
+        new_data[subject]['signal_filt'] = filt_signal
+
+        del data, unfiltered_data
+
+        assert len(filt_signal) == len(
+            mass_signal), f"Length of filtered signal {len(filt_signal)} \
+                is not the same as the length of the unfiltered signal {len(mass_signal)}"
+
+        ss_label = []
+        for lab in ss_labels[subject]:
+            ss_label += [SleepStageDataset.get_labels().index(lab)] * 250
+
+        # Add some '?' padding at the end to make sure the length of signal and label match
+        ss_label += [SleepStageDataset.get_labels().index('?')] * \
+            (len(filt_signal) - len(ss_label))
+
+        del ss_labels[subject]
+
+        new_data[subject]['ss_label'] = np.array(ss_label, dtype=np.uint8)
+
+        mask = (np.array(ss_label) == SleepStageDataset.get_labels().index(
+            "3")) | (np.array(ss_label) == SleepStageDataset.get_labels().index("2"))
+
+        # Use our implementation to find the number of spindles
+        wamsley_spindles_filt, _, _ = detect_wamsley(filt_signal, mask)
+        wamsley_spindles_mass, _, _ = detect_wamsley(mass_signal, mask)
+
+        print(f"Number of spindles for subject {subject}:\
+              \nOur Wamsley (filtered): {len(wamsley_spindles_filt)}\
+              \nOur Wamsley (mass): {len(wamsley_spindles_mass)}")
+        if subject in spindle_labels.keys():
+            print(f"Dataset: {len(spindle_labels[subject]['onsets'])}")
+
+        spindle_info_filt = {}
+        spindle_info_filt[subject] = {
+            'onsets': [],
+            'offsets': [],
+            'labels_num': []
+        }
+
+        for spindle in wamsley_spindles_filt:
+            spindle_info_filt[subject]['onsets'].append(spindle[0])
+            spindle_info_filt[subject]['offsets'].append(spindle[2])
+            spindle_info_filt[subject]['labels_num'].append(1)
+
+        spindle_info_mass = {}
+        spindle_info_mass[subject] = {
+            'onsets': [],
+            'offsets': [],
+            'labels_num': []
+        }
+
+        for spindle in wamsley_spindles_mass:
+            spindle_info_mass[subject]['onsets'].append(spindle[0])
+            spindle_info_mass[subject]['offsets'].append(spindle[2])
+            spindle_info_mass[subject]['labels_num'].append(1)
+
+        # Add to dataset
+        new_data[subject]['spindle_label_mass'] = spindle_info_mass
+        new_data[subject]['spindle_label_filt'] = spindle_info_filt
+        del mask, wamsley_spindles_filt, wamsley_spindles_mass
+
+    # Save to npz file
+    print("Saving to file...")
+    np.savez_compressed("/project/MASS/mass_dataset.npz", **new_data)
+    print("Done.")
+
+
+def load_dataset(path="/project/MASS/mass_dataset.npz"):
+    return np.load(path, allow_pickle=True)
+
+
 if __name__ == "__main__":
+
+    data = load_dataset()
+    # Plot the first 10 seconds of signal
+    plt.plot(data['01-01-0001'].item()['signal'][:2500])
+    plt.savefig("test.png")
+
     # Get the path to the dataset directory
     # dataset_path = pathlib.Path(__file__).parents[2].resolve() / 'dataset'
     # generate_spindle_trains_dataset(dataset_path / 'SpindleTrains_raw_data', dataset_path / 'spindle_trains_annots.json')
-    config = get_configs("Test", False, 0)
-    config['batch_size_validation'] = 64
-    subjects = ['01-02-0019']  # , '01-01-0002', '01-01-0003']
+    # config = get_configs("Test", False, 0)
+    # config['batch_size_validation'] = 64
+    # subjects = ['01-02-0019']  # , '01-01-0002', '01-01-0003']
 
-    data = read_pretraining_dataset(
-        config['MASS_dir'], patients_to_keep=subjects)
-    labels = read_spindle_trains_labels(config['old_dataset'])
-    ss_labels = read_sleep_staging_labels(config['path_dataset'])
+    # data = read_pretraining_dataset(
+    #     config['MASS_dir'])
+    # labels = read_spindle_trains_labels(config['old_dataset'])
+    # ss_labels = read_sleep_staging_labels(config['path_dataset'])
 
-    # dataset = SingleSubjectDataset(subjects[0], data, labels, config, ss_labels=ss_labels)
-    # sampler = SingleSubjectSampler(len(dataset), config['seq_stride'])
-    # dataloader = torch.utils.data.DataLoader(
+    # # dataset = SingleSubjectDataset(subjects[0], data, labels, config, ss_labels=ss_labels)
+    # # sampler = SingleSubjectSampler(len(dataset), config['seq_stride'])
+    # # dataloader = torch.utils.data.DataLoader(
+    # #     dataset,
+    # #     batch_size=1,
+    # #     sampler=sampler,
+    # #     num_workers=0)
+
+    # # item = next(iter(dataloader))
+
+    # dataset = SleepStageDataset(subjects, data, ss_labels, config)
+
+    # # Get the dataloader
+    # sampler = MassValidationSampler(
+    #     subject_list=dataset.subject_list,
+    #     seq_stride=config['seq_stride'],
+    #     window_size=config['window_size'],
+    #     total_len=len(dataset),
+    #     past_signal_len=dataset.past_signal_len,
+    #     max_batch_size=4000,
+    #     max_segment_len=15000)
+
+    # batch_size = sampler.get_validation_batch_size()
+    # print(f"Number of batches {len(sampler)}")
+    # print(f"batch_size: {batch_size}")
+    # config['validation_batch_size'] = batch_size
+    # train_dataloader = DataLoader(
     #     dataset,
-    #     batch_size=1,
+    #     batch_size=batch_size,
     #     sampler=sampler,
-    #     num_workers=0)
+    #     pin_memory=True,
+    #     num_workers=4,
+    # )
 
-    # item = next(iter(dataloader))
+    # start = time.time()
+    # for index, i in enumerate(train_dataloader):
+    #     if index % 100 == 0:
+    #         print(index)
+    # print(time.time() - start)
 
-    dataset = SleepStageDataset(subjects, data, ss_labels, config)
-
-    # Get the dataloader
-    sampler = MassValidationSampler(
-        subject_list=dataset.subject_list,
-        seq_stride=config['seq_stride'],
-        window_size=config['window_size'],
-        total_len=len(dataset),
-        past_signal_len=dataset.past_signal_len,
-        max_batch_size=4000,
-        max_segment_len=15000)
-
-    batch_size = sampler.get_validation_batch_size()
-    print(f"Number of batches {len(sampler)}")
-    print(f"batch_size: {batch_size}")
-    config['validation_batch_size'] = batch_size
-    train_dataloader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        sampler=sampler,
-        pin_memory=True,
-        num_workers=4,
-    )
-
-    start = time.time()
-    for index, i in enumerate(train_dataloader):
-        if index % 100 == 0:
-            print(index)
-    print(time.time() - start)
-
-    batches = torch.tensor(list(sampler)).reshape(-1, batch_size)
-    print(batches[-1, :])
+    # batches = torch.tensor(list(sampler)).reshape(-1, batch_size)
+    # print(batches[-1, :])

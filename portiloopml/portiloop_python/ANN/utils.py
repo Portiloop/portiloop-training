@@ -161,8 +161,8 @@ class LoggerWandb:
         if group is None:
             group = "default"
         self.experiment_name = experiment_name
-        os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project=project_name, entity="portiloop", id=experiment_name, resume="allow",
+        os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
+        self.wandb_run = wandb.init(project=project_name, entity="milosobral", id=experiment_name, resume="allow",
                                     config=c_dict, reinit=True, group=group)
         self.c_dict = c_dict
 
