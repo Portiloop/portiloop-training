@@ -1014,7 +1014,7 @@ class SingleSubjectDataset(Dataset):
         return len(self.full_signal) - self.window_size
 
 
-def generate_entire_dataset_MASS(subjects, spindle_labels, ss_labels):
+def generate_entire_dataset_MASS(subjects, spindle_labels, ss_labels, subset):
 
     new_data = {}
 
@@ -1105,7 +1105,7 @@ def generate_entire_dataset_MASS(subjects, spindle_labels, ss_labels):
 
     # Save to npz file
     print("Saving to file...")
-    np.savez_compressed("/project/MASS/mass_dataset.npz", **new_data)
+    np.savez_compressed(f"/project/MASS/mass_spindles_ss{subset[1]}.npz", **new_data)
     print("Done.")
 
 

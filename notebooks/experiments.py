@@ -17,7 +17,12 @@ labels = read_spindle_trains_labels(config['old_dataset'])
 ss_labels = read_sleep_staging_labels(config['path_dataset'])
 subjects = list(filt_data.keys())
 del filt_data
-generate_entire_dataset_MASS(subjects, labels, ss_labels)
+
+subsets = ['01', '02', '03', '05']
+for subset in subsets:
+    print(f"Generating subset {subset}...")
+    subjects_ss = [subject for subject in subjects if subject[3:].startswith(subset)]
+    generate_entire_dataset_MASS(subjects_ss, labels, ss_labels, subset)
 exit()
 
 print("Setting up config...")
