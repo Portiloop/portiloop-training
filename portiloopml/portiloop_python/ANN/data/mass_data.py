@@ -23,7 +23,7 @@ from portiloopml.portiloop_python.ANN.wamsley_utils import detect_wamsley
 
 def read_patient_info(dataset_path):
     """
-    Read the patient info from a patient_info file and initialize it in a dictionary
+    Read the patient info from a patient_info  file and initialize it in a dictionary
     """
     patient_info_file = os.path.join(dataset_path, 'patient_info.csv')
     with open(patient_info_file, 'r') as patient_info_f:
