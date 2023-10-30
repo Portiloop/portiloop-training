@@ -167,20 +167,118 @@ class MassDataset(Dataset):
         else:
             self.subsets = ['01', '02', '03', '05']
 
-        self.data = {}
+        self.data_unloaded = {}
 
-        # Load the necessary data
+        all_subjects = []
+
+        # Open the necessary files and store them in a dictionary
         for subset in self.subsets:
             data = self.read_data(os.path.join(
                 self.data_path, f'mass_spindles_ss{subset[1]}.npz'))
-            for key in data.keys():
-                start = time.time()
-                # self.data[key] = data[key].item()
-                self.data[key] = None
-                end = time.time()
-                print(f"Time taken to load {key}: {end - start}")
+            self.data_unloaded[subset] = data
+            all_subjects += list(data.keys())
 
-        # Write all the
+        self.subjects = all_subjects if self.subjects is None else self.subjects
+
+        # Actually load the data of each subject into a dictionary
+        self.data = {}
+        for key in self.subjects:
+            start = time.time()
+            subset = key[3:5]
+            self.data[key] = self.data_unloaded[subset][key].item()
+            end = time.time()
+            print(f"Time taken to load {key}: {end - start}")
+
+        # Convert the spindle labels to vector to make lookup faster
+        for key in self.data:
+            self.data[key]['spindle_label_filt'] = self.onsets_2_labelvector(
+                self.data[key]['spindle_label_filt'][key], len(self.data[key]['signal_filt']))
+            self.data[key]['spindle_label_mass'] = self.onsets_2_labelvector(
+                self.data[key]['spindle_label_mass'][key], len(self.data[key]['signal_filt']))
+
+        self.past_signal_len = 0
+        self.window_size = 0
+
+        # Get a lookup table to match all possible sampleable signals to a (subject, index) pair
+        self.lookup_table = []
+        start = time.time()
+        for subject in self.data:
+            indices = np.arange(len(self.data[subject]['signal_filt']))
+            valid_indices = indices[(indices >= self.past_signal_len) & (
+                indices <= len(self.data[subject]['signal_filt']) - self.window_size)]
+
+            # Get the labels of the valid indices
+            valid_labels = self.data[subject]['spindle_label_filt'][valid_indices]
+            valid_indices = valid_indices[valid_labels == 1]
+
+            self.lookup_table += list(zip([subject]
+                                      * len(valid_indices), valid_indices))
+        end = time.time()
+        print(f"Time taken to create lookup table: {end - start}")
+
+        # TODO: Find a way to keep the location of the spindles in the signal for sampling
+
+        print(f"Number of sampleable indices: {len(self.lookup_table)}")
+
+    def get_labels(self, subject, signal_idx):
+        '''
+        Return the labels of a subject and signal.
+
+        Parameters
+        ----------
+        subject : str
+            Subject ID.
+        signal_idx : int
+            Index of the signal to return the labels from.
+        '''
+        labels = {
+            'spindle_filt': self.data[subject]['spindle_label_filt'][signal_idx],
+            'spindle_mass': self.data[subject]['spindle_label_mass'][signal_idx],
+            'age': self.data[subject]['age'],
+            'gender': self.data[subject]['gender'],
+            'subject': subject,
+            'sleep_stage': self.data[subject]['ss_label'],
+        }
+        return labels
+
+    def get_signal(self, subject, signal_idx, filtered_signal=False):
+        '''
+        Return the signal of a subject and signal.
+
+        Parameters
+        ----------
+        subject : str
+            Subject ID.
+        signal_idx : int
+            Index of the signal to return.
+        filtered_signal : bool, optional
+            Whether to return the filtered signal or the mass signal. The default is False.
+        '''
+        signal_use = 'signal_filt' if filtered_signal else 'signal_mass'
+        # Make sure this works
+        signal = self.data[subject][signal_use][signal_idx - self.past_signal_len:signal_idx +
+                                                self.window_size]
+        signal = torch.tensor(signal).unfold(
+            0, self.window_size, self.seq_stride)
+        signal = signal.unsqueeze(0)
+        return signal
+
+    def __getitem__(self, index):
+        '''
+        Return the signal and labels of a subject and signal.
+
+        Parameters
+        ----------
+        index : int
+            Index of the signal to return.
+        '''
+        subject, signal_idx = self.lookup_table[index]
+        labels = self.get_labels(subject, signal_idx)
+        signal = self.get_signal(subject, signal_idx)
+        return signal, labels
+
+    def __len__(self):
+        return len(self.lookup_table)
 
     @staticmethod
     def read_data(path):
@@ -190,6 +288,7 @@ class MassDataset(Dataset):
     @staticmethod
     def onsets_2_labelvector(spindles, length):
         label_vector = torch.zeros(length)
+        spindles = list(zip(spindles['onsets'], spindles['offsets']))
         for spindle in spindles:
             onset = spindle[0]
             offset = spindle[1]
@@ -198,15 +297,15 @@ class MassDataset(Dataset):
 
 
 if __name__ == "__main__":
-    # start = time.time()
-    # test = MassDataset('/project/MASS/mass_spindles_dataset')
-    # end = time.time()
 
-    # print(f"Time taken: {end - start}")
-
-    test = SubjectLoader(
+    loader = SubjectLoader(
         '/project/MASS/mass_spindles_dataset/subject_info.csv')
 
-    random = test.random_subjects(10)
+    subjects = loader.select_subjects_age(18, 30, num_subjects=10, seed=42)
 
-    print()
+    start = time.time()
+    test = MassDataset(
+        '/project/MASS/mass_spindles_dataset', subjects=[subjects[0]])
+    end = time.time()
+
+    print(f"Time taken: {end - start}")
