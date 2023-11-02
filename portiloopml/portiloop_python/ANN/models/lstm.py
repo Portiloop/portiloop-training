@@ -107,12 +107,6 @@ class PortiloopNetwork(nn.Module):
 
         self.RNN = RNN
 
-        # self.wavelet_cnn = WaveletCNN(
-        #     device=c_dict['device_train'],
-        #     kernel_size=32,
-        #     channels=64
-        # )
-
         self.cnn = ConvPoolModule(in_channels=1,
                                   out_channel=nb_channel,
                                   kernel_conv=kernel_conv,
@@ -146,33 +140,16 @@ class PortiloopNetwork(nn.Module):
         fc_features += hidden_size
         out_features = c_dict['out_features']
 
-        # self.attention_layer = TransformerEncoderLayer(
-        #     attention=AttentionLayer(
-        #         FullAttention(),
-        #         fc_features,
-        #         n_heads
-        #     ),
-        #     d_model=fc_features,
-        #     dropout=dropout_p,
-        #     norm_layer=nn.LayerNorm(fc_features)
-        # )
-        # self.cls = nn.Parameter(torch.randn(1, 1, fc_features))
+        in_fc = fc_features
+        self.hidden_fc = nn.Linear(in_features=fc_features,
+                                    out_features=fc_features)
 
-        out_cnn_size_after_rnn = 0
-
-        if self.after == "attention":
-            in_fc = fc_features * 2
-        elif self.after == "cnn":
-            in_fc = fc_features + out_cnn_size_after_rnn
-        elif self.after == "hidden":
-            in_fc = fc_features
-            self.hidden_fc = nn.Linear(in_features=fc_features,
-                                       out_features=fc_features)
-        else:
-            in_fc = fc_features
-
-        self.fc = nn.Linear(in_features=in_fc,
+        self.fc_spindles = nn.Linear(in_features=in_fc,
                             out_features=out_features)  # probability of being a spindle
+        
+        self.fc_sleep_stage = nn.Linear(in_features=in_fc,
+                            out_features=5)
+
 
     def forward(self, x, h, past_x=None, max_value=np.inf):
         # x: input data (batch_size, sequence_len, features)
@@ -182,7 +159,6 @@ class PortiloopNetwork(nn.Module):
         (batch_size, sequence_len, in_channels, features) = x.shape
 
         x = x.view(-1, in_channels, features)
-        # x = self.wavelet_cnn(x)
         x = self.cnn(x)
         x = self.cnn2(x)
 
@@ -192,35 +168,18 @@ class PortiloopNetwork(nn.Module):
 
         out_gru = x[:, -1, :]  # output size: 1
 
-        if self.after == "attention":
+        out = self.hidden_fc(out_gru)
+        out = torch.relu(out)
+      
+        out_spindles = self.fc_spindles(out)
+        out_sleep_stage = self.fc_sleep_stage(out)
 
-            # Use the accumulated past embeddings for attention (for validation)
-            if past_x is not None:
-                x = torch.cat((past_x, x), dim=1)
-
-            # Append the cls token to the output of the GRU
-            cls = self.cls.expand(batch_size, -1, -1)
-            x = torch.cat((cls, x), dim=1)
-
-            out_attention = self.attention_layer(x)
-
-            # Concatenate the output of the GRU and the output of the attention layer
-            out = torch.cat((out_gru, out_attention[:, 0, :]), dim=1)
-        elif self.after == "cnn":
-            out = out_gru
-            # Add CNN experiment
-        elif self.after == "hidden":
-            out = self.hidden_fc(out_gru)
-            out = torch.relu(out)
-        else:
-            out = out_gru
-
-        out = self.fc(out)
-
-        x = torch.sigmoid(out)
-
-        return x, h, out_gru.unsqueeze(1)
-
+        # Returns:
+        #   - the spindle classifier output (Shape (batch_size, 1))
+        #   - the sleep stage classifier output (Shape (batch_size, 5))
+        #   - the hidden state(s) of the GRU(s) (Shape (nb_rnn_layers, batch_size, hidden_size))
+        #   - the embedding of the sequence (Shape (batch_size, hidden_size)) 
+        return out_spindles, out_sleep_stage, h, out
 
 def out_dim(window_size, padding, dilation, kernel, stride):
     return floor((window_size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)

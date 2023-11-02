@@ -1,4 +1,5 @@
 import time
+from typing import Iterator
 import numpy as np
 from torch.utils.data import DataLoader, Dataset, Sampler
 import torch
@@ -154,11 +155,68 @@ class SubjectLoader:
         return selected_subjects
 
 
+class MassSampler(Sampler):
+    def __init__(self, dataset, option='spindle_mass', seed=None):
+        assert option in ['spindle_mass', 'spindle_filt', 'staging_eq', 'staging_all'], "Option must be either spindle or staging"
+        self.dataset = dataset
+        self.option = option
+        self.seed = seed
+
+        if self.option == 'spindle_mass':
+            # Get the same number of non spindles as we have spindles
+            non_spindles = np.random.choice(np.arange(len(self.dataset)), len(self.dataset.labels_indexes['spindle_label_mass']), replace=False)
+            self.indexes = np.concatenate((self.dataset.labels_indexes['spindle_label_mass'], non_spindles))
+            # Shuffle the indexes
+            np.random.shuffle(self.indexes)
+        elif self.option == 'spindle_filt':
+            # Get the same number of non spindles as we have spindles
+            non_spindles = np.random.choice(np.arange(len(self.dataset)), len(self.dataset.labels_indexes['spindle_label_filt']), replace=False)
+            self.indexes = np.concatenate((self.dataset.labels_indexes['spindle_label_filt'], non_spindles))
+            # Shuffle the indexes
+            np.random.shuffle(self.indexes)
+        elif self.option == 'staging_eq':
+            # Find the sleep stage with the least amount of samples
+            min_samples = np.min([
+                len(self.dataset.labels_indexes['staging_label_N1']), 
+                len(self.dataset.labels_indexes['staging_label_N2']), 
+                len(self.dataset.labels_indexes['staging_label_N3']), 
+                len(self.dataset.labels_indexes['staging_label_R']), 
+                len(self.dataset.labels_indexes['staging_label_W'])])
+            
+            # Get the same number of samples from each sleep stage
+            N1 = np.random.choice(self.dataset.labels_indexes['staging_label_N1'], min_samples, replace=False)
+            N2 = np.random.choice(self.dataset.labels_indexes['staging_label_N2'], min_samples, replace=False)
+            N3 = np.random.choice(self.dataset.labels_indexes['staging_label_N3'], min_samples, replace=False)
+            R = np.random.choice(self.dataset.labels_indexes['staging_label_R'], min_samples, replace=False)
+            W = np.random.choice(self.dataset.labels_indexes['staging_label_W'], min_samples, replace=False)
+            self.indexes = np.concatenate((N1, N2, N3, R, W))
+            # Shuffle the indexes
+            np.random.shuffle(self.indexes)
+        elif self.option == 'staging_all':
+            # Get all the indexes
+            N1 = self.dataset.labels_indexes['staging_label_N1']
+            N2 = self.dataset.labels_indexes['staging_label_N2']
+            N3 = self.dataset.labels_indexes['staging_label_N3']
+            R = self.dataset.labels_indexes['staging_label_R']
+            W = self.dataset.labels_indexes['staging_label_W']
+            self.indexes = np.concatenate((N1, N2, N3, R, W))
+            # Shuffle the indexes
+            np.random.shuffle(self.indexes)
+
+    def __iter__(self):
+        return iter(self.indexes)
+
+        
+
 class MassDataset(Dataset):
-    def __init__(self, data_path, subjects=None):
+    def __init__(self, data_path, window_size, seq_stride, seq_len, subjects=None):
         super(MassDataset, self).__init__()
         self.data_path = data_path
         self.subjects = subjects
+        self.window_size = window_size
+        self.seq_stride = seq_stride
+        self.seq_len = seq_len
+        self.past_signal_len = (self.seq_len - 1) * self.seq_stride
 
         # Start by finding the necessary subsets to load based on the names of the subjects required
         if self.subjects is not None:
@@ -196,29 +254,46 @@ class MassDataset(Dataset):
             self.data[key]['spindle_label_mass'] = self.onsets_2_labelvector(
                 self.data[key]['spindle_label_mass'][key], len(self.data[key]['signal_filt']))
 
-        self.past_signal_len = 0
-        self.window_size = 0
-
         # Get a lookup table to match all possible sampleable signals to a (subject, index) pair
         self.lookup_table = []
+        self.labels_indexes = {
+            'spindle_label_filt': [],
+            'spindle_label_mass': [],
+            'staging_label_N1': [],
+            'staging_label_N2': [],
+            'staging_label_N3': [],
+            'staging_label_R': [],
+            'staging_label_W': [],
+        }
+
         start = time.time()
         for subject in self.data:
             indices = np.arange(len(self.data[subject]['signal_filt']))
             valid_indices = indices[(indices >= self.past_signal_len) & (
                 indices <= len(self.data[subject]['signal_filt']) - self.window_size)]
 
-            # Get the labels of the valid indices
-            valid_labels = self.data[subject]['spindle_label_filt'][valid_indices]
-            valid_indices = valid_indices[valid_labels == 1]
+            # Get the labels of the label indices and keep track of them
+            self.labels_indexes['spindle_label_filt'] = valid_indices[self.data[subject]['spindle_label_filt'][valid_indices] == 1] + len(self.lookup_table)
+            self.labels_indexes['spindle_label_mass'] = valid_indices[self.data[subject]['spindle_label_mass'][valid_indices] == 1] + len(self.lookup_table)
+            self.labels_indexes['staging_label_N1'] = valid_indices[self.data[subject]['ss_label'][valid_indices] == 0] + len(self.lookup_table)
+            self.labels_indexes['staging_label_N2'] = valid_indices[self.data[subject]['ss_label'][valid_indices] == 1] + len(self.lookup_table)
+            self.labels_indexes['staging_label_N3'] = valid_indices[self.data[subject]['ss_label'][valid_indices] == 2] + len(self.lookup_table)
+            self.labels_indexes['staging_label_R'] = valid_indices[self.data[subject]['ss_label'][valid_indices] == 3] + len(self.lookup_table)
+            self.labels_indexes['staging_label_W'] = valid_indices[self.data[subject]['ss_label'][valid_indices] == 4] + len(self.lookup_table)
 
             self.lookup_table += list(zip([subject]
                                       * len(valid_indices), valid_indices))
         end = time.time()
         print(f"Time taken to create lookup table: {end - start}")
 
-        # TODO: Find a way to keep the location of the spindles in the signal for sampling
-
         print(f"Number of sampleable indices: {len(self.lookup_table)}")
+        print(f"Number of filtered spindles: {len(self.labels_indexes['spindle_label_filt'])}")
+        print(f"Number of mass spindles: {len(self.labels_indexes['spindle_label_mass'])}")
+        print(f"Number of N1: {len(self.labels_indexes['staging_label_N1'])}")
+        print(f"Number of N2: {len(self.labels_indexes['staging_label_N2'])}")
+        print(f"Number of N3: {len(self.labels_indexes['staging_label_N3'])}")
+        print(f"Number of R: {len(self.labels_indexes['staging_label_R'])}")
+        print(f"Number of W: {len(self.labels_indexes['staging_label_W'])}")
 
     def get_labels(self, subject, signal_idx):
         '''
@@ -237,7 +312,7 @@ class MassDataset(Dataset):
             'age': self.data[subject]['age'],
             'gender': self.data[subject]['gender'],
             'subject': subject,
-            'sleep_stage': self.data[subject]['ss_label'],
+            'sleep_stage': self.data[subject]['ss_label'][signal_idx],
         }
         return labels
 
@@ -294,18 +369,32 @@ class MassDataset(Dataset):
             offset = spindle[1]
             label_vector[onset:offset] = 1
         return label_vector
-
+    
+    @staticmethod
+    def get_ss_labels():
+        return ['1', '2', '3', 'R', 'W', '?']
 
 if __name__ == "__main__":
+
+    window_size = 54
+    seq_stride = 42
+    seq_len = 50
 
     loader = SubjectLoader(
         '/project/MASS/mass_spindles_dataset/subject_info.csv')
 
-    subjects = loader.select_subjects_age(18, 30, num_subjects=10, seed=42)
+    subjects = loader.select_subjects_age(18, 30, num_subjects=3, seed=42)
 
     start = time.time()
     test = MassDataset(
-        '/project/MASS/mass_spindles_dataset', subjects=[subjects[0]])
+        '/project/MASS/mass_spindles_dataset', 
+        subjects=subjects,
+        window_size=window_size,
+        seq_stride=seq_stride,
+        seq_len=seq_len)
     end = time.time()
 
     print(f"Time taken: {end - start}")
+
+    print(test[0])
+    print(test[0][0].shape)
