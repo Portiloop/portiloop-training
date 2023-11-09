@@ -5,6 +5,26 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 import torch
 import os
 import pandas as pd
+import sys
+
+
+def get_size(obj, seen=None):
+    """Recursively finds size of objects in bytes"""
+    size = sys.getsizeof(obj)
+    if seen is None:
+        seen = set()
+    obj_id = id(obj)
+    if obj_id in seen:
+        return 0
+    seen.add(obj_id)
+    if isinstance(obj, dict):
+        size += sum([get_size(v, seen) for v in obj.values()])
+        size += sum([get_size(k, seen) for k in obj.keys()])
+    elif hasattr(obj, '__dict__'):
+        size += get_size(obj.__dict__, seen)
+    elif hasattr(obj, '__iter__') and not isinstance(obj, (str, bytes, bytearray)):
+        size += sum([get_size(i, seen) for i in obj])
+    return size
 
 
 class SubjectLoader:
@@ -18,6 +38,12 @@ class SubjectLoader:
             Path to the CSV file containing the subject info.
         '''
         self.subject_info = pd.read_csv(csv_file)
+
+    def select_all_subjects(self):
+        '''
+        Return a list of all subjects.
+        '''
+        return list(self.subject_info['SubjectID'])
 
     def select_subset(self, subset, num_subjects=-1, seed=None, exclude=None):
         '''
@@ -156,39 +182,41 @@ class SubjectLoader:
 
 
 class MassSampler(Sampler):
-    def __init__(self, dataset, option='spindle_mass', seed=None):
-        assert option in ['spindle_mass', 'spindle_filt', 'staging_eq', 'staging_all'], "Option must be either spindle or staging"
+    def __init__(self, dataset, option='spindles', seed=None):
+        assert option in ['spindles', 'staging_eq',
+                          'staging_all'], "Option must be either spindle or staging"
         self.dataset = dataset
         self.option = option
         self.seed = seed
 
-        if self.option == 'spindle_mass':
+        if self.option == 'spindles':
             # Get the same number of non spindles as we have spindles
-            non_spindles = np.random.choice(np.arange(len(self.dataset)), len(self.dataset.labels_indexes['spindle_label_mass']), replace=False)
-            self.indexes = np.concatenate((self.dataset.labels_indexes['spindle_label_mass'], non_spindles))
-            # Shuffle the indexes
-            np.random.shuffle(self.indexes)
-        elif self.option == 'spindle_filt':
-            # Get the same number of non spindles as we have spindles
-            non_spindles = np.random.choice(np.arange(len(self.dataset)), len(self.dataset.labels_indexes['spindle_label_filt']), replace=False)
-            self.indexes = np.concatenate((self.dataset.labels_indexes['spindle_label_filt'], non_spindles))
+            non_spindles = np.random.choice(np.arange(len(self.dataset)), len(
+                self.dataset.labels_indexes['spindle_label']), replace=False)
+            self.indexes = np.concatenate(
+                (self.dataset.labels_indexes['spindle_label'], non_spindles))
             # Shuffle the indexes
             np.random.shuffle(self.indexes)
         elif self.option == 'staging_eq':
             # Find the sleep stage with the least amount of samples
             min_samples = np.min([
-                len(self.dataset.labels_indexes['staging_label_N1']), 
-                len(self.dataset.labels_indexes['staging_label_N2']), 
-                len(self.dataset.labels_indexes['staging_label_N3']), 
-                len(self.dataset.labels_indexes['staging_label_R']), 
+                len(self.dataset.labels_indexes['staging_label_N1']),
+                len(self.dataset.labels_indexes['staging_label_N2']),
+                len(self.dataset.labels_indexes['staging_label_N3']),
+                len(self.dataset.labels_indexes['staging_label_R']),
                 len(self.dataset.labels_indexes['staging_label_W'])])
-            
+
             # Get the same number of samples from each sleep stage
-            N1 = np.random.choice(self.dataset.labels_indexes['staging_label_N1'], min_samples, replace=False)
-            N2 = np.random.choice(self.dataset.labels_indexes['staging_label_N2'], min_samples, replace=False)
-            N3 = np.random.choice(self.dataset.labels_indexes['staging_label_N3'], min_samples, replace=False)
-            R = np.random.choice(self.dataset.labels_indexes['staging_label_R'], min_samples, replace=False)
-            W = np.random.choice(self.dataset.labels_indexes['staging_label_W'], min_samples, replace=False)
+            N1 = np.random.choice(
+                self.dataset.labels_indexes['staging_label_N1'], min_samples, replace=False)
+            N2 = np.random.choice(
+                self.dataset.labels_indexes['staging_label_N2'], min_samples, replace=False)
+            N3 = np.random.choice(
+                self.dataset.labels_indexes['staging_label_N3'], min_samples, replace=False)
+            R = np.random.choice(
+                self.dataset.labels_indexes['staging_label_R'], min_samples, replace=False)
+            W = np.random.choice(
+                self.dataset.labels_indexes['staging_label_W'], min_samples, replace=False)
             self.indexes = np.concatenate((N1, N2, N3, R, W))
             # Shuffle the indexes
             np.random.shuffle(self.indexes)
@@ -206,11 +234,37 @@ class MassSampler(Sampler):
     def __iter__(self):
         return iter(self.indexes)
 
-        
+    def __len__(self):
+        return len(self.indexes)
+
 
 class MassDataset(Dataset):
-    def __init__(self, data_path, window_size, seq_stride, seq_len, subjects=None):
+    def __init__(self, data_path, window_size, seq_stride, seq_len, subjects=None, use_filtered=True, sampleable='both'):
+        '''
+        A Class which loads the MASS dataset and returns the signals and labels of the subjects.
+
+        Parameters
+        ----------
+        data_path : str
+            Path to the MASS dataset.
+        window_size : int
+            Size of the window to return.
+        seq_stride : int
+            Stride of the sliding window.
+        seq_len : int
+            Length of the sequence to return.
+        subjects : list, optional
+            List of subjects to load. If None, all subjects will be loaded. The default is None.
+        use_filtered : bool, optional
+            Whether to use the filtered signal or the mass signal. The default is True.
+        sampleable : str, optional
+            Whether to prepare for sampling spindles, staging, both or none. The default is 'both'.
+        '''
         super(MassDataset, self).__init__()
+
+        assert sampleable in ['both', 'spindles', 'staging',
+                              'none'], "Sampleable must be either both, spindles, staging or none."
+
         self.data_path = data_path
         self.subjects = subjects
         self.window_size = window_size
@@ -247,48 +301,75 @@ class MassDataset(Dataset):
             end = time.time()
             print(f"Time taken to load {key}: {end - start}")
 
+        # Remove the unloaded data to free up memory
+        del self.data_unloaded
+
+        # Remove the unfiltered/filtered signal depending on the option
+        if use_filtered:
+            for key in self.data:
+                del self.data[key]['signal_mass']
+                # Rename the filtered signal to signal
+                self.data[key]['signal'] = self.data[key]['signal_filt']
+        else:
+            for key in self.data:
+                del self.data[key]['signal_filt']
+                # Rename the mass signal to signal
+                self.data[key]['signal'] = self.data[key]['signal_mass']
+
         # Convert the spindle labels to vector to make lookup faster
         for key in self.data:
-            self.data[key]['spindle_label_filt'] = self.onsets_2_labelvector(
-                self.data[key]['spindle_label_filt'][key], len(self.data[key]['signal_filt']))
-            self.data[key]['spindle_label_mass'] = self.onsets_2_labelvector(
-                self.data[key]['spindle_label_mass'][key], len(self.data[key]['signal_filt']))
+            if use_filtered:
+                self.data[key]['spindle_label'] = self.onsets_2_labelvector(
+                    self.data[key]['spindle_label_filt'][key], len(self.data[key]['signal']))
+            else:
+                self.data[key]['spindle_label'] = self.onsets_2_labelvector(
+                    self.data[key]['spindle_label_mass'][key], len(self.data[key]['signal']))
 
         # Get a lookup table to match all possible sampleable signals to a (subject, index) pair
         self.lookup_table = []
+        self.subjects_table = {}
         self.labels_indexes = {
-            'spindle_label_filt': [],
-            'spindle_label_mass': [],
-            'staging_label_N1': [],
-            'staging_label_N2': [],
-            'staging_label_N3': [],
-            'staging_label_R': [],
-            'staging_label_W': [],
+            'spindle_label': np.array([], dtype=np.int16),
+            'staging_label_N1': np.array([], dtype=np.int16),
+            'staging_label_N2': np.array([], dtype=np.int16),
+            'staging_label_N3': np.array([], dtype=np.int16),
+            'staging_label_R': np.array([], dtype=np.int16),
+            'staging_label_W': np.array([], dtype=np.int16),
         }
 
         start = time.time()
         for subject in self.data:
-            indices = np.arange(len(self.data[subject]['signal_filt']))
+            indices = np.arange(len(self.data[subject]['signal']))
             valid_indices = indices[(indices >= self.past_signal_len) & (
-                indices <= len(self.data[subject]['signal_filt']) - self.window_size)]
+                indices <= len(self.data[subject]['signal']) - self.window_size)]
 
-            # Get the labels of the label indices and keep track of them
-            self.labels_indexes['spindle_label_filt'] = valid_indices[self.data[subject]['spindle_label_filt'][valid_indices] == 1] + len(self.lookup_table)
-            self.labels_indexes['spindle_label_mass'] = valid_indices[self.data[subject]['spindle_label_mass'][valid_indices] == 1] + len(self.lookup_table)
-            self.labels_indexes['staging_label_N1'] = valid_indices[self.data[subject]['ss_label'][valid_indices] == 0] + len(self.lookup_table)
-            self.labels_indexes['staging_label_N2'] = valid_indices[self.data[subject]['ss_label'][valid_indices] == 1] + len(self.lookup_table)
-            self.labels_indexes['staging_label_N3'] = valid_indices[self.data[subject]['ss_label'][valid_indices] == 2] + len(self.lookup_table)
-            self.labels_indexes['staging_label_R'] = valid_indices[self.data[subject]['ss_label'][valid_indices] == 3] + len(self.lookup_table)
-            self.labels_indexes['staging_label_W'] = valid_indices[self.data[subject]['ss_label'][valid_indices] == 4] + len(self.lookup_table)
+            if sampleable == 'spindles' or sampleable == 'both':
+                # Get the labels of the label indices and keep track of them
+                self.labels_indexes['spindle_label'] = np.concatenate((self.labels_indexes['spindle_label'], np.where(self.data[subject]
+                                                                                                                      ['spindle_label'][valid_indices] == 1)[0] + len(self.lookup_table)))
 
-            self.lookup_table += list(zip([subject]
-                                      * len(valid_indices), valid_indices))
+            if sampleable == 'staging' or sampleable == 'both':
+                self.labels_indexes['staging_label_N1'] = np.concatenate((self.labels_indexes['staging_label_N1'], np.where(self.data[subject]
+                                                                                                                            ['ss_label'][valid_indices] == 0)[0] + len(self.lookup_table)))
+                self.labels_indexes['staging_label_N2'] = np.concatenate((self.labels_indexes['staging_label_N2'], np.where(self.data[subject]
+                                                                                                                            ['ss_label'][valid_indices] == 1)[0] + len(self.lookup_table)))
+                self.labels_indexes['staging_label_N3'] = np.concatenate((self.labels_indexes['staging_label_N3'], np.where(self.data[subject]
+                                                                                                                            ['ss_label'][valid_indices] == 2)[0] + len(self.lookup_table)))
+                self.labels_indexes['staging_label_R'] = np.concatenate((self.labels_indexes['staging_label_R'], np.where(self.data[subject]
+                                                                                                                          ['ss_label'][valid_indices] == 3)[0] + len(self.lookup_table)))
+                self.labels_indexes['staging_label_W'] = np.concatenate((self.labels_indexes['staging_label_W'], np.where(self.data[subject]
+                                                                                                                          ['ss_label'][valid_indices] == 4)[0] + len(self.lookup_table)))
+
+            self.subjects_table[subject] = (len(self.lookup_table), len(
+                self.lookup_table) + len(valid_indices) - 1)
+            self.lookup_table += list(valid_indices)
+
         end = time.time()
         print(f"Time taken to create lookup table: {end - start}")
 
         print(f"Number of sampleable indices: {len(self.lookup_table)}")
-        print(f"Number of filtered spindles: {len(self.labels_indexes['spindle_label_filt'])}")
-        print(f"Number of mass spindles: {len(self.labels_indexes['spindle_label_mass'])}")
+        print(
+            f"Number of spindles: {len(self.labels_indexes['spindle_label'])}")
         print(f"Number of N1: {len(self.labels_indexes['staging_label_N1'])}")
         print(f"Number of N2: {len(self.labels_indexes['staging_label_N2'])}")
         print(f"Number of N3: {len(self.labels_indexes['staging_label_N3'])}")
@@ -307,8 +388,7 @@ class MassDataset(Dataset):
             Index of the signal to return the labels from.
         '''
         labels = {
-            'spindle_filt': self.data[subject]['spindle_label_filt'][signal_idx],
-            'spindle_mass': self.data[subject]['spindle_label_mass'][signal_idx],
+            'spindle_label': self.data[subject]['spindle_label'][signal_idx],
             'age': self.data[subject]['age'],
             'gender': self.data[subject]['gender'],
             'subject': subject,
@@ -316,7 +396,7 @@ class MassDataset(Dataset):
         }
         return labels
 
-    def get_signal(self, subject, signal_idx, filtered_signal=False):
+    def get_signal(self, subject, signal_idx):
         '''
         Return the signal of a subject and signal.
 
@@ -329,14 +409,22 @@ class MassDataset(Dataset):
         filtered_signal : bool, optional
             Whether to return the filtered signal or the mass signal. The default is False.
         '''
-        signal_use = 'signal_filt' if filtered_signal else 'signal_mass'
         # Make sure this works
-        signal = self.data[subject][signal_use][signal_idx - self.past_signal_len:signal_idx +
-                                                self.window_size]
-        signal = torch.tensor(signal).unfold(
+        signal = self.data[subject]['signal'][signal_idx - self.past_signal_len:signal_idx +
+                                              self.window_size]
+        signal = torch.tensor(signal, dtype=torch.float).unfold(
             0, self.window_size, self.seq_stride)
-        signal = signal.unsqueeze(0)
+        signal = signal.unsqueeze(1)
         return signal
+
+    def get_subject_by_index(self, index):
+        '''
+        Return the subject of a lookup table index.
+        '''
+        for subject in self.subjects_table:
+            start, end = self.subjects_table[subject]
+            if index >= start and index <= end:
+                return subject
 
     def __getitem__(self, index):
         '''
@@ -347,13 +435,17 @@ class MassDataset(Dataset):
         index : int
             Index of the signal to return.
         '''
-        subject, signal_idx = self.lookup_table[index]
+        signal_idx = self.lookup_table[index]
+        subject = self.get_subject_by_index(index)
         labels = self.get_labels(subject, signal_idx)
         signal = self.get_signal(subject, signal_idx)
         return signal, labels
 
     def __len__(self):
         return len(self.lookup_table)
+
+    def get_memory_usage(self):
+        return get_size(self)
 
     @staticmethod
     def read_data(path):
@@ -369,10 +461,40 @@ class MassDataset(Dataset):
             offset = spindle[1]
             label_vector[onset:offset] = 1
         return label_vector
-    
+
     @staticmethod
     def get_ss_labels():
         return ['1', '2', '3', 'R', 'W', '?']
+
+
+class CombinedDataLoader:
+    '''
+    A class which combines two dataloaders into a single one.
+    It takes the length of the shortest dataloader and returns the data from both dataloaders in the same order.
+    '''
+
+    def __init__(self, loader1, loader2):
+        self.loader1 = loader1
+        self.loader2 = loader2
+
+    def __iter__(self):
+        self.iter1 = iter(self.loader1)
+        self.iter2 = iter(self.loader2)
+        return self
+
+    def __next__(self):
+        try:
+            data1 = next(self.iter1)
+            data2 = next(self.iter2)
+            return data1, data2
+        except StopIteration:
+            raise StopIteration
+
+    def __len__(self):
+        len1 = len(self.loader1)
+        len2 = len(self.loader2)
+        return min(len1, len2)
+
 
 if __name__ == "__main__":
 
@@ -383,18 +505,18 @@ if __name__ == "__main__":
     loader = SubjectLoader(
         '/project/MASS/mass_spindles_dataset/subject_info.csv')
 
-    subjects = loader.select_subjects_age(18, 30, num_subjects=3, seed=42)
+    subjects = loader.select_subjects_age(18, 30, num_subjects=40, seed=42)
+    # subjects = loader.select_all_subjects()
 
     start = time.time()
     test = MassDataset(
-        '/project/MASS/mass_spindles_dataset', 
+        '/project/MASS/mass_spindles_dataset',
         subjects=subjects,
         window_size=window_size,
         seq_stride=seq_stride,
-        seq_len=seq_len)
+        seq_len=seq_len,
+        use_filtered=True,
+        sampleable='staging')
     end = time.time()
 
     print(f"Time taken: {end - start}")
-
-    print(test[0])
-    print(test[0][0].shape)
