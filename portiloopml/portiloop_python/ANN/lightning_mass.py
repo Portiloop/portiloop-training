@@ -1,11 +1,17 @@
 import os
+from pathlib import Path
 import time
+from matplotlib import pyplot as plt
 import pytorch_lightning as pl
+from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score, confusion_matrix
 import torch
 from torchinfo import summary
 from torch import optim, nn, utils, Tensor
-from portiloopml.portiloop_python.ANN.data.mass_data_new import MassDataset, MassSampler, SubjectLoader
+import wandb
+from portiloopml.portiloop_python.ANN.data.mass_data_new import CombinedDataLoader, MassDataset, MassSampler, SubjectLoader
 from pytorch_lightning.loggers import WandbLogger
+import plotly.figure_factory as ff
+from sklearn.metrics import classification_report
 
 
 from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork
@@ -18,8 +24,16 @@ class MassLightning(pl.LightningModule):
         super().__init__()
         # Define your model architecture here
         self.model = PortiloopNetwork(config)
-        self.spindle_criterion = torch.nn.BCELoss()
+        self.spindle_criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
         self.staging_criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+
+        self.ss_validation_preds = torch.tensor([])
+        self.ss_validation_labels = torch.tensor([])
+
+        self.spindle_validation_preds = torch.tensor([])
+        self.spindle_validation_labels = torch.tensor([])
+
+        self.save_hyperparameters()
 
     def forward(self, x, h):
         # Define the forward pass of your model here
@@ -28,11 +42,10 @@ class MassLightning(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         # Define the training step here
-        batch_ss = batch
-        vector = batch_ss[0].to(self.device)
+        batch_ss, batch_spindles = batch
 
-        # out_spindles, _, _, _ = self(batch_spindle, None)
-        # spindle_loss = self.spindle_criterion(out_spindles, batch_spindle)
+        ######### Do the sleep staging first #########
+        vector = batch_ss[0].to(self.device)
 
         _, out_ss, _, _ = self(vector, None)
         ss_label = batch_ss[1]['sleep_stage'].to(self.device)
@@ -45,17 +58,35 @@ class MassLightning(pl.LightningModule):
         self.log('train_ss_loss', ss_loss)
         self.log('train_ss_acc', ss_acc)
 
-        loss = ss_loss
+        ######### Do the spindle detection #########
+        vector = batch_spindles[0].to(self.device)
+
+        out_spindles, _, _, _ = self(vector, None)
+        out_spindles = out_spindles.squeeze(-1)
+        spindle_label = batch_spindles[1]['spindle_label'].to(self.device)
+        spindle_loss = self.spindle_criterion(out_spindles, spindle_label)
+
+        # Get the accuracy of spindle detection with threshold 0.5
+        out_spindles = torch.sigmoid(out_spindles)
+        spindle_pred = (out_spindles > 0.5).float()
+        spindle_acc = torch.sum(spindle_pred == spindle_label).float() / \
+            spindle_label.shape[0]
+
+        self.log('train_spindle_loss', spindle_loss)
+        self.log('train_spindle_acc', spindle_acc)
+
+        loss = spindle_loss + ss_loss
+
+        self.log('train_loss', loss)
 
         return loss
 
     def validation_step(self, batch, batch_idx):
-        # Define the validation step here
-        batch_ss = batch
-        vector = batch_ss[0].to(self.device)
 
-        # out_spindles, _, _, _ = self(batch_spindle, None)
-        # spindle_loss = self.spindle_criterion(out_spindles, batch_spindle)
+        batch_ss, batch_spindles = batch
+
+        ######### Do the staging first #########
+        vector = batch_ss[0].to(self.device)
 
         _, out_ss, _, _ = self(vector, None)
         ss_label = batch_ss[1]['sleep_stage'].to(self.device)
@@ -63,25 +94,151 @@ class MassLightning(pl.LightningModule):
 
         # Get the accuracy of sleep staging
         _, ss_pred = torch.max(out_ss, dim=1)
-        ss_acc = torch.sum(ss_pred == ss_label).float() / ss_label.shape[0]
 
-        self.log('val_ss_acc', ss_acc)
+        self.ss_validation_preds = torch.cat(
+            (self.ss_validation_preds, ss_pred.cpu()), dim=0)
+        self.ss_validation_labels = torch.cat(
+            (self.ss_validation_labels, ss_label.cpu()), dim=0)
+
         self.log('val_ss_loss', ss_loss)
 
-        loss = ss_loss
+        ######### Do the spindle detection #########
+
+        vector = batch_spindles[0].to(self.device)
+
+        out_spindles, _, _, _ = self(vector, None)
+        out_spindles = out_spindles.squeeze(-1)
+        spindle_label = batch_spindles[1]['spindle_label'].to(self.device)
+        spindle_loss = self.spindle_criterion(out_spindles, spindle_label)
+
+        # Get the accuracy of spindle detection with threshold 0.5
+        out_spindles = torch.sigmoid(out_spindles)
+        spindle_pred = (out_spindles > 0.5).float()
+
+        self.spindle_validation_preds = torch.cat(
+            (self.spindle_validation_preds, spindle_pred.cpu()), dim=0)
+        self.spindle_validation_labels = torch.cat(
+            (self.spindle_validation_labels, spindle_label.cpu()), dim=0)
+
+        self.log('val_spindle_loss', spindle_loss)
+
+        loss = ss_loss + spindle_loss
+        self.log('val_loss', loss)
 
         return loss
 
+    def on_validation_epoch_end(self):
+        '''
+        Compute all the metrics for the validation epoch
+        '''
+        # Compute the metrics for sleep staging using sklearn classification report
+        report_ss = classification_report(
+            self.ss_validation_labels,
+            self.ss_validation_preds,
+            output_dict=True,
+        )
+
+        # Get the confusion matrix
+        cm = confusion_matrix(
+            self.ss_validation_labels,
+            self.ss_validation_preds,
+        )
+
+        # Get the accuracy of sleep staging
+        ss_acc = accuracy_score(
+            self.ss_validation_labels,
+            self.ss_validation_preds,
+        )
+
+        # Create a matplotlib figure for the confusion matrix
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm,
+                                      display_labels=MassDataset.get_ss_labels()[:-1])
+        disp.plot()
+
+        # Log the figure
+        self.logger.experiment.log(
+            {
+                'confusion_matrix_staging': plt,
+            },
+            commit=False,
+        )
+
+        # Log all metrics:
+        self.log('val_ss_acc', ss_acc)
+        self.log('val_ss_f1', report_ss['macro avg']['f1-score'])
+        self.log('val_ss_recall', report_ss['macro avg']['recall'])
+        self.log('val_ss_precision', report_ss['macro avg']['precision'])
+
+        # Compute the metrics for spindle detection using sklearn classification report
+        report_spindles = classification_report(
+            self.spindle_validation_labels,
+            self.spindle_validation_preds,
+            output_dict=True,
+        )
+
+        # Get the confusion matrix
+        cm = confusion_matrix(
+            self.spindle_validation_labels,
+            self.spindle_validation_preds,
+        )
+
+        # Create a matplotlib figure for the confusion matrix
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm,
+                                      display_labels=['non-spindle', 'spindle'])
+
+        disp.plot()
+
+        # Log the figure
+        self.logger.experiment.log(
+            {
+                'confusion_matrix_spindle': plt,
+            },
+            commit=False,
+        )
+
+        # Get the accuracy of spindle detection
+        spindle_acc = accuracy_score(
+            self.spindle_validation_labels,
+            self.spindle_validation_preds,
+        )
+
+        # Log all metrics:
+        self.log('val_spindle_acc', spindle_acc)
+        self.log('val_spindle_f1', report_spindles['1.0']['f1-score'])
+        self.log('val_spindle_recall', report_spindles['1.0']['recall'])
+        self.log('val_spindle_precision', report_spindles['1.0']['precision'])
+
+        # Log the metrics for the whole model
+        self.log('val_acc', (ss_acc + spindle_acc) / 2)
+        self.log('val_f1', (report_ss['macro avg']['f1-score'] +
+                            report_spindles['1.0']['f1-score']) / 2)
+
+        # Reset the validation predictions and labels
+        self.ss_validation_preds = torch.tensor([])
+        self.ss_validation_labels = torch.tensor([])
+        self.spindle_validation_preds = torch.tensor([])
+        self.spindle_validation_labels = torch.tensor([])
+
     def configure_optimizers(self):
         # Define your optimizer(s) and learning rate scheduler(s) here
-        optimizer = optim.Adam(self.parameters(), lr=1e-4)
-        return optimizer
+        optimizer = optim.AdamW(self.parameters(), betas=(
+            0.9, 0.99), lr=1e-3, weight_decay=1e-3)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, patience=20, factor=0.5, verbose=True, mode='min')       
+        scheduler_info = {
+            'scheduler': scheduler,
+            'monitor': 'val_loss',  # Metric to monitor for LR scheduling
+            'interval': 'epoch',  # Adjust LR on epoch end
+            'frequency': 1  # Check val_loss every epoch
+        }
+
+        return [optimizer], [scheduler_info]
 
 
 if __name__ == "__main__":
     # Ask for the experiment name
     experiment_name = input("Enter the experiment name: ")
-    experiment_name = f"{experiment_name}_{time.time()}"
+    experiment_name = f"{experiment_name}_{str(time.time()).split('.')[0]}"
 
     ################ Model Config ##################
     seed = 42
@@ -106,9 +263,9 @@ if __name__ == "__main__":
     subject_loader = SubjectLoader(
         '/project/MASS/mass_spindles_dataset/subject_info.csv')
     train_subjects = subject_loader.select_random_subjects(
-        num_subjects=31, seed=42)
+        num_subjects=1, seed=42)
     val_subjects = subject_loader.select_random_subjects(
-        num_subjects=4, seed=42)
+        num_subjects=1, seed=42)
 
     train_dataset = MassDataset(
         '/project/MASS/mass_spindles_dataset',
@@ -117,7 +274,7 @@ if __name__ == "__main__":
         seq_len=config['seq_len'],
         seq_stride=config['seq_stride'],
         use_filtered=False,
-        sampleable='staging')
+        sampleable='both')
 
     val_dataset = MassDataset(
         '/project/MASS/mass_spindles_dataset',
@@ -126,41 +283,62 @@ if __name__ == "__main__":
         seq_len=config['seq_len'],
         seq_stride=config['seq_stride'],
         use_filtered=False,
-        sampleable='staging')
+        sampleable='both')
 
-    train_sampler = MassSampler(train_dataset, option='staging_eq')
-    val_sampler = MassSampler(val_dataset, option='staging_all')
+    validation_batch_size = 512
+    train_staging_sampler = MassSampler(
+        train_dataset, option='staging_eq', num_samples=1000 * config['batch_size'])
+    val_staging_sampler = MassSampler(
+        val_dataset, option='staging_all', num_samples=1000 * validation_batch_size)
 
-    train_loader = utils.data.DataLoader(
-        train_dataset, batch_size=config['batch_size'], sampler=train_sampler)
+    train_staging_loader = utils.data.DataLoader(
+        train_dataset, batch_size=config['batch_size'], sampler=train_staging_sampler)
 
-    val_loader = utils.data.DataLoader(
-        val_dataset, batch_size=1024, sampler=val_sampler)
+    val_staging_loader = utils.data.DataLoader(
+        val_dataset, batch_size=validation_batch_size, sampler=val_staging_sampler)
+
+    train_spindle_sampler = MassSampler(
+        train_dataset, option='spindles', num_samples=1000 * config['batch_size'])
+    val_spindle_sampler = MassSampler(
+        val_dataset, option='random', num_samples=1000 * validation_batch_size)
+
+    train_spindle_loader = utils.data.DataLoader(
+        train_dataset, batch_size=config['batch_size'], sampler=train_spindle_sampler)
+    val_spindle_loader = utils.data.DataLoader(
+        val_dataset, batch_size=validation_batch_size, sampler=val_spindle_sampler)
+
+    train_loader = CombinedDataLoader(
+        train_staging_loader, train_spindle_loader)
+    val_loader = CombinedDataLoader(val_staging_loader, val_spindle_loader)
 
     ############### Logger ##################
     os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
     # Add a timestamps to the name
     project_name = "dual_model"
     wandb_logger = WandbLogger(
-        project=project_name, config=config, id=experiment_name, log_model="all")
+        project=project_name,
+        config=config,
+        id=experiment_name,
+        log_model="all")
+    
+    wandb_logger.watch(model, log="all")
 
     checkpoint_callback = ModelCheckpoint(
-        # dirpath=os.getcwd(),
-        # filename=f'{experiment_name}' + '-{epoch:02d}-{f1:.2f}',
-        save_top_k=5,
+        save_top_k=10,
         verbose=True,
-        monitor='f1',
+        monitor='val_f1',
         mode='max',
     )
 
     ############### Trainer ##################
     trainer = pl.Trainer(
-        max_epochs=10,
+        max_epochs=3,
         accelerator='gpu',
-        fast_dev_run=10,
+        # fast_dev_run=10,
         logger=wandb_logger,
     )
 
     trainer.fit(model,
                 train_dataloaders=train_loader,
                 val_dataloaders=val_loader)
+    

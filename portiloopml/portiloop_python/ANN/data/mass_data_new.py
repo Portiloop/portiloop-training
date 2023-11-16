@@ -182,8 +182,8 @@ class SubjectLoader:
 
 
 class MassSampler(Sampler):
-    def __init__(self, dataset, option='spindles', seed=None):
-        assert option in ['spindles', 'staging_eq',
+    def __init__(self, dataset, option='spindles', seed=None, num_samples=None):
+        assert option in ['spindles', 'random', 'staging_eq',
                           'staging_all'], "Option must be either spindle or staging"
         self.dataset = dataset
         self.option = option
@@ -230,12 +230,24 @@ class MassSampler(Sampler):
             self.indexes = np.concatenate((N1, N2, N3, R, W))
             # Shuffle the indexes
             np.random.shuffle(self.indexes)
+        elif self.option == 'random':
+            self.indexes = np.arange(len(self.dataset))
+            np.random.shuffle(self.indexes)
+
+        # Limit to a number of samples per epoch
+        self.num_samples = num_samples
 
     def __iter__(self):
-        return iter(self.indexes)
+        if self.num_samples is not None:
+            for _ in range(self.num_samples):
+                random_index = np.random.randint(len(self.indexes))
+                yield self.indexes[random_index]
+        else:
+            for index in self.indexes:
+                yield index
 
     def __len__(self):
-        return len(self.indexes)
+        return len(self.indexes) if self.num_samples is None else self.num_samples
 
 
 class MassDataset(Dataset):

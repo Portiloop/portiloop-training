@@ -152,3 +152,4 @@ portiloop_software/models/*
 
 
 temp/
+lightning_logs/

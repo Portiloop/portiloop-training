@@ -141,17 +141,26 @@ class PortiloopNetwork(nn.Module):
         out_features = c_dict['out_features']
 
         in_fc = fc_features
-        self.hidden_fc = nn.Linear(in_features=fc_features,
-                                    out_features=fc_features)
 
-        self.fc_spindles = nn.Linear(in_features=in_fc,
-                            out_features=out_features)  # probability of being a spindle
-        
-        self.fc_sleep_stage = nn.Linear(in_features=in_fc,
-                            out_features=5)
+        # Classifier for the spindle detection
+        hidden_fc_spindles = nn.Linear(in_features=fc_features,
+                                       out_features=fc_features)
+        fc_spindles = nn.Linear(in_features=in_fc,
+                                out_features=1)  # probability of being a spindle
+        self.classifier_spindles = nn.Sequential(hidden_fc_spindles,
+                                                 nn.ReLU(),
+                                                 fc_spindles)
 
+        # Classifier for the sleep stage
+        hidden_fc_ss = nn.Linear(in_features=fc_features,
+                                 out_features=fc_features)
+        fc_sleep_stage = nn.Linear(in_features=in_fc,
+                                   out_features=5)
+        self.classifier_sleep_stage = nn.Sequential(hidden_fc_ss,
+                                                    nn.ReLU(),
+                                                    fc_sleep_stage)
 
-    def forward(self, x, h, past_x=None, max_value=np.inf):
+    def forward(self, x, h, past_x=None, max_value=np.inf, run_classifiers=True):
         # x: input data (batch_size, sequence_len, features)
         # h: hidden state of the GRU (nb_rnn_layers, batch_size, hidden_size)
         # past_x: accumulated past embeddings (batch_size, any_seq_len, features)
@@ -166,20 +175,20 @@ class PortiloopNetwork(nn.Module):
         x = x.view(batch_size, sequence_len, -1)
         x, h = self.gru(x, h)
 
-        out_gru = x[:, -1, :]  # output size: 1
+        embedding = x[:, -1, :]  # output size: 1
 
-        out = self.hidden_fc(out_gru)
-        out = torch.relu(out)
-      
-        out_spindles = self.fc_spindles(out)
-        out_sleep_stage = self.fc_sleep_stage(out)
+        out_spindles = self.classifier_spindles(
+            embedding) if run_classifiers else None
+        out_sleep_stage = self.classifier_sleep_stage(
+            embedding) if run_classifiers else None
 
         # Returns:
         #   - the spindle classifier output (Shape (batch_size, 1))
         #   - the sleep stage classifier output (Shape (batch_size, 5))
         #   - the hidden state(s) of the GRU(s) (Shape (nb_rnn_layers, batch_size, hidden_size))
-        #   - the embedding of the sequence (Shape (batch_size, hidden_size)) 
-        return out_spindles, out_sleep_stage, h, out
+        #   - the embedding of the sequence (Shape (batch_size, hidden_size))
+        return out_spindles, out_sleep_stage, h, embedding
+
 
 def out_dim(window_size, padding, dilation, kernel, stride):
     return floor((window_size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)
