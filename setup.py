@@ -6,6 +6,7 @@ with open("README.md", "r") as fh:
 
 
 install_requires = [
+    'kaggle',
     'numpy',
     'pandas',
     'scikit-learn',
