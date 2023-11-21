@@ -1,5 +1,5 @@
-import copy
-import logging
+# import copy
+# import logging
 from math import floor
 from pathlib import Path
 import time
@@ -8,10 +8,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from torchsummary import summary
+# from torchsummary import summary
 
-from portiloopml.portiloop_python.ANN.models.model_blocks import (
-    AttentionLayer, FullAttention, TransformerEncoderLayer)
+# from portiloopml.portiloop_python.ANN.models.model_blocks import (
+#     AttentionLayer, FullAttention, TransformerEncoderLayer)
 from portiloopml.portiloop_python.ANN.utils import get_configs
 
 ABLATION = 0
@@ -141,24 +141,31 @@ class PortiloopNetwork(nn.Module):
         out_features = c_dict['out_features']
 
         in_fc = fc_features
+        self.embed = nn.Sequential(
+            nn.Linear(in_features=fc_features,
+                      out_features=fc_features),
+            nn.ReLU(),
+        )
 
         # Classifier for the spindle detection
         hidden_fc_spindles = nn.Linear(in_features=fc_features,
                                        out_features=fc_features)
         fc_spindles = nn.Linear(in_features=in_fc,
                                 out_features=1)  # probability of being a spindle
-        self.classifier_spindles = nn.Sequential(hidden_fc_spindles,
-                                                 nn.ReLU(),
-                                                 fc_spindles)
+        self.classifier_spindles = nn.Sequential(
+            hidden_fc_spindles,
+            nn.ReLU(),
+            fc_spindles)
 
         # Classifier for the sleep stage
         hidden_fc_ss = nn.Linear(in_features=fc_features,
                                  out_features=fc_features)
         fc_sleep_stage = nn.Linear(in_features=in_fc,
                                    out_features=5)
-        self.classifier_sleep_stage = nn.Sequential(hidden_fc_ss,
-                                                    nn.ReLU(),
-                                                    fc_sleep_stage)
+        self.classifier_sleep_stage = nn.Sequential(
+            hidden_fc_ss,
+            nn.ReLU(),
+            fc_sleep_stage)
 
     def forward(self, x, h, past_x=None, max_value=np.inf, run_classifiers=True):
         # x: input data (batch_size, sequence_len, features)
@@ -175,7 +182,8 @@ class PortiloopNetwork(nn.Module):
         x = x.view(batch_size, sequence_len, -1)
         x, h = self.gru(x, h)
 
-        embedding = x[:, -1, :]  # output size: 1
+        out_gru = x[:, -1, :]  # output size: 1
+        embedding = self.embed(out_gru)
 
         out_spindles = self.classifier_spindles(
             embedding) if run_classifiers else None
