@@ -9,7 +9,7 @@ import torch
 # from torchinfo import summary
 from torch import optim, utils
 # import wandb
-from portiloopml.portiloop_python.ANN.data.mass_data_new import CombinedDataLoader, MassDataset, MassSampler, SubjectLoader
+from portiloopml.portiloop_python.ANN.data.mass_data_new import CombinedDataLoader, MassDataset, MassRandomSampler, SubjectLoader
 from pytorch_lightning.loggers import WandbLogger
 # import plotly.figure_factory as ff
 from sklearn.metrics import classification_report
@@ -34,6 +34,12 @@ class MassLightning(pl.LightningModule):
 
         self.spindle_validation_preds = torch.tensor([])
         self.spindle_validation_labels = torch.tensor([])
+
+        self.ss_testing_preds = torch.tensor([])
+        self.ss_testing_labels = torch.tensor([])
+        self.spindle_testing_preds = torch.tensor([])
+        self.spindle_testing_labels = torch.tensor([])
+        self.testing_embeddings = torch.tensor([])
 
         self.save_hyperparameters()
 
@@ -221,6 +227,52 @@ class MassLightning(pl.LightningModule):
         self.spindle_validation_preds = torch.tensor([])
         self.spindle_validation_labels = torch.tensor([])
 
+    def test_step(self, batch, batch_idx):
+        # Define the test step here
+        vector = batch[0].to(self.device)
+        label_ss = batch[1]['sleep_stage'].to(self.device)
+        label_spindles = batch[1]['spindle_label'].to(self.device)
+        if hasattr(self, 'testing_h'):
+            h = self.testing_h.to(self.device)
+        else:
+            h = None
+
+        out_spindles, out_sleep_stages, h, embeddings = self(vector, h)
+
+        # Convert the outputs and labels to the CPU and detach them from the computation graph
+        out_spindles = out_spindles.cpu().detach()
+        out_spindles = out_spindles.squeeze(-1)
+        out_spindles = torch.sigmoid(out_spindles)
+        out_sleep_stages = out_sleep_stages.cpu().detach()
+        # Apply softmax to get probabilities
+        out_sleep_stages = torch.softmax(out_sleep_stages, dim=1)
+        embeddings = embeddings.cpu().detach()
+        label_ss = label_ss.cpu().detach()
+        label_spindles = label_spindles.cpu().detach()
+
+        # Append the outputs and labels to the class variables
+        self.ss_testing_preds = torch.cat(
+            (self.ss_testing_preds, out_sleep_stages), dim=0)
+        self.ss_testing_labels = torch.cat(
+            (self.ss_testing_labels, label_ss), dim=0)
+        self.spindle_testing_preds = torch.cat(
+            (self.spindle_testing_preds, out_spindles), dim=0)
+        self.spindle_testing_labels = torch.cat(
+            (self.spindle_testing_labels, label_spindles), dim=0)
+        self.testing_embeddings = torch.cat(
+            (self.testing_embeddings, embeddings), dim=0)
+
+        self.testing_h = h
+
+    def on_test_epoch_end(self):
+        # Define what to do at the end of a test epoch
+        # Print the sizes of the predictions and labels
+        print(self.ss_testing_preds.shape)
+        print(self.ss_testing_labels.shape)
+        print(self.spindle_testing_preds.shape)
+        print(self.spindle_testing_labels.shape)
+        print(self.testing_embeddings.shape)
+
     def configure_optimizers(self):
         # Define your optimizer(s) and learning rate scheduler(s) here
         optimizer = optim.AdamW(self.parameters(), betas=(
@@ -307,9 +359,9 @@ if __name__ == "__main__":
         use_filtered=False,
         sampleable='both')
 
-    train_staging_sampler = MassSampler(
+    train_staging_sampler = MassRandomSampler(
         train_dataset, option='staging_eq', num_samples=config['epoch_length'] * config['batch_size'])
-    val_staging_sampler = MassSampler(
+    val_staging_sampler = MassRandomSampler(
         val_dataset, option='staging_all', num_samples=config['epoch_length'] * config['validation_batch_size'])
 
     train_staging_loader = utils.data.DataLoader(
@@ -318,9 +370,9 @@ if __name__ == "__main__":
     val_staging_loader = utils.data.DataLoader(
         val_dataset, batch_size=config['validation_batch_size'], sampler=val_staging_sampler)
 
-    train_spindle_sampler = MassSampler(
+    train_spindle_sampler = MassRandomSampler(
         train_dataset, option='spindles', num_samples=config['epoch_length'] * config['batch_size'])
-    val_spindle_sampler = MassSampler(
+    val_spindle_sampler = MassRandomSampler(
         val_dataset, option='random', num_samples=config['epoch_length'] * config['validation_batch_size'])
 
     train_spindle_loader = utils.data.DataLoader(

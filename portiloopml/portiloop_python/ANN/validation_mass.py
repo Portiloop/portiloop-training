@@ -21,6 +21,16 @@ def load_model(checkpoint_ref, project, group, run_id):
     return model, run
 
 
+def validate_model(dataloader, model, device):
+    '''
+    Run through the validation set and return the metrics
+    '''
+    # Run through the validation set
+    for batch in dataloader:
+        # Get the data
+        vector = batch[0].to(device)
+
+
 if __name__ == "__main__":
     # Log in with our wandb id
     os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
