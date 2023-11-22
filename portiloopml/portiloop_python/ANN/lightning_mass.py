@@ -238,12 +238,16 @@ class MassLightning(pl.LightningModule):
 
 
 if __name__ == "__main__":
-    
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('--seed', type=int, default=42, help='Seed for random number generator')
-    parser.add_argument('--experiment_name', type=str, required=True, help='Name of the experiment')
-    parser.add_argument('--num_train_subjects', type=int, required=True, help='Number of subjects for training')
-    parser.add_argument('--num_val_subjects', type=int, required=True, help='Number of subjects for validation')
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Seed for random number generator')
+    parser.add_argument('--experiment_name', type=str,
+                        required=True, help='Name of the experiment')
+    parser.add_argument('--num_train_subjects', type=int,
+                        required=True, help='Number of subjects for training')
+    parser.add_argument('--num_val_subjects', type=int,
+                        required=True, help='Number of subjects for validation')
 
     args = parser.parse_args()
 
@@ -334,8 +338,10 @@ if __name__ == "__main__":
     os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
     # Add a timestamps to the name
     project_name = "dual_model"
+    group = 'Training'
     wandb_logger = WandbLogger(
         project=project_name,
+        group=group,
         config=config,
         id=experiment_name,
         log_model="all")
@@ -353,7 +359,7 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         max_epochs=1000,
         accelerator='gpu',
-        # fast_dev_run=10,
+        fast_dev_run=10,
         logger=wandb_logger,
     )
 
