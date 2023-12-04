@@ -3,13 +3,14 @@ import os
 # from pathlib import Path
 import time
 from matplotlib import pyplot as plt
+import numpy as np
 import pytorch_lightning as pl
 from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score, confusion_matrix
 import torch
 # from torchinfo import summary
 from torch import optim, utils
 # import wandb
-from portiloopml.portiloop_python.ANN.data.mass_data_new import CombinedDataLoader, MassDataset, MassRandomSampler, SubjectLoader
+from portiloopml.portiloop_python.ANN.data.mass_data_new import CombinedDataLoader, MassConsecutiveSampler, MassDataset, MassRandomSampler, SubjectLoader
 from pytorch_lightning.loggers import WandbLogger
 # import plotly.figure_factory as ff
 from sklearn.metrics import classification_report
@@ -19,9 +20,11 @@ from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork
 from portiloopml.portiloop_python.ANN.utils import get_configs, set_seeds
 from pytorch_lightning.callbacks import ModelCheckpoint
 
+from portiloopml.portiloop_python.ANN.wamsley_utils import binary_f1_score, get_spindle_onsets
+
 
 class MassLightning(pl.LightningModule):
-    def __init__(self, config):
+    def __init__(self, config, train_choice='both'):
         super().__init__()
         self.config = config
         # Define your model architecture here
@@ -40,6 +43,9 @@ class MassLightning(pl.LightningModule):
         self.spindle_testing_preds = torch.tensor([])
         self.spindle_testing_labels = torch.tensor([])
         self.testing_embeddings = torch.tensor([])
+
+        assert train_choice in ['both', 'spindles', 'staging']
+        self.train_choice = train_choice
 
         self.save_hyperparameters()
 
@@ -83,7 +89,12 @@ class MassLightning(pl.LightningModule):
         self.log('train_spindle_loss', spindle_loss)
         self.log('train_spindle_acc', spindle_acc)
 
-        loss = spindle_loss + ss_loss
+        if self.train_choice == 'both':
+            loss = spindle_loss + ss_loss
+        elif self.train_choice == 'spindles':
+            loss = spindle_loss
+        elif self.train_choice == 'staging':
+            loss = ss_loss
 
         self.log('train_loss', loss)
 
@@ -252,26 +263,143 @@ class MassLightning(pl.LightningModule):
 
         # Append the outputs and labels to the class variables
         self.ss_testing_preds = torch.cat(
-            (self.ss_testing_preds, out_sleep_stages), dim=0)
+            (self.ss_testing_preds, out_sleep_stages.unsqueeze(0)))
         self.ss_testing_labels = torch.cat(
-            (self.ss_testing_labels, label_ss), dim=0)
+            (self.ss_testing_labels, label_ss.unsqueeze(0)))
         self.spindle_testing_preds = torch.cat(
-            (self.spindle_testing_preds, out_spindles), dim=0)
+            (self.spindle_testing_preds, out_spindles.unsqueeze(0)))
         self.spindle_testing_labels = torch.cat(
-            (self.spindle_testing_labels, label_spindles), dim=0)
+            (self.spindle_testing_labels, label_spindles.unsqueeze(0)))
         self.testing_embeddings = torch.cat(
-            (self.testing_embeddings, embeddings), dim=0)
+            (self.testing_embeddings, embeddings.unsqueeze(0)))
 
         self.testing_h = h
 
     def on_test_epoch_end(self):
         # Define what to do at the end of a test epoch
-        # Print the sizes of the predictions and labels
-        print(self.ss_testing_preds.shape)
-        print(self.ss_testing_labels.shape)
-        print(self.spindle_testing_preds.shape)
-        print(self.spindle_testing_labels.shape)
-        print(self.testing_embeddings.shape)
+        # We get the probabilities of sleep stage of each batch by averaging the last n batches
+        n = 5
+        averaged_ss_preds = self.ss_testing_preds.unfold(0, n, 1).sum(dim=3)
+        averaged_ss_preds = torch.softmax(averaged_ss_preds, dim=2)
+        averaged_ss_preds = averaged_ss_preds.argmax(dim=2)
+
+        # Now we can flatten the predictions and labels
+        averaged_ss_preds = averaged_ss_preds.flatten(start_dim=0, end_dim=1)
+        ss_labels = self.ss_testing_labels[n-1:].flatten(
+            start_dim=0, end_dim=1)
+        ss_preds = self.ss_testing_preds[n-1:].flatten(
+            start_dim=0, end_dim=1)
+        ss_preds = torch.argmax(ss_preds, dim=1)
+
+        # We remove all indexes where the label is 5 (unknown)
+        mask = ss_labels != 5
+        ss_labels = ss_labels[mask]
+        ss_preds = ss_preds[mask]
+        averaged_ss_preds = averaged_ss_preds[mask]
+
+        # Compute the metrics for sleep staging using sklearn classification report
+        report_ss = classification_report(
+            ss_labels,
+            ss_preds,
+            output_dict=True,
+        )
+        report_avg_ss = classification_report(
+            ss_labels,
+            averaged_ss_preds,
+            output_dict=True,
+        )
+
+        # Get the confusion matrix
+        cm = confusion_matrix(
+            ss_labels,
+            ss_preds,
+        )
+
+        # Create a matplotlib figure for the confusion matrix
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm,
+                                      display_labels=MassDataset.get_ss_labels()[:-1])
+        disp.plot()
+
+        # Log the figure
+        self.logger.experiment.log(
+            {
+                'confusion_matrix_staging': plt,
+            },
+            commit=False,
+        )
+
+        # Create a matplotlib figure for the confusion matrix fro average method
+        cm = confusion_matrix(
+            ss_labels,
+            averaged_ss_preds,
+        )
+
+        # Create a matplotlib figure for the confusion matrix
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm,
+                                      display_labels=MassDataset.get_ss_labels()[:-1])
+        disp.plot()
+
+        # Log all metrics:
+        self.log('test_ss_acc', report_ss['accuracy'])
+        self.log('test_ss_f1', report_ss['macro avg']['f1-score'])
+        self.log('test_ss_recall', report_ss['macro avg']['recall'])
+        self.log('test_ss_precision', report_ss['macro avg']['precision'])
+
+        self.log('test_avg_ss_acc', report_avg_ss['accuracy'])
+        self.log('test_avg_ss_f1', report_avg_ss['macro avg']['f1-score'])
+        self.log('test_avg_ss_recall', report_avg_ss['macro avg']['recall'])
+        self.log('test_avg_ss_precision',
+                 report_avg_ss['macro avg']['precision'])
+
+        # Flatten all spindle predictions and labels
+        spindle_labels = self.spindle_testing_labels.T.flatten(
+            start_dim=0, end_dim=1)
+        spindle_preds = self.spindle_testing_preds.T.flatten(
+            start_dim=0, end_dim=1) >= 0.5
+
+        # Add zeros between each prediction to account for the seq_stride
+        # Helper method do that cleanly
+        def add_stride_back(preds, seq_stride=42):
+            total_points = n * len(preds)
+            out = torch.zeros(total_points, dtype=preds.dtype)
+            # Get the indexes where we need to put the predictions
+            idx = torch.arange(0, total_points, n)
+            # Put the predictions at the right indexes
+            out.index_copy_(0, idx, preds)
+
+            return out
+
+        spindle_preds = add_stride_back(spindle_preds)
+        spindle_labels = add_stride_back(spindle_labels)
+
+        # Get all the spindle onsets
+        spinlde_onsets_labels = get_spindle_onsets(spindle_labels)
+        spindle_onsets_preds = get_spindle_onsets(spindle_preds)
+
+        # Compute the metrics for spindle detection using out binary f1 score
+        spindle_precision, spindle_recall, spindle_f1, tp, fp, fn, _ = binary_f1_score(
+            spinlde_onsets_labels, spindle_onsets_preds)
+        tn = len(spindle_labels) - tp - fp - fn
+        cm = np.array([[tn, fp], [fn, tp]])
+
+        # Create a matplotlib figure for the confusion matrix
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm,
+                                      display_labels=['non-spindle', 'spindle'])
+        disp.plot()
+
+        # Log the figure
+        self.logger.experiment.log(
+            {
+                'confusion_matrix_spindle': plt,
+            },
+            commit=False,
+        )
+
+        # Log all metrics:
+        self.log('test_spindle_acc', (tp + tn) / (tp + tn + fp + fn))
+        self.log('test_spindle_f1', spindle_f1)
+        self.log('test_spindle_recall', spindle_recall)
+        self.log('test_spindle_precision', spindle_precision)
 
     def configure_optimizers(self):
         # Define your optimizer(s) and learning rate scheduler(s) here
@@ -308,6 +436,7 @@ if __name__ == "__main__":
     experiment_name = f"{args.experiment_name}_{str(time.time()).split('.')[0]}"
     num_train_subjects = args.num_train_subjects
     num_val_subjects = args.num_val_subjects
+
     ################ Model Config ##################
     if seed > 0:
         set_seeds(seed)
@@ -315,11 +444,13 @@ if __name__ == "__main__":
     config = get_configs(experiment_name, True, seed)
     config['hidden_size'] = 64
     config['nb_rnn_layers'] = 3
-    config['lr'] = 1e-4
+    config['lr'] = 1e-3
     config['epoch_length'] = 1000
     config['validation_batch_size'] = 512
+    config['segment_len'] = 100000
+    config['train_choice'] = 'staging'
 
-    model = MassLightning(config)
+    model = MassLightning(config, train_choice=config['train_choice'])
     # input_size = (
     #     config['batch_size'],
     #     config['seq_len'],
@@ -340,6 +471,8 @@ if __name__ == "__main__":
         num_subjects=config['num_subjects_train'], seed=seed)
     val_subjects = subject_loader.select_random_subjects(
         num_subjects=config['num_subjects_val'], seed=seed)
+    test_subjects = subject_loader.select_random_subjects(
+        num_subjects=config['num_subjects_val'], seed=seed)
 
     train_dataset = MassDataset(
         '/project/MASS/mass_spindles_dataset',
@@ -359,32 +492,54 @@ if __name__ == "__main__":
         use_filtered=False,
         sampleable='both')
 
+    test_dataset = MassDataset(
+        '/project/MASS/mass_spindles_dataset',
+        subjects=test_subjects,
+        window_size=config['window_size'],
+        seq_len=1,
+        seq_stride=1,
+        use_filtered=False,
+        sampleable='both')
+
+    # Staging DataLoaders
     train_staging_sampler = MassRandomSampler(
-        train_dataset, option='staging_eq', num_samples=config['epoch_length'] * config['batch_size'])
+        train_dataset, option='staging_all', num_samples=config['epoch_length'] * config['batch_size'])
     val_staging_sampler = MassRandomSampler(
         val_dataset, option='staging_all', num_samples=config['epoch_length'] * config['validation_batch_size'])
-
     train_staging_loader = utils.data.DataLoader(
         train_dataset, batch_size=config['batch_size'], sampler=train_staging_sampler)
-
     val_staging_loader = utils.data.DataLoader(
         val_dataset, batch_size=config['validation_batch_size'], sampler=val_staging_sampler)
 
+    # Spindle DataLoaders
     train_spindle_sampler = MassRandomSampler(
         train_dataset, option='spindles', num_samples=config['epoch_length'] * config['batch_size'])
     val_spindle_sampler = MassRandomSampler(
         val_dataset, option='random', num_samples=config['epoch_length'] * config['validation_batch_size'])
-
     train_spindle_loader = utils.data.DataLoader(
         train_dataset, batch_size=config['batch_size'], sampler=train_spindle_sampler)
     val_spindle_loader = utils.data.DataLoader(
         val_dataset, batch_size=config['validation_batch_size'], sampler=val_spindle_sampler)
 
+    # Combined DataLoaders
     train_loader = CombinedDataLoader(
         train_staging_loader, train_spindle_loader)
     val_loader = CombinedDataLoader(val_staging_loader, val_spindle_loader)
     config['subjects_train'] = train_subjects
     config['subjects_val'] = val_subjects
+
+    # Test DataLoaders
+    test_sampler = MassConsecutiveSampler(
+        test_dataset,
+        config['seq_stride'],
+        config['segment_len'],
+        max_batch_size=config['validation_batch_size'],
+    )
+    real_batch_size = test_sampler.get_batch_size()
+    test_loader = utils.data.DataLoader(
+        test_dataset,
+        batch_size=real_batch_size,
+        sampler=test_sampler)
 
     ############### Logger ##################
     os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
@@ -409,12 +564,15 @@ if __name__ == "__main__":
 
     ############### Trainer ##################
     trainer = pl.Trainer(
-        max_epochs=1000,
+        max_epochs=10,
         accelerator='gpu',
-        fast_dev_run=10,
+        # fast_dev_run=10,
         logger=wandb_logger,
     )
 
     trainer.fit(model,
                 train_dataloaders=train_loader,
-                val_dataloaders=val_loader)
+                val_dataloaders=train_loader)
+
+    # trainer.test(
+    #     model, dataloaders=test_loader, verbose=True)
