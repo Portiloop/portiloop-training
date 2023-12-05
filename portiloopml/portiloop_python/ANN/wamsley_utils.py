@@ -9,7 +9,7 @@ def get_spindle_onsets(indexes, sampling_rate=250, min_label_time=0.4):
     :param positive_indexes: An array of size of signal with 1 at the index of the spindle and 0 elsewhere
     '''
 
-    if len(indexes) == 0:
+    if len(indexes) < sampling_rate:
         return np.array([])
 
     # Calculate the minimum interval between two spindles
@@ -23,7 +23,8 @@ def get_spindle_onsets(indexes, sampling_rate=250, min_label_time=0.4):
     indexes = np.where((shifted_indexes == False) & (indexes == True))[0]
 
     # Remove the indexes that are too close together
-    indexes = indexes[np.insert(np.diff(indexes) >= interval, 0, True)]
+    if indexes.size > 0:
+        indexes = indexes[np.insert(np.diff(indexes) >= interval, 0, True)]
 
     return indexes
 

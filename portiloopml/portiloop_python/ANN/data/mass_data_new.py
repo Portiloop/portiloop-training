@@ -282,8 +282,8 @@ class MassConsecutiveSampler(Sampler):
         return len(self.start_indexes) * self.segment_len
 
     def __iter__(self):
-        for start in self.start_indexes:
-            for i in range(self.segment_len):
+        for i in range(self.segment_len):
+            for start in self.start_indexes:
                 yield start + i * self.seq_stride
 
 
@@ -570,22 +570,22 @@ if __name__ == "__main__":
 
     print(f"Time taken: {end - start}")
 
-    # sampler = MassConsecutiveSampler(
-    #     test, seq_stride, segment_length, max_batch_size=3)
-    sampler = MassRandomSampler(
-        test, option='staging_eq', seed=42, num_samples=10)
+    sampler = MassConsecutiveSampler(
+        test, seq_stride, segment_length, max_batch_size=3)
+    # sampler = MassRandomSampler(
+    #     test, option='staging_eq', seed=42, num_samples=10)
 
     dataloader = DataLoader(
         test,
-        batch_size=2,
+        batch_size=3,
         sampler=sampler,
         num_workers=0,
         pin_memory=True,
         drop_last=True)
 
-    for epoch in range(5):
-        for batch in dataloader:
-            print("Got batch")
+    for epoch in range(1):
+        for idx, batch in enumerate(dataloader):
+            print(f"Got batch {idx}")
         print("End epoch")
 
     # print("testtting")
