@@ -1,5 +1,5 @@
 import time
-from typing import Iterator
+from typing import Iterator, Optional, Sized
 import numpy as np
 from torch.utils.data import DataLoader, Dataset, Sampler
 import torch
@@ -181,7 +181,7 @@ class SubjectLoader:
         return selected_subjects
 
 
-class MassSampler(Sampler):
+class MassRandomSampler(Sampler):
     def __init__(self, dataset, option='spindles', seed=None, num_samples=None):
         assert option in ['spindles', 'random', 'staging_eq',
                           'staging_all'], "Option must be either spindle or staging"
@@ -248,6 +248,43 @@ class MassSampler(Sampler):
 
     def __len__(self):
         return len(self.indexes) if self.num_samples is None else self.num_samples
+
+
+class MassConsecutiveSampler(Sampler):
+    def __init__(self, data_source, seq_stride, segment_len, max_batch_size=None):
+        self.data_source = data_source
+        self.seq_stride = seq_stride
+        self.segment_len = segment_len
+        self.max_batch_size = max_batch_size
+
+        # Find all the possible start indexes for segments by splitting the dataset into segments
+        # We remove the alst one to make sure we do not go out of bounds
+        self.start_indexes = np.arange(
+            0, len(self.data_source), self.segment_len * self.seq_stride)[:-1]
+        self.new_indexes = self.start_indexes
+        # Add the same indexes +1, +2, +3, ..., up to seq_stride
+        for i in range(1, self.seq_stride):
+            additional_indexes = self.start_indexes + i
+            self.new_indexes = np.concatenate(
+                (self.new_indexes, additional_indexes))
+
+        # If the max batch size is specified, randomly select the indexes
+        if self.max_batch_size is not None and self.max_batch_size < len(self.new_indexes):
+            self.start_indexes = np.random.choice(
+                self.new_indexes, self.max_batch_size, replace=False)
+        else:
+            self.start_indexes = self.new_indexes
+
+    def get_batch_size(self):
+        return len(self.start_indexes)
+
+    def __len__(self):
+        return len(self.start_indexes) * self.segment_len
+
+    def __iter__(self):
+        for i in range(self.segment_len):
+            for start in self.start_indexes:
+                yield start + i * self.seq_stride
 
 
 class MassDataset(Dataset):
@@ -513,12 +550,12 @@ if __name__ == "__main__":
     window_size = 54
     seq_stride = 42
     seq_len = 50
+    segment_length = 5
 
     loader = SubjectLoader(
         '/project/MASS/mass_spindles_dataset/subject_info.csv')
 
-    subjects = loader.select_subjects_age(18, 30, num_subjects=40, seed=42)
-    # subjects = loader.select_all_subjects()
+    subjects = loader.select_subjects_age(18, 30, num_subjects=3, seed=42)
 
     start = time.time()
     test = MassDataset(
@@ -526,9 +563,30 @@ if __name__ == "__main__":
         subjects=subjects,
         window_size=window_size,
         seq_stride=seq_stride,
-        seq_len=seq_len,
+        seq_len=1,
         use_filtered=True,
         sampleable='staging')
     end = time.time()
 
     print(f"Time taken: {end - start}")
+
+    sampler = MassConsecutiveSampler(
+        test, seq_stride, segment_length, max_batch_size=3)
+    # sampler = MassRandomSampler(
+    #     test, option='staging_eq', seed=42, num_samples=10)
+
+    dataloader = DataLoader(
+        test,
+        batch_size=3,
+        sampler=sampler,
+        num_workers=0,
+        pin_memory=True,
+        drop_last=True)
+
+    for epoch in range(1):
+        for idx, batch in enumerate(dataloader):
+            print(f"Got batch {idx}")
+        print("End epoch")
+
+    # print("testtting")
+    # print(f"dataloader length: {len(dataloader)}")
