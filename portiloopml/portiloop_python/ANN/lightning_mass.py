@@ -88,8 +88,9 @@ class MassLightning(pl.LightningModule):
         self.log('train_spindle_loss', spindle_loss)
         self.log('train_spindle_acc', spindle_acc)
 
+        alpha = self.config['alpha']
         if self.train_choice == 'both':
-            loss = spindle_loss + ss_loss
+            loss = alpha * spindle_loss + (1 - alpha) * ss_loss
         elif self.train_choice == 'spindles':
             loss = spindle_loss
         elif self.train_choice == 'staging':
@@ -290,6 +291,11 @@ class MassLightning(pl.LightningModule):
         self.log('val_spindle_f1', spindle_f1)
         self.log('val_spindle_recall', spindle_recall)
         self.log('val_spindle_precision', spindle_precision)
+
+        self.ss_val_preds = torch.tensor([])
+        self.ss_val_labels = torch.tensor([])
+        self.spindle_val_preds = torch.tensor([])
+        self.spindle_val_labels = torch.tensor([])
 
     def test_step(self, batch, batch_idx):
         # Define the test step here
@@ -497,12 +503,13 @@ if __name__ == "__main__":
     config = get_configs(experiment_name, True, seed)
     config['hidden_size'] = 64
     config['nb_rnn_layers'] = 3
-    config['lr'] = 1e-4
-    config['epoch_length'] = 100
+    config['lr'] = 5e-4
+    config['epoch_length'] = 20000
     config['validation_batch_size'] = 512
-    config['segment_len'] = 1000
-    config['train_choice'] = 'spindles'
-    config['use_filtered'] = True
+    config['segment_len'] = 10000
+    config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
+    config['use_filtered'] = False
+    config['alpha'] = 0.1
 
     model = MassLightning(config, train_choice=config['train_choice'])
     # input_size = (
@@ -524,9 +531,9 @@ if __name__ == "__main__":
     train_subjects = subject_loader.select_random_subjects(
         num_subjects=config['num_subjects_train'], seed=seed)
     val_subjects = subject_loader.select_random_subjects(
-        num_subjects=config['num_subjects_val'], seed=seed)
+        num_subjects=config['num_subjects_val'], seed=seed, exclude=train_subjects)
     test_subjects = subject_loader.select_random_subjects(
-        num_subjects=config['num_subjects_val'], seed=seed)
+        num_subjects=config['num_subjects_val'], seed=seed, exclude=train_subjects + val_subjects)
 
     train_dataset = MassDataset(
         '/project/MASS/mass_spindles_dataset',
@@ -541,7 +548,7 @@ if __name__ == "__main__":
         '/project/MASS/mass_spindles_dataset',
         subjects=val_subjects,
         window_size=config['window_size'],
-        seq_len=config['seq_len'],
+        seq_len=1,
         seq_stride=config['seq_stride'],
         use_filtered=config['use_filtered'],
         sampleable='both')
@@ -555,34 +562,32 @@ if __name__ == "__main__":
         use_filtered=config['use_filtered'],
         sampleable='both')
 
-    # Staging DataLoaders
+    # TRaining Combined Dataloader DataLoaders
     train_staging_sampler = MassRandomSampler(
         train_dataset, option='staging_all', num_samples=config['epoch_length'] * config['batch_size'])
-    val_staging_sampler = MassRandomSampler(
-        val_dataset, option='staging_all', num_samples=config['epoch_length'] * config['validation_batch_size'])
     train_staging_loader = utils.data.DataLoader(
         train_dataset, batch_size=config['batch_size'], sampler=train_staging_sampler)
-    val_staging_loader = utils.data.DataLoader(
-        val_dataset, batch_size=config['validation_batch_size'], sampler=val_staging_sampler)
-
-    # Spindle DataLoaders
     train_spindle_sampler = MassRandomSampler(
         train_dataset, option='spindles', num_samples=config['epoch_length'] * config['batch_size'])
-    val_spindle_sampler = MassRandomSampler(
-        val_dataset, option='random', num_samples=config['epoch_length'] * config['validation_batch_size'])
     train_spindle_loader = utils.data.DataLoader(
         train_dataset, batch_size=config['batch_size'], sampler=train_spindle_sampler)
-    val_spindle_loader = utils.data.DataLoader(
-        val_dataset, batch_size=config['validation_batch_size'], sampler=val_spindle_sampler)
-
-    # Combined DataLoaders
     train_loader = CombinedDataLoader(
         train_staging_loader, train_spindle_loader)
-    val_loader = CombinedDataLoader(val_staging_loader, val_spindle_loader)
-    config['subjects_train'] = train_subjects
-    config['subjects_val'] = val_subjects
 
-    # Test DataLoaders
+    # Validation DataLoader
+    val_sampler = MassConsecutiveSampler(
+        val_dataset,
+        config['seq_stride'],
+        config['segment_len'],
+        max_batch_size=config['validation_batch_size'],
+    )
+    real_batch_size = val_sampler.get_batch_size()
+    val_loader = utils.data.DataLoader(
+        val_dataset,
+        batch_size=real_batch_size,
+        sampler=val_sampler)
+
+    # Test DataLoader
     test_sampler = MassConsecutiveSampler(
         test_dataset,
         config['seq_stride'],
@@ -594,6 +599,10 @@ if __name__ == "__main__":
         test_dataset,
         batch_size=real_batch_size,
         sampler=test_sampler)
+
+    config['subjects_train'] = train_subjects
+    config['subjects_val'] = val_subjects
+    config['subjects_test'] = test_subjects
 
     ############### Logger ##################
     os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
@@ -618,7 +627,7 @@ if __name__ == "__main__":
 
     ############### Trainer ##################
     trainer = pl.Trainer(
-        max_epochs=1,
+        max_epochs=100,
         accelerator='gpu',
         # fast_dev_run=10,
         logger=wandb_logger,
@@ -626,7 +635,7 @@ if __name__ == "__main__":
 
     trainer.fit(model,
                 train_dataloaders=train_loader,
-                val_dataloaders=test_loader)
+                val_dataloaders=val_loader)
 
     # trainer.test(
     #     model, dataloaders=test_loader, verbose=True)
