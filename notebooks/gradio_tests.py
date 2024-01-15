@@ -91,14 +91,14 @@ class EEGFile:
         else:
             self.file_path = file_path.name
 
-        print(f"Loading file {self.file_path}...")
+        # print(f"Loading file {self.file_path}...")
 
-        # Load the data:
-        self.data = xdf2df(self.file_path)
-        self.visualize_eeg()
-        print("Done...")
+        # # Load the data:
+        # self.data = xdf2df(self.file_path)
+        # self.visualize_eeg()
+        # print("Done...")
 
-        return self.file_path, self.fig
+        return self.file_path # , self.fig
 
     def visualize_eeg(self):
         # Select the desired column which has the data
@@ -167,21 +167,18 @@ eeg_test = EEGFile()
 
 with gr.Blocks() as demo:
 
-    with gr.Row():
-        xdf_file_button = gr.UploadButton(
-            label="Click to Upload", type="filepath", file_count="single")
-        xdf_file_static = gr.File(
-            label="XDF File", type='filepath', interactive=False)
+    eeg_file = gr.File(label="EEG File (xdf, edf, csv)")
 
     btn = gr.Button(value="Run Model")
     outputs = gr.Plot()
     with gr.Row():
         prev_button = gr.Button(value="Previous")
         next_button = gr.Button(value="Next")
-    xdf_file_button.upload(eeg_test.load, xdf_file_button, [
-                           xdf_file_static, outputs])
+        
     prev_button.click(eeg_test.decrement_time_display, prev_button, outputs)
     next_button.click(eeg_test.increment_time_display, next_button, outputs)
 
 if __name__ == "__main__":
-    demo.launch()
+    print("testing heere")
+    demo.launch(server_port=8000)
+    print("done launching")

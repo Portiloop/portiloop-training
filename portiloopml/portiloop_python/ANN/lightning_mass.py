@@ -14,6 +14,11 @@ from portiloopml.portiloop_python.ANN.data.mass_data_new import CombinedDataLoad
 from pytorch_lightning.loggers import WandbLogger
 # import plotly.figure_factory as ff
 from sklearn.metrics import classification_report
+from transformers import ViTImageProcessor, ViTModel
+import numpy as np
+import pywt
+from torchvision.transforms.functional import to_pil_image
+import torch.nn as nn
 
 
 from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork
@@ -106,7 +111,10 @@ class MassLightning(pl.LightningModule):
         label_ss = batch[1]['sleep_stage'].to(self.device)
         label_spindles = batch[1]['spindle_label'].to(self.device)
         if hasattr(self, 'val_h'):
-            h = self.val_h.to(self.device)
+            if self.val_h is not None:
+                h = self.val_h.to(self.device)
+            else:
+                h = None
         else:
             h = None
 
@@ -303,7 +311,10 @@ class MassLightning(pl.LightningModule):
         label_ss = batch[1]['sleep_stage'].to(self.device)
         label_spindles = batch[1]['spindle_label'].to(self.device)
         if hasattr(self, 'testing_h'):
-            h = self.testing_h.to(self.device)
+            if self.testing_h is not None:
+                h = self.testing_h.to(self.device)
+            else:
+                h = None
         else:
             h = None
 
@@ -476,6 +487,83 @@ class MassLightning(pl.LightningModule):
         return optimizer
 
 
+class MassLightningViT(MassLightning):
+    def __init__(self, config, train_choice='both'):
+        super().__init__(config, train_choice='both')
+        self.model = None
+        self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
+        self.classifier_ss = nn.Linear(768, 5)
+        self.classifier_spindles = nn.Linear(768, 1)
+        self.processor = ViTImageProcessor.from_pretrained(
+            'google/vit-base-patch16-224')
+
+        self.wavelet = 'morl'
+        fs = 250  # Sampling frequency in hz
+        freq_num = 224  # Number of frequencies
+        frequencies = [i for i in range(1, freq_num + 1)]
+        frequencies_norm = np.array(frequencies) / fs  # normalize
+        self.scales = pywt.frequency2scale(self.wavelet, frequencies_norm)
+
+    def freeze_up_to(self, layer):
+        '''
+        Freeze all the layers up to the layer specified
+        If the layer is -1, freeze all the layers
+        '''
+        if layer == -1:
+            layer = 100
+        for name, param in model.named_parameters():
+            if name.split('.')[0] == 'encoder' and int(name.split('.')[2]) < layer:
+                param.requires_grad = False
+            else:
+                param.requires_grad = True
+
+    def forward(self, x, h):
+        # Define the forward pass of your model here
+
+        # Convert the tensor to image format (Wavelet Transform)
+        x = self.tensor2img(x)
+
+        # Apply the ViT model
+        out = self.vit(x)
+
+        # Extract the embeddings from the ViT model
+        embeddings = out.last_hidden_state[:, 0, :]
+
+        # Apply the classifiers
+        out_spindles = self.classifier_spindles(embeddings)
+        out_sleep_stages = self.classifier_ss(embeddings)
+
+        # Keep this to be consistent with LSTM code
+        h = None
+
+        return out_spindles, out_sleep_stages, h, embeddings
+
+    def tensor2img(self, tensors):
+        inputs = []
+        for tensor in tensors:
+            # Apply the inverse wavelet transform
+            tensor_wt, _ = pywt.cwt(
+                tensor[0, 0, :].cpu().numpy(), self.scales, self.wavelet)
+            # Add an axis for the channels
+            tensor_wt = np.expand_dims(tensor_wt, axis=-1)
+            # Standardize the data to be between 0 and 255
+            tensor_wt = (((tensor_wt - tensor_wt.min()) /
+                          tensor_wt.max()) * 255).astype(np.uint8)
+            # Convert to RGB
+            tensor_wt = np.repeat(tensor_wt, 3, axis=-1)
+            # Convert to PIL image
+            image = to_pil_image(tensor_wt, mode='RGB')
+
+            # Go through the image processor:
+            inputs.append(self.processor(
+                image, return_tensors='pt')['pixel_values'].to(self.device))
+
+        # Stack all the inputs in one tensor
+        inputs = torch.cat(inputs, dim=0)
+
+        return inputs
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -501,27 +589,26 @@ if __name__ == "__main__":
         set_seeds(seed)
 
     config = get_configs(experiment_name, True, seed)
-    config['hidden_size'] = 64
-    config['nb_rnn_layers'] = 3
-    config['lr'] = 5e-4
-    config['epoch_length'] = 20000
-    config['validation_batch_size'] = 512
+    config['hidden_size'] = 256
+    config['nb_rnn_layers'] = 8
+    config['lr'] = 1e-5
+    config['epoch_length'] = 100000
+    config['validation_batch_size'] = 32
     config['segment_len'] = 10000
     config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
     config['use_filtered'] = False
     config['alpha'] = 0.1
+    config['useViT'] = True
 
-    model = MassLightning(config, train_choice=config['train_choice'])
-    # input_size = (
-    #     config['batch_size'],
-    #     config['seq_len'],
-    #     1,
-    #     config['window_size'])
-
-    # x = torch.zeros(input_size)
-    # h = torch.zeros(config['nb_rnn_layers'],
-    #                 config['batch_size'], config['hidden_size'])
-    # out_spindles, out_sleep_stages, h, embeddings = model(x, h)
+    if config['useViT']:
+        config['batch_size'] = 16
+        config['window_size'] = 224
+        config['seq_len'] = 1
+        config['seq_stride'] = 224
+        model = MassLightningViT(config, train_choice=config['train_choice'])
+        model.freeze_up_to(-1)
+    else:
+        model = MassLightning(config, train_choice=config['train_choice'])
 
     ############### DATA STUFF ##################
     config['num_subjects_train'] = num_train_subjects
@@ -562,7 +649,7 @@ if __name__ == "__main__":
         use_filtered=config['use_filtered'],
         sampleable='both')
 
-    # TRaining Combined Dataloader DataLoaders
+    # Training Combined Dataloader DataLoaders
     train_staging_sampler = MassRandomSampler(
         train_dataset, option='staging_all', num_samples=config['epoch_length'] * config['batch_size'])
     train_staging_loader = utils.data.DataLoader(
@@ -629,7 +716,7 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         max_epochs=100,
         accelerator='gpu',
-        # fast_dev_run=10,
+        fast_dev_run=10,
         logger=wandb_logger,
     )
 
