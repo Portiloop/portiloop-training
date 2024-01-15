@@ -567,14 +567,11 @@ class MassLightningViT(MassLightning):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--seed', type=int, default=42,
-                        help='Seed for random number generator')
-    parser.add_argument('--experiment_name', type=str,
-                        required=True, help='Name of the experiment')
-    parser.add_argument('--num_train_subjects', type=int,
-                        required=True, help='Number of subjects for training')
-    parser.add_argument('--num_val_subjects', type=int,
-                        required=True, help='Number of subjects for validation')
+    parser.add_argument('--seed', type=int, default=42, help='Seed for random number generator')
+    parser.add_argument('--experiment_name', type=str, required=True, help='Name of the experiment')
+    parser.add_argument('--num_train_subjects', type=int, required=True, help='Number of subjects for training')
+    parser.add_argument('--num_val_subjects', type=int, required=True, help='Number of subjects for validation')
+    parser.add_argument('--dataset_path', type=str, required=True, help='Path to the MASS dataset.')
 
     args = parser.parse_args()
 
@@ -583,7 +580,7 @@ if __name__ == "__main__":
     experiment_name = f"{args.experiment_name}_{str(time.time()).split('.')[0]}"
     num_train_subjects = args.num_train_subjects
     num_val_subjects = args.num_val_subjects
-
+    dataset_path = args.dataset_path
     ################ Model Config ##################
     if seed > 0:
         set_seeds(seed)
@@ -614,7 +611,7 @@ if __name__ == "__main__":
     config['num_subjects_train'] = num_train_subjects
     config['num_subjects_val'] = num_val_subjects
     subject_loader = SubjectLoader(
-        '/project/MASS/mass_spindles_dataset/subject_info.csv')
+        os.path.join(dataset_path, 'subject_info.csv'))
     train_subjects = subject_loader.select_random_subjects(
         num_subjects=config['num_subjects_train'], seed=seed)
     val_subjects = subject_loader.select_random_subjects(
@@ -623,7 +620,7 @@ if __name__ == "__main__":
         num_subjects=config['num_subjects_val'], seed=seed, exclude=train_subjects + val_subjects)
 
     train_dataset = MassDataset(
-        '/project/MASS/mass_spindles_dataset',
+        dataset_path,
         subjects=train_subjects,
         window_size=config['window_size'],
         seq_len=config['seq_len'],
@@ -632,7 +629,7 @@ if __name__ == "__main__":
         sampleable='both')
 
     val_dataset = MassDataset(
-        '/project/MASS/mass_spindles_dataset',
+        dataset_path,
         subjects=val_subjects,
         window_size=config['window_size'],
         seq_len=1,
