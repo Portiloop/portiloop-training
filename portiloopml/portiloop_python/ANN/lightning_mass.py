@@ -19,6 +19,7 @@ import numpy as np
 import pywt
 from torchvision.transforms.functional import to_pil_image
 import torch.nn as nn
+from scipy.signal import spectrogram
 
 
 from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork
@@ -499,7 +500,7 @@ class MassLightningViT(MassLightning):
 
         self.wavelet = 'morl'
         fs = 250  # Sampling frequency in hz
-        freq_num = 224  # Number of frequencies
+        freq_num = config['num_freqs_scale']  # Number of frequencies
         frequencies = [i for i in range(1, freq_num + 1)]
         frequencies_norm = np.array(frequencies) / fs  # normalize
         self.scales = pywt.frequency2scale(self.wavelet, frequencies_norm)
@@ -541,16 +542,26 @@ class MassLightningViT(MassLightning):
     def tensor2img(self, tensors):
         inputs = []
         for tensor in tensors:
-            # Apply the inverse wavelet transform
-            tensor_wt, _ = pywt.cwt(
-                tensor[0, 0, :].cpu().numpy(), self.scales, self.wavelet)
-            # Add an axis for the channels
-            tensor_wt = np.expand_dims(tensor_wt, axis=-1)
-            # Standardize the data to be between 0 and 255
-            tensor_wt = (((tensor_wt - tensor_wt.min()) /
-                          tensor_wt.max()) * 255).astype(np.uint8)
+            if config['wavelet']:
+                # Apply the inverse wavelet transform
+                tensor_wt, _ = pywt.cwt(
+                    tensor[0, 0, :].cpu().numpy(), self.scales, self.wavelet)
+                # Add an axis for the channels
+                tensor_wt = np.expand_dims(tensor_wt, axis=-1)
+                # Standardize the data to be between 0 and 255
+                tensor_wt = (((tensor_wt - tensor_wt.min()) /
+                              tensor_wt.max()) * 255).astype(np.uint8)
+            else:
+                _, _, Sxx = spectrogram(
+                    tensor[0, 0, :].cpu().numpy(), fs=250, nfft=446, nperseg=126)
+                Sxx = np.expand_dims(Sxx, axis=-1)
+
+                tensor_wt = (10 * np.log10(Sxx) - np.min(10 * np.log10(Sxx))) / \
+                    (np.max(10 * np.log10(Sxx)) - np.min(10 * np.log10(Sxx)))
+
             # Convert to RGB
             tensor_wt = np.repeat(tensor_wt, 3, axis=-1)
+
             # Convert to PIL image
             image = to_pil_image(tensor_wt, mode='RGB')
 
@@ -567,11 +578,16 @@ class MassLightningViT(MassLightning):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--seed', type=int, default=42, help='Seed for random number generator')
-    parser.add_argument('--experiment_name', type=str, required=True, help='Name of the experiment')
-    parser.add_argument('--num_train_subjects', type=int, required=True, help='Number of subjects for training')
-    parser.add_argument('--num_val_subjects', type=int, required=True, help='Number of subjects for validation')
-    parser.add_argument('--dataset_path', type=str, required=True, help='Path to the MASS dataset.')
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Seed for random number generator')
+    parser.add_argument('--experiment_name', type=str,
+                        required=True, help='Name of the experiment')
+    parser.add_argument('--num_train_subjects', type=int,
+                        required=True, help='Number of subjects for training')
+    parser.add_argument('--num_val_subjects', type=int,
+                        required=True, help='Number of subjects for validation')
+    parser.add_argument('--dataset_path', type=str,
+                        required=True, help='Path to the MASS dataset.')
 
     args = parser.parse_args()
 
@@ -589,9 +605,9 @@ if __name__ == "__main__":
     config['hidden_size'] = 256
     config['nb_rnn_layers'] = 8
     config['lr'] = 1e-5
-    config['epoch_length'] = 100000
+    config['epoch_length'] = 1000
     config['validation_batch_size'] = 32
-    config['segment_len'] = 10000
+    config['segment_len'] = 1000
     config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
     config['use_filtered'] = False
     config['alpha'] = 0.1
@@ -599,9 +615,11 @@ if __name__ == "__main__":
 
     if config['useViT']:
         config['batch_size'] = 16
-        config['window_size'] = 224
+        config['window_size'] = 25000
         config['seq_len'] = 1
-        config['seq_stride'] = 224
+        config['seq_stride'] = 25000
+        config['num_freqs_scale'] = 224
+        config['wavelet'] = False
         model = MassLightningViT(config, train_choice=config['train_choice'])
         model.freeze_up_to(-1)
     else:
@@ -659,30 +677,54 @@ if __name__ == "__main__":
         train_staging_loader, train_spindle_loader)
 
     # Validation DataLoader
-    val_sampler = MassConsecutiveSampler(
-        val_dataset,
-        config['seq_stride'],
-        config['segment_len'],
-        max_batch_size=config['validation_batch_size'],
-    )
-    real_batch_size = val_sampler.get_batch_size()
-    val_loader = utils.data.DataLoader(
-        val_dataset,
-        batch_size=real_batch_size,
-        sampler=val_sampler)
+    if config['useViT']:
+        val_sampler = MassRandomSampler(
+            val_dataset,
+            option='random',
+            num_samples=config['validation_batch_size'] *
+            config['epoch_length'],
+        )
+        val_loader = utils.data.DataLoader(
+            val_dataset,
+            batch_size=config['validation_batch_size'],
+            sampler=val_sampler)
 
-    # Test DataLoader
-    test_sampler = MassConsecutiveSampler(
-        test_dataset,
-        config['seq_stride'],
-        config['segment_len'],
-        max_batch_size=config['validation_batch_size'],
-    )
-    real_batch_size = test_sampler.get_batch_size()
-    test_loader = utils.data.DataLoader(
-        test_dataset,
-        batch_size=real_batch_size,
-        sampler=test_sampler)
+        # Test DataLoader
+        test_sampler = MassRandomSampler(
+            test_dataset,
+            option='random',
+            num_samples=config['validation_batch_size'] *
+            config['epoch_length'],
+        )
+        test_loader = utils.data.DataLoader(
+            test_dataset,
+            batch_size=config['validation_batch_size'],
+            sampler=test_sampler)
+    else:
+        val_sampler = MassConsecutiveSampler(
+            val_dataset,
+            config['seq_stride'],
+            config['segment_len'],
+            max_batch_size=config['validation_batch_size'],
+        )
+        real_batch_size = val_sampler.get_batch_size()
+        val_loader = utils.data.DataLoader(
+            val_dataset,
+            batch_size=real_batch_size,
+            sampler=val_sampler)
+
+        # Test DataLoader
+        test_sampler = MassConsecutiveSampler(
+            test_dataset,
+            config['seq_stride'],
+            config['segment_len'],
+            max_batch_size=config['validation_batch_size'],
+        )
+        real_batch_size = test_sampler.get_batch_size()
+        test_loader = utils.data.DataLoader(
+            test_dataset,
+            batch_size=real_batch_size,
+            sampler=test_sampler)
 
     config['subjects_train'] = train_subjects
     config['subjects_val'] = val_subjects
@@ -713,7 +755,7 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         max_epochs=100,
         accelerator='gpu',
-        fast_dev_run=10,
+        # fast_dev_run=10,
         logger=wandb_logger,
     )
 
