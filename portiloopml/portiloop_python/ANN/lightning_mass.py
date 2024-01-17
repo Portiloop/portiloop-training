@@ -541,8 +541,8 @@ class MassLightningViT(MassLightning):
 
     def tensor2img(self, tensors):
         inputs = []
-        for tensor in tensors:
-            if config['wavelet']:
+        if config['wavelet']:
+            for tensor in tensors:
                 # Apply the inverse wavelet transform
                 tensor_wt, _ = pywt.cwt(
                     tensor[0, 0, :].cpu().numpy(), self.scales, self.wavelet)
@@ -551,26 +551,54 @@ class MassLightningViT(MassLightning):
                 # Standardize the data to be between 0 and 255
                 tensor_wt = (((tensor_wt - tensor_wt.min()) /
                               tensor_wt.max()) * 255).astype(np.uint8)
-            else:
-                _, _, Sxx = spectrogram(
-                    tensor[0, 0, :].cpu().numpy(), fs=250, nfft=446, nperseg=126)
-                Sxx = np.expand_dims(Sxx, axis=-1)
 
-                tensor_wt = (10 * np.log10(Sxx) - np.min(10 * np.log10(Sxx))) / \
-                    (np.max(10 * np.log10(Sxx)) - np.min(10 * np.log10(Sxx)))
+                # Convert to RGB
+                tensor_wt = np.repeat(tensor_wt, 3, axis=-1)
 
-            # Convert to RGB
-            tensor_wt = np.repeat(tensor_wt, 3, axis=-1)
+                # Convert to PIL image
+                image = to_pil_image(tensor_wt, mode='RGB')
 
-            # Convert to PIL image
-            image = to_pil_image(tensor_wt, mode='RGB')
+                # Go through the image processor:
+                inputs.append(self.processor(
+                    image, return_tensors='pt')['pixel_values'].to(self.device))
 
-            # Go through the image processor:
-            inputs.append(self.processor(
-                image, return_tensors='pt')['pixel_values'].to(self.device))
+            # Stack all the inputs in one tensor
+            inputs = torch.cat(inputs, dim=0)
+        else:
+            _, _, tensor_stft = spectrogram(
+                tensors[:, 0, 0].cpu().numpy(), fs=250, nfft=446, nperseg=127)
 
-        # Stack all the inputs in one tensor
-        inputs = torch.cat(inputs, dim=0)
+            tensor_stft = np.expand_dims(tensor_stft, axis=1)
+
+            # Change any 0 value to be 1e-10
+            tensor_stft[tensor_stft == 0] = 1e-10
+
+            # Convert to decibel
+            tensor_stft_db = 10 * np.log10(tensor_stft)
+
+            # Calculate the minimum and maximum of each image
+            min_val = np.min(tensor_stft_db, axis=(2, 3), keepdims=True)
+            max_val = np.max(tensor_stft_db, axis=(2, 3), keepdims=True)
+
+            # Standardize each image
+            tensor_stft = (tensor_stft_db - min_val) / (max_val - min_val)
+
+            tensor_stft = np.repeat(tensor_stft, 3, axis=1)
+
+            # If the image is not the right size, pad with zeros
+            size = 224
+            # Assuming tensor_stft is your image
+            height, width = tensor_stft.shape[2], tensor_stft.shape[3]
+
+            # Calculate padding
+            pad_height = max(0, size - height)
+            pad_width = max(0, size - width)
+
+            # Pad the image
+            tensor_stft = np.pad(tensor_stft, ((0, 0), (0, 0), (pad_height//2, pad_height -
+                                                                pad_height//2), (pad_width//2, pad_width - pad_width//2)))
+
+            inputs = torch.from_numpy(tensor_stft).to(tensors.device)
 
         return inputs
 
