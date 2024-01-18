@@ -30,7 +30,7 @@ from portiloopml.portiloop_python.ANN.wamsley_utils import binary_f1_score, get_
 
 
 class MassLightning(pl.LightningModule):
-    def __init__(self, config, train_choice='both'):
+    def __init__(self, config):
         super().__init__()
         self.config = config
         # Define your model architecture here
@@ -49,8 +49,8 @@ class MassLightning(pl.LightningModule):
         self.spindle_testing_labels = torch.tensor([])
         self.testing_embeddings = torch.tensor([])
 
-        assert train_choice in ['both', 'spindles', 'staging']
-        self.train_choice = train_choice
+        assert config['train_choice'] in ['both', 'spindles', 'staging']
+        self.train_choice = config['train_choice']
 
         self.save_hyperparameters()
 
@@ -489,8 +489,8 @@ class MassLightning(pl.LightningModule):
 
 
 class MassLightningViT(MassLightning):
-    def __init__(self, config, train_choice='both'):
-        super().__init__(config, train_choice='both')
+    def __init__(self, config):
+        super().__init__(config)
         self.model = None
         self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
         self.classifier_ss = nn.Linear(768, 5)
@@ -632,14 +632,14 @@ if __name__ == "__main__":
     config = get_configs(experiment_name, True, seed)
     config['hidden_size'] = 256
     config['nb_rnn_layers'] = 8
-    config['lr'] = 1e-5
+    config['lr'] = 2e-4
     config['epoch_length'] = 1000
     config['validation_batch_size'] = 32
     config['segment_len'] = 1000
-    config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
+    config['train_choice'] = 'staging'  # One of "both", "spindles", "staging"
     config['use_filtered'] = False
     config['alpha'] = 0.1
-    config['useViT'] = True
+    config['useViT'] = False
 
     if config['useViT']:
         config['batch_size'] = 16
@@ -648,10 +648,10 @@ if __name__ == "__main__":
         config['seq_stride'] = 25000
         config['num_freqs_scale'] = 224
         config['wavelet'] = False
-        model = MassLightningViT(config, train_choice=config['train_choice'])
-        model.freeze_up_to(-1)
+        model = MassLightningViT(config)
+        # model.freeze_up_to(-1)
     else:
-        model = MassLightning(config, train_choice=config['train_choice'])
+        model = MassLightning(config)
 
     ############### DATA STUFF ##################
     config['num_subjects_train'] = num_train_subjects
