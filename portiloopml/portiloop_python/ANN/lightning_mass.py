@@ -38,16 +38,16 @@ class MassLightning(pl.LightningModule):
         self.spindle_criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
         self.staging_criterion = torch.nn.CrossEntropyLoss(reduction='mean')
 
-        self.ss_val_preds = torch.tensor([])
-        self.ss_val_labels = torch.tensor([])
-        self.spindle_val_preds = torch.tensor([])
-        self.spindle_val_labels = torch.tensor([])
+        self.ss_val_preds = []
+        self.ss_val_labels = []
+        self.spindle_val_preds = []
+        self.spindle_val_labels = []
 
-        self.ss_testing_preds = torch.tensor([])
-        self.ss_testing_labels = torch.tensor([])
-        self.spindle_testing_preds = torch.tensor([])
-        self.spindle_testing_labels = torch.tensor([])
-        self.testing_embeddings = torch.tensor([])
+        self.ss_testing_preds = []
+        self.ss_testing_labels = []
+        self.spindle_testing_preds = []
+        self.spindle_testing_labels = []
+        self.testing_embeddings = []
 
         assert config['train_choice'] in ['both', 'spindles', 'staging']
         self.train_choice = config['train_choice']
@@ -108,6 +108,7 @@ class MassLightning(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
 
+        start = time.time()
         vector = batch[0].to(self.device)
         label_ss = batch[1]['sleep_stage'].to(self.device)
         label_spindles = batch[1]['spindle_label'].to(self.device)
@@ -143,15 +144,11 @@ class MassLightning(pl.LightningModule):
 
         self.val_h = h
 
-       # Append the outputs and labels to the class variables
-        self.ss_val_preds = torch.cat(
-            (self.ss_val_preds, out_sleep_stages.unsqueeze(0)))
-        self.ss_val_labels = torch.cat(
-            (self.ss_val_labels, label_ss.unsqueeze(0)))
-        self.spindle_val_preds = torch.cat(
-            (self.spindle_val_preds, out_spindles.unsqueeze(0)))
-        self.spindle_val_labels = torch.cat(
-            (self.spindle_val_labels, label_spindles.unsqueeze(0)))
+        # Append the outputs and labels to the class variables
+        self.ss_val_preds.append(out_sleep_stages)
+        self.ss_val_labels.append(label_ss)
+        self.spindle_val_preds.append(out_spindles)
+        self.spindle_val_labels.append(label_spindles)
 
         # Log all losses:
         self.log('val_spindle_loss', spindle_loss)
@@ -160,12 +157,21 @@ class MassLightning(pl.LightningModule):
         loss = ss_loss + spindle_loss
         self.log('val_loss', loss)
 
+        end = time.time()
+        self.log('val_time', end - start, on_step=True)
+
         return loss
 
     def on_validation_epoch_end(self):
         '''
         Compute all the metrics for the validation epoch
         '''
+        # Stack all the predictions and labels
+        self.ss_val_preds = torch.stack(self.ss_val_preds, dim=0)
+        self.ss_val_labels = torch.stack(self.ss_val_labels, dim=0)
+        self.spindle_val_preds = torch.stack(self.spindle_val_preds, dim=0)
+        self.spindle_val_labels = torch.stack(self.spindle_val_labels, dim=0)
+
         # Define what to do at the end of a test epoch
         # We get the probabilities of sleep stage of each batch by averaging the last n batches
         n = min(5, self.ss_val_preds.shape[0])
@@ -301,10 +307,10 @@ class MassLightning(pl.LightningModule):
         self.log('val_spindle_recall', spindle_recall)
         self.log('val_spindle_precision', spindle_precision)
 
-        self.ss_val_preds = torch.tensor([])
-        self.ss_val_labels = torch.tensor([])
-        self.spindle_val_preds = torch.tensor([])
-        self.spindle_val_labels = torch.tensor([])
+        self.ss_val_preds = []
+        self.ss_val_labels = []
+        self.spindle_val_preds = []
+        self.spindle_val_labels = []
 
     def test_step(self, batch, batch_idx):
         # Define the test step here
@@ -333,21 +339,27 @@ class MassLightning(pl.LightningModule):
         label_spindles = label_spindles.cpu().detach()
 
         # Append the outputs and labels to the class variables
-        self.ss_testing_preds = torch.cat(
-            (self.ss_testing_preds, out_sleep_stages.unsqueeze(0)))
-        self.ss_testing_labels = torch.cat(
-            (self.ss_testing_labels, label_ss.unsqueeze(0)))
-        self.spindle_testing_preds = torch.cat(
-            (self.spindle_testing_preds, out_spindles.unsqueeze(0)))
-        self.spindle_testing_labels = torch.cat(
-            (self.spindle_testing_labels, label_spindles.unsqueeze(0)))
-        self.testing_embeddings = torch.cat(
-            (self.testing_embeddings, embeddings.unsqueeze(0)))
+        self.ss_testing_preds.append(out_sleep_stages)
+        self.ss_testing_labels.append(label_ss)
+        self.spindle_testing_preds.append(out_spindles)
+        self.spindle_testing_labels.append(label_spindles)
+        self.testing_embeddings.append(embeddings)
 
         self.testing_h = h
 
     def on_test_epoch_end(self):
         # Define what to do at the end of a test epoch
+
+        # Stack all the predictions and labels
+        self.ss_testing_preds = torch.stack(self.ss_testing_preds, dim=0)
+        self.ss_testing_labels = torch.stack(self.ss_testing_labels, dim=0)
+        self.spindle_testing_preds = torch.stack(
+            self.spindle_testing_preds, dim=0)
+        self.spindle_testing_labels = torch.stack(
+            self.spindle_testing_labels, dim=0)
+        self.testing_embeddings = torch.stack(
+            self.testing_embeddings, dim=0)
+
         # We get the probabilities of sleep stage of each batch by averaging the last n batches
         n = 5
         averaged_ss_preds = self.ss_testing_preds.unfold(0, n, 1).sum(dim=3)
@@ -472,6 +484,13 @@ class MassLightning(pl.LightningModule):
         self.log('test_spindle_recall', spindle_recall)
         self.log('test_spindle_precision', spindle_precision)
 
+        # Reset the class variables
+        self.ss_testing_preds = []
+        self.ss_testing_labels = []
+        self.spindle_testing_preds = []
+        self.spindle_testing_labels = []
+        self.testing_embeddings = []
+
     def configure_optimizers(self):
         # Define your optimizer(s) and learning rate scheduler(s) here
         optimizer = optim.AdamW(self.parameters(), betas=(
@@ -512,8 +531,9 @@ class MassLightningViT(MassLightning):
         '''
         if layer == -1:
             layer = 100
-        for name, param in model.named_parameters():
+        for name, param in self.vit.named_parameters():
             if name.split('.')[0] == 'encoder' and int(name.split('.')[2]) < layer:
+                print(f"Turning off gradient for {name}")
                 param.requires_grad = False
             else:
                 param.requires_grad = True
@@ -632,24 +652,28 @@ if __name__ == "__main__":
     config = get_configs(experiment_name, True, seed)
     config['hidden_size'] = 256
     config['nb_rnn_layers'] = 8
-    config['lr'] = 2e-4
-    config['epoch_length'] = 1000
-    config['validation_batch_size'] = 32
+    config['lr'] = 1e-4
+    config['epoch_length'] = -1
+    config['validation_batch_size'] = 512
     config['segment_len'] = 1000
-    config['train_choice'] = 'staging'  # One of "both", "spindles", "staging"
+    config['train_choice'] = 'spindles'  # One of "both", "spindles", "staging"
     config['use_filtered'] = False
     config['alpha'] = 0.1
     config['useViT'] = False
+    config['dropout'] = 0.5
+    config['batch_size'] = 64
+    config['seq_len'] = 50
 
     if config['useViT']:
         config['batch_size'] = 16
+        config['validation_batch_size'] = 32
         config['window_size'] = 25000
         config['seq_len'] = 1
         config['seq_stride'] = 25000
         config['num_freqs_scale'] = 224
         config['wavelet'] = False
         model = MassLightningViT(config)
-        # model.freeze_up_to(-1)
+        model.freeze_up_to(-1)
     else:
         model = MassLightning(config)
 
@@ -658,12 +682,19 @@ if __name__ == "__main__":
     config['num_subjects_val'] = num_val_subjects
     subject_loader = SubjectLoader(
         os.path.join(dataset_path, 'subject_info.csv'))
+
+    config['overfit'] = False
+
     train_subjects = subject_loader.select_random_subjects(
         num_subjects=config['num_subjects_train'], seed=seed)
     val_subjects = subject_loader.select_random_subjects(
         num_subjects=config['num_subjects_val'], seed=seed, exclude=train_subjects)
     test_subjects = subject_loader.select_random_subjects(
         num_subjects=config['num_subjects_val'], seed=seed, exclude=train_subjects + val_subjects)
+
+    if config['overfit']:
+        val_subjects = train_subjects
+        test_subjects = train_subjects
 
     train_dataset = MassDataset(
         dataset_path,
@@ -684,7 +715,7 @@ if __name__ == "__main__":
         sampleable='both')
 
     test_dataset = MassDataset(
-        '/project/MASS/mass_spindles_dataset',
+        dataset_path,
         subjects=test_subjects,
         window_size=config['window_size'],
         seq_len=1,
@@ -692,23 +723,32 @@ if __name__ == "__main__":
         use_filtered=config['use_filtered'],
         sampleable='both')
 
+    num_samples = config['epoch_length'] * \
+        config['batch_size'] if config['epoch_length'] >= 0 else None
     # Training Combined Dataloader DataLoaders
     train_staging_sampler = MassRandomSampler(
-        train_dataset, option='staging_all', num_samples=config['epoch_length'] * config['batch_size'])
+        train_dataset, option='staging_eq', num_samples=num_samples)
     train_staging_loader = utils.data.DataLoader(
         train_dataset, batch_size=config['batch_size'], sampler=train_staging_sampler)
     train_spindle_sampler = MassRandomSampler(
-        train_dataset, option='spindles', num_samples=config['epoch_length'] * config['batch_size'])
+        train_dataset, option='spindles', num_samples=num_samples)
     train_spindle_loader = utils.data.DataLoader(
         train_dataset, batch_size=config['batch_size'], sampler=train_spindle_sampler)
+
     train_loader = CombinedDataLoader(
         train_staging_loader, train_spindle_loader)
+
+    print(f"Total size of training dataset: {len(train_loader)}")
+    num_epochs_covering = len(train_loader) / \
+        (config['epoch_length'] * config['batch_size'] * (config['window_size']
+         * config['seq_len'] - (config['seq_stride'] * (config['seq_len'] - 1))))
+    print(f"Number of epochs to go over dataset: {num_epochs_covering}")
 
     # Validation DataLoader
     if config['useViT']:
         val_sampler = MassRandomSampler(
             val_dataset,
-            option='random',
+            option='staging_eq',
             num_samples=config['validation_batch_size'] *
             config['epoch_length'],
         )
@@ -762,7 +802,7 @@ if __name__ == "__main__":
     os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
     # Add a timestamps to the name
     project_name = "dual_model"
-    group = 'Training'
+    group = 'TrainingSpindle'
     wandb_logger = WandbLogger(
         project=project_name,
         group=group,
@@ -781,10 +821,11 @@ if __name__ == "__main__":
 
     ############### Trainer ##################
     trainer = pl.Trainer(
-        max_epochs=100,
+        max_epochs=1,
         accelerator='gpu',
         # fast_dev_run=10,
         logger=wandb_logger,
+        val_check_interval=1000,
     )
 
     trainer.fit(model,

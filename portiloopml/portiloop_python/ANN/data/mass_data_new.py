@@ -570,10 +570,10 @@ if __name__ == "__main__":
 
     print(f"Time taken: {end - start}")
 
-    sampler = MassConsecutiveSampler(
-        test, seq_stride, segment_length, max_batch_size=3)
-    # sampler = MassRandomSampler(
-    #     test, option='staging_eq', seed=42, num_samples=10)
+    # sampler = MassConsecutiveSampler(
+    #     test, seq_stride, segment_length, max_batch_size=3)
+    sampler = MassRandomSampler(
+        test, option='staging_eq', seed=42, num_samples=6)
 
     dataloader = DataLoader(
         test,
@@ -583,10 +583,11 @@ if __name__ == "__main__":
         pin_memory=True,
         drop_last=True)
 
-    for epoch in range(1):
+    for epoch in range(5):
+        print(f"Start epoch {epoch}")
         for idx, batch in enumerate(dataloader):
             print(f"Got batch {idx}")
         print("End epoch")
 
-    # print("testtting")
+    print("testtting")
     # print(f"dataloader length: {len(dataloader)}")
