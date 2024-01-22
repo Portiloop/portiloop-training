@@ -2,31 +2,34 @@ import argparse
 import os
 # from pathlib import Path
 import time
-from matplotlib import pyplot as plt
+
 import numpy as np
 import pytorch_lightning as pl
-from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score, confusion_matrix
+import pywt
 import torch
+import torch.nn as nn
+from lightning.pytorch.callbacks.early_stopping import EarlyStopping
+from matplotlib import pyplot as plt
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import WandbLogger
+from scipy.signal import spectrogram
+# import plotly.figure_factory as ff
+from sklearn.metrics import (ConfusionMatrixDisplay, accuracy_score,
+                             classification_report, confusion_matrix)
 # from torchinfo import summary
 from torch import optim, utils
-# import wandb
-from portiloopml.portiloop_python.ANN.data.mass_data_new import CombinedDataLoader, MassConsecutiveSampler, MassDataset, MassRandomSampler, SubjectLoader
-from pytorch_lightning.loggers import WandbLogger
-# import plotly.figure_factory as ff
-from sklearn.metrics import classification_report
-from transformers import ViTImageProcessor, ViTModel
-import numpy as np
-import pywt
 from torchvision.transforms.functional import to_pil_image
-import torch.nn as nn
-from scipy.signal import spectrogram
+from transformers import ViTImageProcessor, ViTModel
+import wandb
 
-
+# import wandb
+from portiloopml.portiloop_python.ANN.data.mass_data_new import (
+    CombinedDataLoader, MassConsecutiveSampler, MassDataset, MassRandomSampler,
+    SubjectLoader)
 from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork
 from portiloopml.portiloop_python.ANN.utils import get_configs, set_seeds
-from pytorch_lightning.callbacks import ModelCheckpoint
-
-from portiloopml.portiloop_python.ANN.wamsley_utils import binary_f1_score, get_spindle_onsets
+from portiloopml.portiloop_python.ANN.wamsley_utils import (binary_f1_score,
+                                                            get_spindle_onsets)
 
 
 class MassLightning(pl.LightningModule):
@@ -48,6 +51,8 @@ class MassLightning(pl.LightningModule):
         self.spindle_testing_preds = []
         self.spindle_testing_labels = []
         self.testing_embeddings = []
+
+        self.val_counter = 0
 
         assert config['train_choice'] in ['both', 'spindles', 'staging']
         self.train_choice = config['train_choice']
@@ -166,6 +171,7 @@ class MassLightning(pl.LightningModule):
         '''
         Compute all the metrics for the validation epoch
         '''
+
         # Stack all the predictions and labels
         self.ss_val_preds = torch.stack(self.ss_val_preds, dim=0)
         self.ss_val_labels = torch.stack(self.ss_val_labels, dim=0)
@@ -306,6 +312,12 @@ class MassLightning(pl.LightningModule):
         self.log('val_spindle_f1', spindle_f1)
         self.log('val_spindle_recall', spindle_recall)
         self.log('val_spindle_precision', spindle_precision)
+
+        # Log the combined metric
+        combined_metric = spindle_f1 + report_ss['accuracy']
+        self.log('val_combined', combined_metric)
+        self.log('val_counter', self.val_counter)
+        self.val_counter += 1
 
         self.ss_val_preds = []
         self.ss_val_labels = []
@@ -802,7 +814,7 @@ if __name__ == "__main__":
     os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
     # Add a timestamps to the name
     project_name = "dual_model"
-    group = 'TrainingSpindle'
+    group = 'Debugging'
     wandb_logger = WandbLogger(
         project=project_name,
         group=group,
@@ -813,9 +825,9 @@ if __name__ == "__main__":
     wandb_logger.watch(model, log="all")
 
     checkpoint_callback = ModelCheckpoint(
-        save_top_k=10,
+        save_top_k=-1,
         verbose=True,
-        monitor='val_f1',
+        monitor='val_combined',
         mode='max',
     )
 
@@ -826,6 +838,7 @@ if __name__ == "__main__":
         # fast_dev_run=10,
         logger=wandb_logger,
         val_check_interval=1000,
+        callbacks=[checkpoint_callback],
     )
 
     trainer.fit(model,
