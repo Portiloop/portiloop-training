@@ -8,9 +8,8 @@ import pytorch_lightning as pl
 import pywt
 import torch
 import torch.nn as nn
-from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from matplotlib import pyplot as plt
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 from scipy.signal import spectrogram
 # import plotly.figure_factory as ff
@@ -681,7 +680,7 @@ if __name__ == "__main__":
         config['validation_batch_size'] = 32
         config['window_size'] = 25000
         config['seq_len'] = 1
-        config['seq_stride'] = 25000
+        config['seq_stride'] = 42
         config['num_freqs_scale'] = 224
         config['wavelet'] = False
         model = MassLightningViT(config)
@@ -756,55 +755,30 @@ if __name__ == "__main__":
          * config['seq_len'] - (config['seq_stride'] * (config['seq_len'] - 1))))
     print(f"Number of epochs to go over dataset: {num_epochs_covering}")
 
-    # Validation DataLoader
-    if config['useViT']:
-        val_sampler = MassRandomSampler(
-            val_dataset,
-            option='staging_eq',
-            num_samples=config['validation_batch_size'] *
-            config['epoch_length'],
-        )
-        val_loader = utils.data.DataLoader(
-            val_dataset,
-            batch_size=config['validation_batch_size'],
-            sampler=val_sampler)
+    val_sampler = MassConsecutiveSampler(
+        val_dataset,
+        config['seq_stride'],
+        config['segment_len'],
+        max_batch_size=config['validation_batch_size'],
+    )
+    real_batch_size = val_sampler.get_batch_size()
+    val_loader = utils.data.DataLoader(
+        val_dataset,
+        batch_size=real_batch_size,
+        sampler=val_sampler)
 
-        # Test DataLoader
-        test_sampler = MassRandomSampler(
-            test_dataset,
-            option='random',
-            num_samples=config['validation_batch_size'] *
-            config['epoch_length'],
-        )
-        test_loader = utils.data.DataLoader(
-            test_dataset,
-            batch_size=config['validation_batch_size'],
-            sampler=test_sampler)
-    else:
-        val_sampler = MassConsecutiveSampler(
-            val_dataset,
-            config['seq_stride'],
-            config['segment_len'],
-            max_batch_size=config['validation_batch_size'],
-        )
-        real_batch_size = val_sampler.get_batch_size()
-        val_loader = utils.data.DataLoader(
-            val_dataset,
-            batch_size=real_batch_size,
-            sampler=val_sampler)
-
-        # Test DataLoader
-        test_sampler = MassConsecutiveSampler(
-            test_dataset,
-            config['seq_stride'],
-            config['segment_len'],
-            max_batch_size=config['validation_batch_size'],
-        )
-        real_batch_size = test_sampler.get_batch_size()
-        test_loader = utils.data.DataLoader(
-            test_dataset,
-            batch_size=real_batch_size,
-            sampler=test_sampler)
+    # Test DataLoader
+    test_sampler = MassConsecutiveSampler(
+        test_dataset,
+        config['seq_stride'],
+        config['segment_len'],
+        max_batch_size=config['validation_batch_size'],
+    )
+    real_batch_size = test_sampler.get_batch_size()
+    test_loader = utils.data.DataLoader(
+        test_dataset,
+        batch_size=real_batch_size,
+        sampler=test_sampler)
 
     config['subjects_train'] = train_subjects
     config['subjects_val'] = val_subjects
@@ -831,6 +805,15 @@ if __name__ == "__main__":
         mode='max',
     )
 
+    # Early stopping
+    early_stop_callback = EarlyStopping(
+        monitor='val_combined',
+        min_delta=0.00,
+        patience=50,
+        verbose=True,
+        mode='max',
+    )
+
     ############### Trainer ##################
     trainer = pl.Trainer(
         max_epochs=1,
@@ -838,7 +821,7 @@ if __name__ == "__main__":
         # fast_dev_run=10,
         logger=wandb_logger,
         val_check_interval=1000,
-        callbacks=[checkpoint_callback],
+        callbacks=[checkpoint_callback, early_stop_callback],
     )
 
     trainer.fit(model,
