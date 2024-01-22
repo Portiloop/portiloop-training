@@ -271,25 +271,27 @@ class MassLightning(pl.LightningModule):
         # Add zeros between each prediction to account for the seq_stride
         # Helper method do that cleanly
         def add_stride_back(preds, seq_stride=42):
-            total_points = n * len(preds)
+            total_points = seq_stride * len(preds)
             out = torch.zeros(total_points, dtype=preds.dtype)
             # Get the indexes where we need to put the predictions
-            idx = torch.arange(0, total_points, n)
+            idx = torch.arange(0, total_points, seq_stride)
             # Put the predictions at the right indexes
             out.index_copy_(0, idx, preds)
 
             return out
 
-        spindle_preds = add_stride_back(spindle_preds)
-        spindle_labels = add_stride_back(spindle_labels)
+        spindle_preds = add_stride_back(
+            spindle_preds, seq_stride=config['seq_stride'])
+        spindle_labels = add_stride_back(
+            spindle_labels, seq_stride=config['seq_stride'])
 
         # Get all the spindle onsets
-        spinlde_onsets_labels = get_spindle_onsets(spindle_labels)
+        spindle_onsets_labels = get_spindle_onsets(spindle_labels)
         spindle_onsets_preds = get_spindle_onsets(spindle_preds)
 
         # Compute the metrics for spindle detection using out binary f1 score
         spindle_precision, spindle_recall, spindle_f1, tp, fp, fn, _ = binary_f1_score(
-            spinlde_onsets_labels, spindle_onsets_preds)
+            spindle_onsets_labels, spindle_onsets_preds)
         tn = len(spindle_labels) - tp - fp - fn
         cm = np.array([[tn, fp], [fn, tp]])
 
@@ -749,11 +751,7 @@ if __name__ == "__main__":
     train_loader = CombinedDataLoader(
         train_staging_loader, train_spindle_loader)
 
-    print(f"Total size of training dataset: {len(train_loader)}")
-    num_epochs_covering = len(train_loader) / \
-        (config['epoch_length'] * config['batch_size'] * (config['window_size']
-         * config['seq_len'] - (config['seq_stride'] * (config['seq_len'] - 1))))
-    print(f"Number of epochs to go over dataset: {num_epochs_covering}")
+    print(f"Total size of training dataset: {len(train_loader)} batches")
 
     val_sampler = MassConsecutiveSampler(
         val_dataset,
@@ -766,6 +764,13 @@ if __name__ == "__main__":
         val_dataset,
         batch_size=real_batch_size,
         sampler=val_sampler)
+
+    # Check how many positive spindle indexes there are in the validation set
+    spindle_indexes = 0
+    for batch in val_loader:
+        spindle_indexes += torch.sum(batch[1]['spindle_label'] == 1)
+    print(
+        f"Number of positive spindle indexes in the validation set: {spindle_indexes} (Not unique spindles)")
 
     # Test DataLoader
     test_sampler = MassConsecutiveSampler(
