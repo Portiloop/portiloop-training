@@ -53,7 +53,8 @@ class MassLightning(pl.LightningModule):
 
         self.val_counter = 0
 
-        assert config['train_choice'] in ['both', 'spindles', 'staging']
+        assert config['train_choice'] in ['both', 'spindles', 'staging'], \
+            f"train_choice must be one of 'both', 'spindles' or 'staging', found {config['train_choice']}"
         self.train_choice = config['train_choice']
 
         self.save_hyperparameters()
@@ -177,36 +178,20 @@ class MassLightning(pl.LightningModule):
         self.spindle_val_preds = torch.stack(self.spindle_val_preds, dim=0)
         self.spindle_val_labels = torch.stack(self.spindle_val_labels, dim=0)
 
-        # Define what to do at the end of a test epoch
-        # We get the probabilities of sleep stage of each batch by averaging the last n batches
-        n = min(5, self.ss_val_preds.shape[0])
-        averaged_ss_preds = self.ss_val_preds.unfold(0, n, 1).sum(dim=3)
-        averaged_ss_preds = torch.softmax(averaged_ss_preds, dim=2)
-        averaged_ss_preds = averaged_ss_preds.argmax(dim=2)
-
-        # Now we can flatten the predictions and labels
-        averaged_ss_preds = averaged_ss_preds.flatten(start_dim=0, end_dim=1)
-        ss_labels = self.ss_val_labels[n-1:].flatten(
-            start_dim=0, end_dim=1)
-        ss_preds = self.ss_val_preds[n-1:].flatten(
-            start_dim=0, end_dim=1)
+        # Flatten all the predictions and get the argmax
+        ss_preds = self.ss_val_preds.flatten(start_dim=0, end_dim=1)
         ss_preds = torch.argmax(ss_preds, dim=1)
+        ss_labels = self.ss_val_labels.flatten(start_dim=0, end_dim=1)
 
         # We remove all indexes where the label is 5 (unknown)
         mask = ss_labels != 5
         ss_labels = ss_labels[mask]
         ss_preds = ss_preds[mask]
-        averaged_ss_preds = averaged_ss_preds[mask]
 
         # Compute the metrics for sleep staging using sklearn classification report
         report_ss = classification_report(
             ss_labels,
             ss_preds,
-            output_dict=True,
-        )
-        report_avg_ss = classification_report(
-            ss_labels,
-            averaged_ss_preds,
             output_dict=True,
         )
 
@@ -230,37 +215,11 @@ class MassLightning(pl.LightningModule):
             commit=False,
         )
 
-        # Create a matplotlib figure for the confusion matrix fro average method
-        cm = confusion_matrix(
-            ss_labels,
-            averaged_ss_preds,
-            labels=[0, 1, 2, 3, 4],
-        )
-
-        # Log the figure
-        self.logger.experiment.log(
-            {
-                'val_cm_staging_avg': plt,
-            },
-            commit=False,
-        )
-
-        # Create a matplotlib figure for the confusion matrix
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm,
-                                      display_labels=MassDataset.get_ss_labels()[:-1])
-        disp.plot()
-
         # Log all metrics:
         self.log('val_ss_acc', report_ss['accuracy'])
         self.log('val_ss_f1', report_ss['macro avg']['f1-score'])
         self.log('val_ss_recall', report_ss['macro avg']['recall'])
         self.log('val_ss_precision', report_ss['macro avg']['precision'])
-
-        self.log('val_avg_ss_acc', report_avg_ss['accuracy'])
-        self.log('val_avg_ss_f1', report_avg_ss['macro avg']['f1-score'])
-        self.log('val_avg_ss_recall', report_avg_ss['macro avg']['recall'])
-        self.log('val_avg_ss_precision',
-                 report_avg_ss['macro avg']['precision'])
 
         # Flatten all spindle predictions and labels
         spindle_labels = self.spindle_val_labels.T.flatten(
@@ -669,9 +628,9 @@ if __name__ == "__main__":
     config['epoch_length'] = -1
     config['validation_batch_size'] = 512
     config['segment_len'] = 1000
-    config['train_choice'] = 'spindles'  # One of "both", "spindles", "staging"
+    config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
     config['use_filtered'] = False
-    config['alpha'] = 0.1
+    config['alpha'] = 0.5
     config['useViT'] = False
     config['dropout'] = 0.5
     config['batch_size'] = 64
