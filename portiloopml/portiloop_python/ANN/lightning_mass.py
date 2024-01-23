@@ -227,6 +227,8 @@ class MassLightning(pl.LightningModule):
         spindle_preds = self.spindle_val_preds.T.flatten(
             start_dim=0, end_dim=1) >= 0.5
 
+        len_spindle_preds = spindle_preds.shape[0]
+
         # Add zeros between each prediction to account for the seq_stride
         # Helper method do that cleanly
         def add_stride_back(preds, seq_stride=42):
@@ -251,7 +253,7 @@ class MassLightning(pl.LightningModule):
         # Compute the metrics for spindle detection using out binary f1 score
         spindle_precision, spindle_recall, spindle_f1, tp, fp, fn, _ = binary_f1_score(
             spindle_onsets_labels, spindle_onsets_preds)
-        tn = len(spindle_labels) - tp - fp - fn
+        tn = len_spindle_preds - tp - fp - fn
         cm = np.array([[tn, fp], [fn, tp]])
 
         # Create a matplotlib figure for the confusion matrix
@@ -624,7 +626,7 @@ if __name__ == "__main__":
     config = get_configs(experiment_name, True, seed)
     config['hidden_size'] = 256
     config['nb_rnn_layers'] = 8
-    config['lr'] = 1e-4
+    config['lr'] = 1e-5
     config['epoch_length'] = -1
     config['validation_batch_size'] = 512
     config['segment_len'] = 1000
