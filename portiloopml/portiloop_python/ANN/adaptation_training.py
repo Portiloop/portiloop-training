@@ -16,6 +16,7 @@ from portiloopml.portiloop_python.ANN.lightning_tests import load_model
 from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork, get_trained_model
 from portiloopml.portiloop_python.ANN.utils import get_configs, get_metrics, set_seeds
 from scipy.signal import firwin, remez, kaiser_atten, kaiser_beta, kaiserord, filtfilt
+from portiloopml.portiloop_python.ANN.validation_mass import load_model_mass
 
 from portiloopml.portiloop_python.ANN.wamsley_utils import binary_f1_score, detect_wamsley, get_spindle_onsets
 
@@ -265,7 +266,7 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     optimizer = optim.AdamW(net_copy.parameters(),
                             lr=0.000005, weight_decay=config['adam_w'])
     # optimizer = optim.SGD(net_copy.parameters(), lr=0.000003, momentum=0.9)
-    criterion = nn.BCELoss(reduction='none')
+    criterion = nn.BCEWithLogitsLoss(reduction='none')
 
     training_losses = []
     inference_loss = []
@@ -294,10 +295,10 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
             window_labels = window_labels.to(device)
 
             # Get the output of the network
-            output, h1, _ = net_copy(window_data, h1)
+            spindle_output, ss_output, h1, _ = net_copy(window_data, h1)
 
             # Compute the loss
-            output = output.squeeze(-1)
+            output = spindle_output.squeeze(-1)
             window_labels = window_labels.float()
 
             # Update the loss
@@ -310,7 +311,8 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
             adap_dataset.add_window(window_data, ss_label, output)
 
             # Get the predictions
-            output = (output >= 0.70)
+            output = torch.sigmoid(output)
+            output = (output >= 0.50)
 
             window_labels_total = torch.cat(
                 [window_labels_total, window_labels])
@@ -507,18 +509,22 @@ if __name__ == "__main__":
     set_seeds(seed)
 
     config = get_configs(args.experiment_name, False, seed)
-    # config['nb_conv_layers'] = 4
-    config['hidden_size'] = 64
-    config['nb_rnn_layers'] = 3
-    config['after_rnn'] = 'hidden'
 
     # Load the model
 
-    net = get_trained_model(config, config['path_models'] / args.model_path)
+    # net = get_trained_model(config, config['path_models'] / args.model_path)
 
-    for name, param in net.named_parameters():
-        if name not in ['fc.weight', 'fc.bias', 'hidden_fc.weight', 'hidden_fc.bias']:
-            param.requires_grad = False
+    # for name, param in net.named_parameters():
+    #     if name not in ['fc.weight', 'fc.bias', 'hidden_fc.weight', 'hidden_fc.bias']:
+    #         param.requires_grad = False
+
+    net, run = load_model_mass("Adaptation")
+    net.freeze_embeddings()
+
+    config['nb_conv_layers'] = net.config['nb_conv_layers']
+    config['hidden_size'] = net.config['hidden_size']
+    config['nb_rnn_layers'] = net.config['nb_rnn_layers']
+    config['after_rnn'] = net.config['after_rnn']
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -532,7 +538,7 @@ if __name__ == "__main__":
         # (Train, Skip SS)
         # (False, True),
         (False, False),
-        (True, False),
+        # (True, False),
         # (True, True)
     ]
 

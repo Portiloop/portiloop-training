@@ -63,6 +63,13 @@ class MassLightning(pl.LightningModule):
         # Define the forward pass of your model here
         out_spindles, out_sleep_stages, h, embeddings = self.model(x, h)
         return out_spindles, out_sleep_stages, h, embeddings
+    
+    def freeze_embeddings(self):
+        for name, param in self.model.named_parameters():
+            # Freeze if not a classifier
+            if 'classifier' not in name.split('.')[0]:
+                print(f"Freezing layer {name}")
+                param.requires_grad = False
 
     def training_step(self, batch, batch_idx):
         # Define the training step here
@@ -602,14 +609,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=42,
                         help='Seed for random number generator')
-    parser.add_argument('--experiment_name', type=str,
-                        required=True, help='Name of the experiment')
-    parser.add_argument('--num_train_subjects', type=int,
-                        required=True, help='Number of subjects for training')
-    parser.add_argument('--num_val_subjects', type=int,
-                        required=True, help='Number of subjects for validation')
-    parser.add_argument('--dataset_path', type=str,
-                        required=True, help='Path to the MASS dataset.')
+    parser.add_argument('--experiment_name', type=str, help='Name of the experiment',
+                        default='DEFAULT_NAME')
+    parser.add_argument('--num_train_subjects', type=int,  help='Number of subjects for training',
+                        default=1)
+    parser.add_argument('--num_val_subjects', type=int, help='Number of subjects for validation',
+                        default=1)
+    parser.add_argument('--dataset_path', type=str, help='Path to the MASS dataset.',
+                        default='/project/MASS/mass_spindles_dataset/')
 
     args = parser.parse_args()
 
@@ -631,7 +638,7 @@ if __name__ == "__main__":
     config['validation_batch_size'] = 512
     config['segment_len'] = 1000
     config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
-    config['use_filtered'] = False
+    config['use_filtered'] = True
     config['alpha'] = 0.5
     config['useViT'] = False
     config['dropout'] = 0.5
@@ -650,6 +657,9 @@ if __name__ == "__main__":
         model.freeze_up_to(-1)
     else:
         model = MassLightning(config)
+        model.freeze_embeddings()
+
+    exit()
 
     ############### DATA STUFF ##################
     config['num_subjects_train'] = num_train_subjects
