@@ -63,7 +63,7 @@ class MassLightning(pl.LightningModule):
         # Define the forward pass of your model here
         out_spindles, out_sleep_stages, h, embeddings = self.model(x, h)
         return out_spindles, out_sleep_stages, h, embeddings
-    
+
     def freeze_embeddings(self):
         for name, param in self.model.named_parameters():
             # Freeze if not a classifier
@@ -633,7 +633,7 @@ if __name__ == "__main__":
     config = get_configs(experiment_name, True, seed)
     config['hidden_size'] = 256
     config['nb_rnn_layers'] = 8
-    config['lr'] = 1e-5
+    config['lr'] = 1e-4
     config['epoch_length'] = -1
     config['validation_batch_size'] = 512
     config['segment_len'] = 1000
@@ -658,8 +658,6 @@ if __name__ == "__main__":
     else:
         model = MassLightning(config)
         model.freeze_embeddings()
-
-    exit()
 
     ############### DATA STUFF ##################
     config['num_subjects_train'] = num_train_subjects

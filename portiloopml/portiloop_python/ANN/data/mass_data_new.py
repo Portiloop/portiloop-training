@@ -261,6 +261,9 @@ class MassConsecutiveSampler(Sampler):
         # We remove the alst one to make sure we do not go out of bounds
         self.start_indexes = np.arange(
             0, len(self.data_source), self.segment_len * self.seq_stride)[:-1]
+        # if len(self.start_indexes) > 1:
+        #     self.start_indexes = self.start_indexes[:-1]
+
         self.new_indexes = self.start_indexes
         # Add the same indexes +1, +2, +3, ..., up to seq_stride
         for i in range(1, self.seq_stride):

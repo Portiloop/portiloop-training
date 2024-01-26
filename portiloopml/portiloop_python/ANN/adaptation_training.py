@@ -1,10 +1,12 @@
 import argparse
 from collections import deque
 import json
+import os
 import random
 import time
 from matplotlib import pyplot as plt
 from scipy import signal
+from sklearn.metrics import ConfusionMatrixDisplay, classification_report, confusion_matrix
 import torch
 from torch import nn
 from torch import optim
@@ -12,6 +14,7 @@ import copy
 import numpy as np
 from tqdm import tqdm
 from portiloopml.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, SingleSubjectSampler, SleepStageDataset, read_pretraining_dataset, read_sleep_staging_labels, read_spindle_trains_labels
+from portiloopml.portiloop_python.ANN.data.mass_data_new import MassConsecutiveSampler, MassDataset, SubjectLoader
 from portiloopml.portiloop_python.ANN.lightning_tests import load_model
 from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork, get_trained_model
 from portiloopml.portiloop_python.ANN.utils import get_configs, get_metrics, set_seeds
@@ -105,7 +108,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.label_buffer = []
         self.spindle_indexes = []
         self.non_spindle_indexes = []
-        self.pred_threshold = 0.82
+        self.pred_threshold = 0.80
 
         # signal needed before the last window
         self.seq_len = config['seq_len']
@@ -118,6 +121,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.wamsley_buffer = []
         self.ss_mask_buffer = []
         self.prediction_buffer = []
+        self.label_buffer = []
         self.last_wamsley_run = 0
 
         # Sampleable lists
@@ -157,7 +161,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         """
         return len(self.wamsley_buffer) - self.min_signal_len
 
-    def add_window(self, window, ss_label, model_pred):
+    def add_window(self, window, ss_label, model_pred, spindle_label=None):
         """
         Adds a window to the buffers to make it a sample when enough windows have arrived
         """
@@ -173,9 +177,13 @@ class AdaptationDataset(torch.utils.data.Dataset):
         ss_mask_to_add = [ss_label] * len(points_to_add)
         preds_to_add = [bool(model_pred.cpu() >= self.pred_threshold)] * \
             len(points_to_add)
+        if spindle_label is not None:
+            spindle_labels_to_add = [bool(spindle_label)] * len(points_to_add)
         self.wamsley_buffer += points_to_add
         self.ss_mask_buffer += ss_mask_to_add
         self.prediction_buffer += preds_to_add
+        if spindle_label is not None:
+            self.label_buffer += spindle_labels_to_add
 
         # Update the last wamsley run counter
         self.last_wamsley_run += len(points_to_add)
@@ -242,7 +250,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
             and len(self.sampleable_missed_spindles) > self.batch_size
 
 
-def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
+def run_adaptation(dataloader, net, device, config, train):
     """
     Goes over the dataset and learns at every step.
     Returns the accuracy and loss as well as fp, fn, tp, tn count for spindles
@@ -264,15 +272,17 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
 
     # Initialize optimizer and criterion
     optimizer = optim.AdamW(net_copy.parameters(),
-                            lr=0.000005, weight_decay=config['adam_w'])
+                            lr=config['lr'], weight_decay=config['adam_w'])
     # optimizer = optim.SGD(net_copy.parameters(), lr=0.000003, momentum=0.9)
     criterion = nn.BCEWithLogitsLoss(reduction='none')
 
     training_losses = []
     inference_loss = []
     n = 0
-    window_labels_total = torch.tensor([], device=device)
-    output_total = torch.tensor([], device=device)
+
+    # Keep the sleep staging labels and predictions
+    ss_labels = []
+    ss_preds = []
 
     # Initialize the hidden state of the GRU to Zero. We always have a batch size of 1 in this case
     h1 = torch.zeros((config['nb_rnn_layers'], 1,
@@ -282,20 +292,24 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     train_iterations = 0
 
     counter = 0
-    for index, info in enumerate(tqdm(dataloader)):
+    for index, batch in enumerate(tqdm(dataloader)):
 
         net_copy.eval()
         with torch.no_grad():
             counter += 1
 
             # Get the data and labels
-            window_data, _, _, window_labels, ss_label = info
+            window_data, labels = batch
 
             window_data = window_data.to(device)
-            window_labels = window_labels.to(device)
+            ss_label = labels['sleep_stage'].to(device)
+            window_labels = labels['spindle_label'].to(device)
 
             # Get the output of the network
             spindle_output, ss_output, h1, _ = net_copy(window_data, h1)
+
+            ss_labels.append(ss_label.cpu().item())
+            ss_preds.append(ss_output.cpu())
 
             # Compute the loss
             output = spindle_output.squeeze(-1)
@@ -308,15 +322,12 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
 
             # Add the window to the adaptation dataset given the sleep stage
             # This should eventually be replaced with a real sleep staging model
-            adap_dataset.add_window(window_data, ss_label, output)
-
-            # Get the predictions
             output = torch.sigmoid(output)
-            output = (output >= 0.50)
-
-            window_labels_total = torch.cat(
-                [window_labels_total, window_labels])
-            output_total = torch.cat([output_total, output])
+            adap_dataset.add_window(
+                window_data,
+                ss_label,
+                output,
+                window_labels.cpu().item())
 
         # Training loop for the adaptation
         if adap_dataset.has_samples() and train:
@@ -331,7 +342,7 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
             # Get the output of the network
             h_zero = torch.zeros((config['nb_rnn_layers'], train_sample.size(
                 0), config['hidden_size']), device=device)
-            output, _, _ = net_copy(train_sample, h_zero)
+            output, _, _, _ = net_copy(train_sample, h_zero)
 
             # Compute the loss
             output = output.squeeze(-1)
@@ -347,7 +358,47 @@ def run_adaptation(dataloader, net, device, config, train, skip_ss=False):
     inf_loss = sum(inference_loss)
     inf_loss /= n
 
-    return output_total, window_labels_total, inf_loss, net_copy, inference_loss, training_losses, adap_dataset
+    # Compute the metrics for sleep staging
+    ss_labels = torch.Tensor(ss_labels).type(torch.LongTensor)
+    ss_preds = torch.cat(ss_preds, dim=0)
+    ss_metrics = staging_metrics(ss_labels, ss_preds)
+
+    plt.plot(ss_metrics[2])
+    plt.plot(ss_labels)
+    plt.savefig(f'sleep_staging_all.png')
+
+    # Create a matplotlib figure for the confusion matrix
+    disp = ConfusionMatrixDisplay(confusion_matrix=ss_metrics[1],
+                                  display_labels=MassDataset.get_ss_labels()[:-1])
+    disp.plot()
+    plt.savefig(f"sleep_staging_confusion_matrix.png")
+
+    return inf_loss, net_copy, inference_loss, training_losses, adap_dataset
+
+
+def staging_metrics(labels, preds):
+    ss_preds_all = torch.argmax(preds, dim=1)
+
+    # We remove all indexes where the label is 5 (unknown)
+    mask = labels != 5
+    ss_labels = labels[mask]
+    ss_preds = ss_preds_all[mask]
+
+    # Compute the metrics for sleep staging using sklearn classification report
+    report_ss = classification_report(
+        ss_labels,
+        ss_preds,
+        output_dict=True,
+    )
+
+    # Get the confusion matrix
+    cm = confusion_matrix(
+        ss_labels,
+        ss_preds,
+        labels=[0, 1, 2, 3, 4],
+    )
+
+    return report_ss, cm, ss_preds_all
 
 
 def parse_config():
@@ -392,64 +443,31 @@ def parse_worker_subject_div(subjects, total_workers, worker_id):
     return worker_subjects
 
 
-def run_subject(net, subject_id, train, labels, ss_labels, skip_ss=False):
+def run_subject(net, dataloader, train, config):
     config['subject_id'] = subject_id
 
-    data = read_pretraining_dataset(
-        config['MASS_dir'], patients_to_keep=[subject_id])
-
-    assert subject_id in data.keys(), 'Subject not in the dataset'
-    assert subject_id in labels.keys(), 'Subject not in the dataset'
-
-    pre_dataset = SingleSubjectDataset(
-        config['subject_id'], data=data, labels=labels, config=config, ss_labels=ss_labels, delete=False)
-
-    mask = (np.array(pre_dataset.full_ss_labels) == SleepStageDataset.get_labels().index(
-        "3")) | (np.array(pre_dataset.full_ss_labels) == SleepStageDataset.get_labels().index("2"))
-
-    all_wamsley_spindles, all_threshold, _merge_close = detect_wamsley(
-        pre_dataset.full_signal, mask)
-
-    spindle_info = {}
-    spindle_info[subject_id] = {
-        'onsets': [],
-        'offsets': [],
-        'labels_num': []
-    }
-    for spindle in all_wamsley_spindles:
-        spindle_info[subject_id]['onsets'].append(spindle[0])
-        spindle_info[subject_id]['offsets'].append(spindle[2])
-        spindle_info[subject_id]['labels_num'].append(1)
-
-    dataset = SingleSubjectDataset(
-        config['subject_id'], data=data, labels=spindle_info, config=config, ss_labels=ss_labels)
-
-    sampler = SingleSubjectSampler(len(dataset), config['seq_stride'])
-    dataloader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=1,
-        sampler=sampler,
-        num_workers=0)
-
-    # Run the adaptation
-    start = time.time()
-
     # run_adaptation(dataloader, net, device, config)
-    output_total, window_labels_total, loss, net_copy, inf_losses, train_losses, adap_dataset = run_adaptation(
-        dataloader, net, device, config, train, skip_ss=skip_ss)
-
-    end = time.time()
-    print(f"Time to run the adaptation: {end - start}")
+    loss, net_copy, inf_losses, train_losses, adap_dataset = run_adaptation(
+        dataloader,
+        net,
+        device,
+        config,
+        train)
 
     # Compare the online spindles to the ground truth
-    gt_spindles_onsets = [spindle[0] for spindle in all_wamsley_spindles]
+    # gt_spindles_onsets = [spindle[0] for spindle in all_wamsley_spindles]
     online_spindles_onsets = get_spindle_onsets(
         adap_dataset.prediction_buffer)
+    gt_spindles_onsets = get_spindle_onsets(
+        adap_dataset.label_buffer)
+
+    print(len(online_spindles_onsets))
     precision, recall, f1, tp, fp, fn, closest = binary_f1_score(
         gt_spindles_onsets, online_spindles_onsets, threshold=125)
 
-    print(
-        f"Found {len(online_spindles_onsets)} spindles, expected {len(gt_spindles_onsets)} spindles")
+    print(f"Model found: {len(online_spindles_onsets)} spindles")
+    print(f"GT has: {len(gt_spindles_onsets)} spindles")
+    print(f"Online Wamsley found: {len(adap_dataset.total_spindles)} spindles")
     print(f"Precision: {precision}")
     print(f"Recall: {recall}")
     print(f"F1: {f1}")
@@ -498,6 +516,33 @@ def run_subject(net, subject_id, train, labels, ss_labels, skip_ss=False):
     return metrics
 
 
+def dataloader_from_subject(subject):
+    dataset = MassDataset(
+        dataset_path,
+        subjects=subject,
+        window_size=54,
+        seq_stride=42,
+        seq_len=1,
+        use_filtered=False)
+
+    sampler = MassConsecutiveSampler(
+        dataset,
+        seq_stride=42,
+        # segment_len=len(dataset) // 42,
+        segment_len=10000,
+        max_batch_size=1
+    )
+
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=1,
+        sampler=sampler,
+        num_workers=0,
+        shuffle=False)
+
+    return dataloader
+
+
 if __name__ == "__main__":
     # Parse config dict important for the adapatation
     args = parse_config()
@@ -505,10 +550,10 @@ if __name__ == "__main__":
         seed = random.randint(0, 100000)
     else:
         seed = args.seed
-    # seed = 42
+    seed = 42
     set_seeds(seed)
 
-    config = get_configs(args.experiment_name, False, seed)
+    # config = get_configs(args.experiment_name, False, seed)
 
     # Load the model
 
@@ -521,81 +566,88 @@ if __name__ == "__main__":
     net, run = load_model_mass("Adaptation")
     net.freeze_embeddings()
 
-    config['nb_conv_layers'] = net.config['nb_conv_layers']
-    config['hidden_size'] = net.config['hidden_size']
-    config['nb_rnn_layers'] = net.config['nb_rnn_layers']
-    config['after_rnn'] = net.config['after_rnn']
+    # config['nb_conv_layers'] = net.config['nb_conv_layers']
+    # config['hidden_size'] = net.config['hidden_size']
+    # config['nb_rnn_layers'] = net.config['nb_rnn_layers']
+    # config['after_rnn'] = net.config['after_rnn']
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Run some testing on subject 1
     # Load the data
-    labels = read_spindle_trains_labels(config['old_dataset'])
-    ss_labels = read_sleep_staging_labels(config['path_dataset'])
+    # labels = read_spindle_trains_labels(config['old_dataset'])
+    # ss_labels = read_sleep_staging_labels(config['path_dataset'])
 
     # Experiment parameters:
-    params = [
-        # (Train, Skip SS)
-        # (False, True),
-        (False, False),
-        # (True, False),
-        # (True, True)
-    ]
+    # params = [
+    #     # (Train, Skip SS)
+    #     # (False, True),
+    #     (False, False),
+    #     # (True, False),
+    #     # (True, True)
+    # ]
 
     # Number of subjects to run each experiment over
-    NUM_SUBJECTS = 40
+    config = {
+        'num_subjects': 10,
+        'train': True,
+        'seq_len': 1,
+        'seq_stride': 42,
+        'window_size': 54,
+        'lr': 0.000001,
+        'adam_w': 0.001,
+        'hidden_size': net.config['hidden_size'],
+        'nb_rnn_layers': net.config['nb_rnn_layers'],
+    }
 
-    experiment_results = {}
-    all_subjects = [subject for subject in labels.keys()
-                    if subject in ss_labels.keys()]
-
-    for subject in all_subjects:
-        assert subject in labels.keys(), 'Subject not in the dataset'
-        assert subject in ss_labels.keys(), 'Subject not in the dataset'
-
-    # Randomly select the subjects
-    random.seed(42)
-    random.shuffle(all_subjects)
-    all_subjects = all_subjects[:NUM_SUBJECTS]
+    dataset_path = '/project/MASS/mass_spindles_dataset/'
+    loader = SubjectLoader(
+        os.path.join(dataset_path, 'subject_info.csv'))
+    subjects = loader.select_random_subjects(config['num_subjects'])
 
     # Each worker only does its subjects
     worker_id = args.worker_id
-    my_subjects_indexes = parse_worker_subject_div(
-        all_subjects, args.num_workers, worker_id)
+
+    for subject_id in subjects:
+        dataloader = dataloader_from_subject([subject_id])
+        metrics = run_subject(net, dataloader, config['train'], config)
+
+        print(metrics)
+
     # my_subjects_indexes = ["01-05-0015"]
     # Now, you can use worker_subjects in your script for experiments
-    for subject in my_subjects_indexes:
-        # Perform experiments for the current subject
-        print(f"Worker {worker_id} is working on {subject}")
+    # for subject in my_subjects_indexes:
+    #     # Perform experiments for the current subject
+    #     print(f"Worker {worker_id} is working on {subject}")
 
-    for exp_index, param in enumerate(params):
-        train, skip_ss = param
-        print('Experiment ', exp_index)
-        print('Train: ', train)
-        print('Skip SS: ', skip_ss)
+    # for exp_index, param in enumerate(params):
+    #     train, skip_ss = param
+    #     print('Experiment ', exp_index)
+    #     print('Train: ', train)
+    #     print('Skip SS: ', skip_ss)
 
-        experiment_results[exp_index] = {}
-        experiment_results[exp_index]['train'] = train
-        experiment_results[exp_index]['skip_ss'] = skip_ss
+    #     experiment_results[exp_index] = {}
+    #     experiment_results[exp_index]['train'] = train
+    #     experiment_results[exp_index]['skip_ss'] = skip_ss
 
-        for index, patient_id in enumerate(my_subjects_indexes):
-            print('Subject ', patient_id)
-            experiment_results[exp_index][patient_id] = {}
-            metrics = run_subject(
-                net, patient_id, train, labels, ss_labels, skip_ss)
+    #     for index, patient_id in enumerate(my_subjects_indexes):
+    #         print('Subject ', patient_id)
+    #         experiment_results[exp_index][patient_id] = {}
+    #         metrics = run_subject(
+    #             net, patient_id, train, labels, ss_labels, skip_ss)
 
-            experiment_results[exp_index][patient_id] = metrics
+    #         experiment_results[exp_index][patient_id] = metrics
 
-    class NpEncoder(json.JSONEncoder):
-        def default(self, obj):
-            if isinstance(obj, np.integer):
-                return int(obj)
-            if isinstance(obj, np.floating):
-                return float(obj)
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            return super(NpEncoder, self).default(obj)
+    # class NpEncoder(json.JSONEncoder):
+    #     def default(self, obj):
+    #         if isinstance(obj, np.integer):
+    #             return int(obj)
+    #         if isinstance(obj, np.floating):
+    #             return float(obj)
+    #         if isinstance(obj, np.ndarray):
+    #             return obj.tolist()
+    #         return super(NpEncoder, self).default(obj)
 
     # Save the results to json file with indentation
-    with open(f'adap_results_{args.job_id}-{worker_id}.json', 'w') as f:
-        json.dump(experiment_results, f, indent=4, cls=NpEncoder)
+    # with open(f'adap_results_{args.job_id}-{worker_id}.json', 'w') as f:
+    #     json.dump(experiment_results, f, indent=4, cls=NpEncoder)
