@@ -29,11 +29,14 @@ def get_spindle_onsets(indexes, sampling_rate=250, min_label_time=0.4):
     return indexes
 
 
-def binary_f1_score(baseline_index, model_index, threshold=125):
+def binary_f1_score(baseline_index, model_index, sampling_rate=250, min_time_positive=0.4):
     tp = 0
     fp = 0
     fn = 0
     closest = []
+
+    # Calculate the minimum interval between two spindles
+    threshold = int(min_time_positive * sampling_rate)
 
     if len(baseline_index) == 0 or len(model_index) == 0:
         return 0, 0, 0, tp, fp, fn, closest
