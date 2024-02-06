@@ -622,7 +622,8 @@ if __name__ == "__main__":
 
     # Use the command-line arguments
     seed = args.seed
-    experiment_name = f"{args.experiment_name}_{str(time.time()).split('.')[0]}"
+    unique_id = f"{int(time.time())}"[5:]
+    experiment_name = f"{args.experiment_name}_{unique_id}"
     num_train_subjects = args.num_train_subjects
     num_val_subjects = args.num_val_subjects
     dataset_path = args.dataset_path
@@ -657,7 +658,7 @@ if __name__ == "__main__":
         model.freeze_up_to(-1)
     else:
         model = MassLightning(config)
-        model.freeze_embeddings()
+        # model.freeze_embeddings()
 
     ############### DATA STUFF ##################
     config['num_subjects_train'] = num_train_subjects
@@ -691,7 +692,8 @@ if __name__ == "__main__":
         min_age=0,
         max_age=40,
         num_subjects=config['num_subjects_val'] // 2,
-        seed=seed)
+        seed=seed,
+        exclude=val_subjects)
     test_subjects += subject_loader.select_subjects_age(
         min_age=40,
         max_age=100,
@@ -776,6 +778,7 @@ if __name__ == "__main__":
         config['segment_len'],
         max_batch_size=config['validation_batch_size'],
     )
+
     real_batch_size = test_sampler.get_batch_size()
     test_loader = utils.data.DataLoader(
         test_dataset,
@@ -790,7 +793,7 @@ if __name__ == "__main__":
     os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
     # Add a timestamps to the name
     project_name = "dual_model"
-    group = 'Debugging'
+    group = 'TESTING_STUFF'
     wandb_logger = WandbLogger(
         project=project_name,
         group=group,
@@ -823,7 +826,7 @@ if __name__ == "__main__":
         # fast_dev_run=10,
         logger=wandb_logger,
         val_check_interval=1000,
-        callbacks=[checkpoint_callback, early_stop_callback],
+        callbacks=[checkpoint_callback],
     )
 
     trainer.fit(model,
