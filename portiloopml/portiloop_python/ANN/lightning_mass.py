@@ -667,12 +667,40 @@ if __name__ == "__main__":
 
     config['overfit'] = False
 
+    # train_subjects = subject_loader.select_random_subjects(
+    #     num_subjects=config['num_subjects_train'], seed=seed)
+    # val_subjects = subject_loader.select_random_subjects(
+    #     num_subjects=config['num_subjects_val'], seed=seed, exclude=train_subjects)
+    # test_subjects = subject_loader.select_random_subjects(
+    #     num_subjects=config['num_subjects_val'], seed=seed, exclude=train_subjects + val_subjects)
+
+    # For validation and testing, we select 10 old and 10 young subjects for each
+    val_subjects = subject_loader.select_subjects_age(
+        min_age=0,
+        max_age=40,
+        num_subjects=config['num_subjects_val'] // 2,
+        seed=seed)
+    val_subjects += subject_loader.select_subjects_age(
+        min_age=40,
+        max_age=100,
+        num_subjects=config['num_subjects_val'] // 2,
+        seed=seed,
+        exclude=val_subjects)
+
+    test_subjects = subject_loader.select_subjects_age(
+        min_age=0,
+        max_age=40,
+        num_subjects=config['num_subjects_val'] // 2,
+        seed=seed)
+    test_subjects += subject_loader.select_subjects_age(
+        min_age=40,
+        max_age=100,
+        num_subjects=config['num_subjects_val'] // 2,
+        seed=seed,
+        exclude=test_subjects + val_subjects)
+
     train_subjects = subject_loader.select_random_subjects(
-        num_subjects=config['num_subjects_train'], seed=seed)
-    val_subjects = subject_loader.select_random_subjects(
-        num_subjects=config['num_subjects_val'], seed=seed, exclude=train_subjects)
-    test_subjects = subject_loader.select_random_subjects(
-        num_subjects=config['num_subjects_val'], seed=seed, exclude=train_subjects + val_subjects)
+        num_subjects=config['num_subjects_train'], seed=seed, exclude=val_subjects + test_subjects)
 
     if config['overfit']:
         val_subjects = train_subjects

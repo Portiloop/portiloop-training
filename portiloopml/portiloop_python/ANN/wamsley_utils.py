@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 from scipy.signal import fftconvolve
 
@@ -65,7 +66,7 @@ def binary_f1_score(baseline_index, model_index, sampling_rate=250, min_time_pos
     return precision, recall, f1, tp, fp, fn, closest
 
 
-def detect_wamsley(data, mask, sampling_rate=250, thresholds=None):
+def detect_wamsley(data, mask, sampling_rate=250, thresholds=None, fixed=True):
     """
     Detect spindles in the data using the method described in Wamsley et al. 2012
     :param data: The data to detect spindles in
@@ -73,7 +74,11 @@ def detect_wamsley(data, mask, sampling_rate=250, thresholds=None):
     :param sampling_rate: The sampling rate of the data
     :param thresholds: The past thresholds to use for the moving average
     """
-    frequency = (12, 15)
+    if fixed:
+        frequency = (11, 16)
+    else:
+        frequency = (12, 15)
+
     duration = (0.3, 3)
     wavelet_options = {'f0': np.mean(frequency),
                        'sd': .8,
@@ -85,6 +90,8 @@ def detect_wamsley(data, mask, sampling_rate=250, thresholds=None):
     merge_thresh = 0.3
     min_interval = 0.5  # minimum time in seconds between events
 
+    thresholds = copy.deepcopy(thresholds)
+
     # First, we transform the signal using wavelet transform
     if mask is None:
         data_detect = data
@@ -93,7 +100,7 @@ def detect_wamsley(data, mask, sampling_rate=250, thresholds=None):
 
     # If the data is too short, return an empty array
     if len(data_detect) <= 30 * 250:
-        return np.array([]), None, None
+        return np.array([]), None, None, None, thresholds
 
     if mask is None:
         timestamps = np.arange(0, len(data)) / sampling_rate
@@ -101,18 +108,31 @@ def detect_wamsley(data, mask, sampling_rate=250, thresholds=None):
         timestamps = (np.arange(0, len(data)))[mask] / sampling_rate
     assert len(data_detect) == len(timestamps)
     data_detect = morlet_transform(data_detect, sampling_rate, wavelet_options)
-    data_detect = np.real(data_detect ** 2) ** 2
+
+    if fixed:
+        data_detect = np.real(data_detect)
+    else:
+        data_detect = np.real(data_detect ** 2) ** 2
 
     # Then we smoothen out the signal
     data_detect = smooth(data_detect, sampling_rate, smooth_duration)
 
+    if fixed:
+        data_detect = np.abs(data_detect)
+
+    mean_spindle_power = np.mean(data_detect)
+
     # Then, we define the threshold
-    _threshold = det_thresh * np.mean(data_detect)
+    _threshold = det_thresh * mean_spindle_power
     if thresholds is None:
         threshold = _threshold
     else:
-        thresholds.append(_threshold)
-        threshold = np.mean(thresholds)
+        thresholds.append((_threshold, len(data_detect)))
+
+        # Compute the weighted average of the thresholds to get the current threshold
+        weigths = np.array([i[1] for i in thresholds])
+        weigths = weigths / np.sum(weigths)
+        threshold = np.sum([i[0] * j for i, j in zip(thresholds, weigths)])
 
     # Then we find the peaks
     peaks = data_detect >= threshold
@@ -122,7 +142,7 @@ def detect_wamsley(data, mask, sampling_rate=250, thresholds=None):
 
     # If no events are found, return an empty array
     if events is None:
-        return np.array([]), None, None
+        return np.array([]), _threshold, threshold, data_detect, thresholds
 
     # add the location of the peak in the middle
     events = np.insert(events, 1, 0, axis=1)
@@ -141,11 +161,11 @@ def detect_wamsley(data, mask, sampling_rate=250, thresholds=None):
         return timestamps[point] * sampling_rate
 
     if len(events) == 0:
-        return np.array([]), None, None
+        return np.array([]), _threshold, threshold, data_detect, thresholds
 
     events = np.vectorize(to_index)(events)
 
-    return events.astype(int), _threshold, threshold
+    return events.astype(int), _threshold, threshold, data_detect, thresholds
 
 
 def merge_events(start_indexes, end_indexes, timestamps, threshold):

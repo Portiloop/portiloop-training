@@ -369,13 +369,19 @@ class MassDataset(Dataset):
                 self.data[key]['signal'] = self.data[key]['signal_mass']
 
         # Convert the spindle labels to vector to make lookup faster
+        total_spindle_number = 0
         for key in self.data:
+
             if use_filtered:
+                total_spindle_number += len(
+                    self.data[key]['spindle_filt_fixed'][key]['onsets'])
                 self.data[key]['spindle_label'] = self.onsets_2_labelvector(
-                    self.data[key]['spindle_label_filt'][key], len(self.data[key]['signal']))
+                    self.data[key]['spindle_filt_fixed'][key], len(self.data[key]['signal']))
             else:
+                total_spindle_number += len(
+                    self.data[key]['spindle_mass_fixed'][key]['onsets'])
                 self.data[key]['spindle_label'] = self.onsets_2_labelvector(
-                    self.data[key]['spindle_label_mass'][key], len(self.data[key]['signal']))
+                    self.data[key]['spindle_mass_fixed'][key], len(self.data[key]['signal']))
 
         # Get a lookup table to match all possible sampleable signals to a (subject, index) pair
         self.lookup_table = []
@@ -421,12 +427,18 @@ class MassDataset(Dataset):
 
         print(f"Number of sampleable indices: {len(self.lookup_table)}")
         print(
-            f"Number of spindles: {len(self.labels_indexes['spindle_label'])}")
-        print(f"Number of N1: {len(self.labels_indexes['staging_label_N1'])}")
-        print(f"Number of N2: {len(self.labels_indexes['staging_label_N2'])}")
-        print(f"Number of N3: {len(self.labels_indexes['staging_label_N3'])}")
-        print(f"Number of R: {len(self.labels_indexes['staging_label_R'])}")
-        print(f"Number of W: {len(self.labels_indexes['staging_label_W'])}")
+            f"Number of spindle indexes: {len(self.labels_indexes['spindle_label'])}")
+        print(f"Number of spindles: {total_spindle_number}")
+        print(
+            f"Number of N1 indexes: {len(self.labels_indexes['staging_label_N1'])}")
+        print(
+            f"Number of N2 indexes: {len(self.labels_indexes['staging_label_N2'])}")
+        print(
+            f"Number of N3 indexes: {len(self.labels_indexes['staging_label_N3'])}")
+        print(
+            f"Number of R indexes: {len(self.labels_indexes['staging_label_R'])}")
+        print(
+            f"Number of W indexes: {len(self.labels_indexes['staging_label_W'])}")
 
     def get_labels(self, subject, signal_idx):
         '''

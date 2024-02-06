@@ -125,6 +125,8 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.spindle_labels = []
         self.last_wamsley_run = 0
 
+        self.wamsley_outs = []
+
         # Sampleable lists
         # Indexes of false negatives that can be sampled
         self.sampleable_missed_spindles = []
@@ -214,14 +216,19 @@ class AdaptationDataset(torch.utils.data.Dataset):
 
             # Get the Wamsley spindles using an adaptable threshold if desired
             if self.adapt_threshold_wamsley:
-                wamsley_spindles, threshold, used_threshold = detect_wamsley(
+                wamsley_spindles, threshold, used_threshold, spindle_powers, new_thresholds = detect_wamsley(
                     np.array(usable_buffer), np.array(usable_mask), thresholds=self.wamsley_thresholds)
             else:
-                wamsley_spindles, threshold, used_threshold = detect_wamsley(
+                wamsley_spindles, threshold, used_threshold, spindle_powers, _ = detect_wamsley(
                     np.array(usable_buffer), np.array(usable_mask))
 
-            if threshold is not None:
-                self.wamsley_thresholds.append(threshold)
+            # Update the list of thresholds
+            if new_thresholds is not None:
+                self.wamsley_thresholds = new_thresholds
+
+            # Update the used thresholds for testing purposes
+            if threshold is not None and spindle_powers is not None:
+                self.wamsley_outs += spindle_powers.tolist()
                 self.used_thresholds.append(used_threshold)
 
             if len(wamsley_spindles) == 0:
@@ -674,7 +681,7 @@ def parse_config():
                         help='Subject on which to run the experiment')
     parser.add_argument('--model_path', type=str, default='larger_and_hidden_on_loss',
                         help='Model for the starting point of the model')
-    parser.add_argument('--dataset_path', type=str, default='../../data/mass',
+    parser.add_argument('--dataset_path', type=str, default='/project/MASS/mass_spindles_dataset/',
                         help='Path to the dataset')
     parser.add_argument('--experiment_name', type=str,
                         default='test', help='Name of the model')
@@ -721,8 +728,8 @@ def dataloader_from_subject(subject, dataset_path):
     sampler = MassConsecutiveSampler(
         dataset,
         seq_stride=42,
-        # segment_len=len(dataset) // 42,
-        segment_len=1000,
+        segment_len=len(dataset) // 42,
+        # segment_len=10000,
         max_batch_size=1
     )
 
@@ -942,31 +949,31 @@ if __name__ == "__main__":
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # config = {
-    #     'experiment_name': 'REAL_BASELINE_NOTHING',
-    #     'num_subjects': 1,
-    #     'train': False,
-    #     'seq_len': 50,
-    #     'seq_stride': 42,
-    #     'window_size': 54,
-    #     'lr': 0.00001,
-    #     'adam_w': 0.0,
-    #     'hidden_size': net.config['hidden_size'],
-    #     'nb_rnn_layers': net.config['nb_rnn_layers'],
-    #     # Whether to use the adaptable threshold in the detection of spindles with NN Model
-    #     'adapt_threshold_detect': False,
-    #     # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
-    #     'adapt_threshold_wamsley': False,
-    #     # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
-    #     'learn_wamsley': True,
-    #     # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-    #     'use_ss_label': False,
-    #     'use_ss_smoothing': False,
-    #     'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
-    #     # Thresholds for the adaptable threshold
-    #     'min_threshold': 0.0,
-    #     'max_threshold': 1.0,
-    # }
+    config = {
+        'experiment_name': 'REAL_BASELINE_NOTHING',
+        'num_subjects': 1,
+        'train': False,
+        'seq_len': 50,
+        'seq_stride': 42,
+        'window_size': 54,
+        'lr': 0.00001,
+        'adam_w': 0.0,
+        'hidden_size': net.config['hidden_size'],
+        'nb_rnn_layers': net.config['nb_rnn_layers'],
+        # Whether to use the adaptable threshold in the detection of spindles with NN Model
+        'adapt_threshold_detect': False,
+        # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
+        'adapt_threshold_wamsley': True,
+        # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
+        'learn_wamsley': True,
+        # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
+        'use_ss_label': False,
+        'use_ss_smoothing': False,
+        'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
+        # Thresholds for the adaptable threshold
+        'min_threshold': 0.0,
+        'max_threshold': 1.0,
+    }
 
     dataset_path = args.dataset_path
     # loader = SubjectLoader(
@@ -975,26 +982,26 @@ if __name__ == "__main__":
 
     # Taking only the subjects on which the model wasnt trained to avoid data contamination
     subjects = [
-        "01-03-0009",
-        "01-05-0022",
-        "01-03-0030",
+        # "01-03-0009",
+        # "01-05-0022",
+        # "01-03-0030",
         "01-01-0029",
-        "01-02-0018",
-        "01-03-0012",
-        "01-05-0011",
-        "01-05-0002",
-        "01-01-0004",
-        "01-03-0038",
-        "01-03-0031",
-        "01-03-0010",
-        "01-01-0023",
-        "01-01-0020",
-        "01-05-0019",
-        "01-03-0018",
-        "01-01-0008",
-        "01-01-0031",
-        "01-02-0007",
-        "01-01-0038"
+        # "01-02-0018",
+        # "01-03-0012",
+        # "01-05-0011",
+        # "01-05-0002",
+        # "01-01-0004",
+        # "01-03-0038",
+        # "01-03-0031",
+        # "01-03-0010",
+        # "01-01-0023",
+        # "01-01-0020",
+        # "01-05-0019",
+        # "01-03-0018",
+        # "01-01-0008",
+        # "01-01-0031",
+        # "01-02-0007",
+        # "01-01-0038"
     ]
     # subjects = subjects[:config['num_subjects']]
     # subjects = ["01-01-0020"]
@@ -1005,7 +1012,9 @@ if __name__ == "__main__":
     subjects = parse_worker_subject_div(
         subjects, args.num_workers, worker_id)
 
-    all_configs = get_all_configs()[:2]
+    # all_configs = get_all_configs()[:2]
+
+    all_configs = [config]
 
     results = {}
 
