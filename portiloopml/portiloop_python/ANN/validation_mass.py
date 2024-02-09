@@ -29,7 +29,7 @@ def load_model_mass(new_run_name):
     user = "milosobral"
     project = "dual_model"
     # run_id = "both_cc_ViT_unfrozen_1706028506"
-    run_id = "both_cc_smallLR_1706210166"
+    run_id = "both_cc_newGT_60674"
     artifact_name = "best"
     group = "Validation"
     run_id_val = new_run_name

@@ -93,7 +93,8 @@ class PortiloopNetwork(nn.Module):
 
         conv_padding = 0  # int(kernel_conv // 2)
         pool_padding = 0  # int(kernel_pool // 2)
-        window_size = int(window_size_s * fe)
+        # window_size = int(window_size_s * fe)
+        window_size = c_dict['window_size']
         nb_out = window_size
 
         for _ in range(nb_conv_layers):

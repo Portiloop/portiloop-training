@@ -21,7 +21,7 @@ install_requires = [
     'pytorch-lightning',
     'PyWavelets==1.4.1',
     'torchsummary',
-    'transformers',
+    'transformers==4.32.1',
     'torchvision'
 ]
 

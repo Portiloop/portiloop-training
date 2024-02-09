@@ -372,16 +372,16 @@ class MassDataset(Dataset):
         total_spindle_number = 0
         for key in self.data:
 
-            if use_filtered:
-                total_spindle_number += len(
-                    self.data[key]['spindle_filt_fixed'][key]['onsets'])
-                self.data[key]['spindle_label'] = self.onsets_2_labelvector(
-                    self.data[key]['spindle_filt_fixed'][key], len(self.data[key]['signal']))
-            else:
-                total_spindle_number += len(
-                    self.data[key]['spindle_mass_fixed'][key]['onsets'])
-                self.data[key]['spindle_label'] = self.onsets_2_labelvector(
-                    self.data[key]['spindle_mass_fixed'][key], len(self.data[key]['signal']))
+            # if use_filtered:
+            #     total_spindle_number += len(
+            #         self.data[key]['spindle_filt_fixed'][key]['onsets'])
+            #     self.data[key]['spindle_label'] = self.onsets_2_labelvector(
+            #         self.data[key]['spindle_filt_fixed'][key], len(self.data[key]['signal']))
+            # else:
+            total_spindle_number += len(
+                self.data[key]['spindle_mass_fixed'][key]['onsets'])
+            self.data[key]['spindle_label'] = self.onsets_2_labelvector(
+                self.data[key]['spindle_mass_fixed'][key], len(self.data[key]['signal']))
 
         # Get a lookup table to match all possible sampleable signals to a (subject, index) pair
         self.lookup_table = []

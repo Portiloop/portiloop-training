@@ -475,7 +475,7 @@ class MassLightning(pl.LightningModule):
     def configure_optimizers(self):
         # Define your optimizer(s) and learning rate scheduler(s) here
         optimizer = optim.AdamW(self.parameters(), betas=(
-            0.9, 0.99), lr=self.config['lr'], weight_decay=1e-3)
+            0.9, 0.99), lr=self.config['lr'], weight_decay=self.config['adamw_weight_decay'])
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         #     optimizer, patience=20, factor=0.5, verbose=True, mode='min')
         # scheduler_info = {
@@ -612,9 +612,9 @@ if __name__ == "__main__":
     parser.add_argument('--experiment_name', type=str, help='Name of the experiment',
                         default='DEFAULT_NAME')
     parser.add_argument('--num_train_subjects', type=int,  help='Number of subjects for training',
-                        default=1)
+                        default=2)
     parser.add_argument('--num_val_subjects', type=int, help='Number of subjects for validation',
-                        default=1)
+                        default=2)
     parser.add_argument('--dataset_path', type=str, help='Path to the MASS dataset.',
                         default='/project/MASS/mass_spindles_dataset/')
 
@@ -632,18 +632,20 @@ if __name__ == "__main__":
         set_seeds(seed)
 
     config = get_configs(experiment_name, True, seed)
-    config['hidden_size'] = 256
+    config['hidden_size'] = 64
     config['nb_rnn_layers'] = 8
     config['lr'] = 1e-4
+    config['adamw_weight_decay'] = 0.01
     config['epoch_length'] = -1
     config['validation_batch_size'] = 512
     config['segment_len'] = 1000
-    config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
-    config['use_filtered'] = True
+    config['train_choice'] = 'staging'  # One of "both", "spindles", "staging"
+    config['use_filtered'] = False
     config['alpha'] = 0.5
     config['useViT'] = False
     config['dropout'] = 0.5
     config['batch_size'] = 64
+    config['window_size'] = 100
     config['seq_len'] = 50
 
     if config['useViT']:
