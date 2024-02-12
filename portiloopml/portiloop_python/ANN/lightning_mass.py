@@ -68,7 +68,7 @@ class MassLightning(pl.LightningModule):
         for name, param in self.model.named_parameters():
             # Freeze if not a classifier
             if 'classifier' not in name.split('.')[0]:
-                print(f"Freezing layer {name}")
+                # print(f"Freezing layer {name}")
                 param.requires_grad = False
 
     def training_step(self, batch, batch_idx):
@@ -639,7 +639,7 @@ if __name__ == "__main__":
     config['epoch_length'] = -1
     config['validation_batch_size'] = 512
     config['segment_len'] = 1000
-    config['train_choice'] = 'staging'  # One of "both", "spindles", "staging"
+    config['train_choice'] = 'spindles'  # One of "both", "spindles", "staging"
     config['use_filtered'] = False
     config['alpha'] = 0.5
     config['useViT'] = False
@@ -660,7 +660,6 @@ if __name__ == "__main__":
         model.freeze_up_to(-1)
     else:
         model = MassLightning(config)
-        # model.freeze_embeddings()
 
     ############### DATA STUFF ##################
     config['num_subjects_train'] = num_train_subjects

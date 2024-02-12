@@ -7,6 +7,8 @@ import os
 import pandas as pd
 import sys
 
+from portiloopml.portiloop_python.ANN.wamsley_utils import detect_wamsley
+
 
 def get_size(obj, seen=None):
     """Recursively finds size of objects in bytes"""
@@ -291,7 +293,7 @@ class MassConsecutiveSampler(Sampler):
 
 
 class MassDataset(Dataset):
-    def __init__(self, data_path, window_size, seq_stride, seq_len, subjects=None, use_filtered=True, sampleable='both'):
+    def __init__(self, data_path, window_size, seq_stride, seq_len, subjects=None, use_filtered=True, sampleable='both', compute_spindle_labels=False, wamsley_config=None):
         '''
         A Class which loads the MASS dataset and returns the signals and labels of the subjects.
 
@@ -330,6 +332,17 @@ class MassDataset(Dataset):
                                 for subject in self.subjects]))
         else:
             self.subsets = ['01', '02', '03', '05']
+
+        if wamsley_config is None:
+            self.wamsley_config = {
+                'sampling_rate': 250,
+                'fixed': True,
+                'squarred': True,
+                'remove_outliers': False,
+                'threshold_multiplier': 4.5
+            }
+        else:
+            self.wamsley_config = wamsley_config
 
         self.data_unloaded = {}
 
@@ -378,10 +391,40 @@ class MassDataset(Dataset):
             #     self.data[key]['spindle_label'] = self.onsets_2_labelvector(
             #         self.data[key]['spindle_filt_fixed'][key], len(self.data[key]['signal']))
             # else:
-            total_spindle_number += len(
-                self.data[key]['spindle_mass_fixed'][key]['onsets'])
-            self.data[key]['spindle_label'] = self.onsets_2_labelvector(
-                self.data[key]['spindle_mass_fixed'][key], len(self.data[key]['signal']))
+            if compute_spindle_labels:
+                # Get the signal and the ss mask
+                signal = self.data[key]['signal']
+                ss_mask = (self.data[key]['ss_label'] == 1) | (
+                    self.data[key]['ss_label'] == 2)
+
+                # Compute the spindles
+                events, _, _, _, _ = detect_wamsley(
+                    signal,
+                    ss_mask,
+                    sampling_rate=self.wamsley_config['sampling_rate'],
+                    fixed=self.wamsley_config['fixed'],
+                    squarred=self.wamsley_config['squarred'],
+                    remove_outliers=self.wamsley_config['remove_outliers'],
+                    threshold_multiplier=self.wamsley_config['threshold_multiplier']
+                )
+
+                spindles = {
+                    'onsets': [event[0] for event in events],
+                    'offsets': [event[2] for event in events]
+                }
+
+                total_spindle_number += len(spindles['onsets'])
+                self.data[key]['spindle_label'] = self.onsets_2_labelvector(
+                    spindles, len(self.data[key]['signal']))
+
+                print(
+                    f"Computed spindles for {key} with {len(spindles['onsets'])} spindles")
+
+            else:
+                total_spindle_number += len(
+                    self.data[key]['spindle_mass_fixed'][key]['onsets'])
+                self.data[key]['spindle_label'] = self.onsets_2_labelvector(
+                    self.data[key]['spindle_mass_fixed'][key], len(self.data[key]['signal']))
 
         # Get a lookup table to match all possible sampleable signals to a (subject, index) pair
         self.lookup_table = []

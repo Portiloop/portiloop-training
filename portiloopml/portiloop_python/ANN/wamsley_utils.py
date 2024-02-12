@@ -1,6 +1,7 @@
 import copy
 import numpy as np
-from scipy.signal import fftconvolve
+from scipy.signal import fftconvolve, filtfilt, firwin, kaiserord, kaiser_atten, kaiser_beta
+import torch
 
 
 def get_spindle_onsets(indexes, sampling_rate=250, min_label_time=0.4):
@@ -66,7 +67,7 @@ def binary_f1_score(baseline_index, model_index, sampling_rate=250, min_time_pos
     return precision, recall, f1, tp, fp, fn, closest
 
 
-def detect_wamsley(data, mask, sampling_rate=250, thresholds=None, fixed=True):
+def detect_wamsley(data, mask, sampling_rate=250, thresholds=None, fixed=True, squarred=True, remove_outliers=False, threshold_multiplier=4.5):
     """
     Detect spindles in the data using the method described in Wamsley et al. 2012
     :param data: The data to detect spindles in
@@ -86,7 +87,7 @@ def detect_wamsley(data, mask, sampling_rate=250, thresholds=None, fixed=True):
                        'output': 'complex'
                        }
     smooth_duration = .1
-    det_thresh = 4.5
+    det_thresh = threshold_multiplier
     merge_thresh = 0.3
     min_interval = 0.5  # minimum time in seconds between events
 
@@ -110,7 +111,10 @@ def detect_wamsley(data, mask, sampling_rate=250, thresholds=None, fixed=True):
     data_detect = morlet_transform(data_detect, sampling_rate, wavelet_options)
 
     if fixed:
-        data_detect = np.real(data_detect)
+        if squarred:
+            data_detect = np.real(data_detect) ** 2
+        else:
+            data_detect = np.real(data_detect)
     else:
         data_detect = np.real(data_detect ** 2) ** 2
 
@@ -121,6 +125,12 @@ def detect_wamsley(data, mask, sampling_rate=250, thresholds=None, fixed=True):
         data_detect = np.abs(data_detect)
 
     mean_spindle_power = np.mean(data_detect)
+
+    if remove_outliers:
+        # Remove the outliers
+        data_detect_no_outlier = np.clip(
+            data_detect, 0, 10 * mean_spindle_power)
+        mean_spindle_power = np.mean(data_detect_no_outlier)
 
     # Then, we define the threshold
     _threshold = det_thresh * mean_spindle_power
