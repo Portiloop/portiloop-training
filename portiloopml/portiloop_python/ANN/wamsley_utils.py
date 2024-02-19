@@ -2,6 +2,25 @@ import copy
 import numpy as np
 from scipy.signal import fftconvolve, filtfilt, firwin, kaiserord, kaiser_atten, kaiser_beta
 import torch
+from wonambi.detect.spindle import DetectSpindle, detect_Lacourse2018
+
+
+def detect_lacourse(data, mask, sampling_rate=250):
+    # Extract only the interesting elements from the mask
+    data_masked = data[mask]
+
+    # Get the spindle data from the offline methods
+    time = np.arange(0, len(data)) / sampling_rate
+    time_masked = time[mask]
+    detector = DetectSpindle(method='Lacourse2018')
+    events, _, _ = detect_Lacourse2018(
+        data_masked, sampling_rate, time_masked, detector)
+
+    # Get the indexes of the spindles
+    spindles = [[int(event['start'] * 250), int(event['peak_time'] * 250),
+                 int(event['end'] * 250)] for event in events]
+
+    return spindles
 
 
 def get_spindle_onsets(indexes, sampling_rate=250, min_label_time=0.4):

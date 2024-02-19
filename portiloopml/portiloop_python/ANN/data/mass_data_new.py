@@ -7,7 +7,7 @@ import os
 import pandas as pd
 import sys
 
-from portiloopml.portiloop_python.ANN.wamsley_utils import detect_wamsley
+from portiloopml.portiloop_python.ANN.wamsley_utils import detect_lacourse, detect_wamsley
 
 
 def get_size(obj, seen=None):
@@ -253,7 +253,7 @@ class MassRandomSampler(Sampler):
 
 
 class MassConsecutiveSampler(Sampler):
-    def __init__(self, data_source, seq_stride, segment_len, max_batch_size=None):
+    def __init__(self, data_source, seq_stride, segment_len, max_batch_size=None, late=False):
         self.data_source = data_source
         self.seq_stride = seq_stride
         self.segment_len = segment_len
@@ -275,8 +275,12 @@ class MassConsecutiveSampler(Sampler):
 
         # If the max batch size is specified, randomly select the indexes
         if self.max_batch_size is not None and self.max_batch_size < len(self.new_indexes):
-            self.start_indexes = np.random.choice(
-                self.new_indexes, self.max_batch_size, replace=False)
+            # Choose the latest indexes
+            if late:
+                self.start_indexes = self.new_indexes[-self.max_batch_size:]
+            else:
+                self.start_indexes = np.random.choice(
+                    self.new_indexes, self.max_batch_size, replace=False)
         else:
             self.start_indexes = self.new_indexes
 
@@ -398,14 +402,19 @@ class MassDataset(Dataset):
                     self.data[key]['ss_label'] == 2)
 
                 # Compute the spindles
-                events, _, _, _, _ = detect_wamsley(
+                # events, _, _, _, _ = detect_wamsley(
+                #     signal,
+                #     ss_mask,
+                #     sampling_rate=self.wamsley_config['sampling_rate'],
+                #     fixed=self.wamsley_config['fixed'],
+                #     squarred=self.wamsley_config['squarred'],
+                #     remove_outliers=self.wamsley_config['remove_outliers'],
+                #     threshold_multiplier=self.wamsley_config['threshold_multiplier']
+                # )
+                events = detect_lacourse(
                     signal,
                     ss_mask,
-                    sampling_rate=self.wamsley_config['sampling_rate'],
-                    fixed=self.wamsley_config['fixed'],
-                    squarred=self.wamsley_config['squarred'],
-                    remove_outliers=self.wamsley_config['remove_outliers'],
-                    threshold_multiplier=self.wamsley_config['threshold_multiplier']
+                    sampling_rate=self.wamsley_config['sampling_rate']
                 )
 
                 spindles = {
