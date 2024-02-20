@@ -471,10 +471,10 @@ def run_adaptation(dataloader, net, device, config, train):
     #     sampler=sampler,
     #     num_workers=0)
 
-    wamsley_out = adap_dataset.wamsley_func(
-        signal,
-        mask,
-        None)
+    # wamsley_out = adap_dataset.wamsley_func(
+    #     signal,
+    #     mask,
+    #     None)
 
     # Initialize All the necessary variables
     net_inference = copy.deepcopy(net)
@@ -841,27 +841,27 @@ def run_adaptation(dataloader, net, device, config, train):
     plt.clf()
     # plt.plot(inference_loss, alpha=0.5, label="Losses")
     # Do the moving average of the losses
-    window = 1000
-    inference_loss_smooth = np.convolve(
-        inference_loss, np.ones(window) / window, mode='valid')
+    # window = 1000
+    # inference_loss_smooth = np.convolve(
+    #     inference_loss, np.ones(window) / window, mode='valid')
 
-    plt.plot(inference_loss_smooth, label="Smoothed")
+    # plt.plot(inference_loss_smooth, label="Smoothed")
 
-    # Axis titles:
-    plt.title('Inference Losses')
-    plt.xlabel('window')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.savefig(f'inference_losses.png')
+    # # Axis titles:
+    # plt.title('Inference Losses')
+    # plt.xlabel('window')
+    # plt.ylabel('Loss')
+    # plt.legend()
+    # plt.savefig(f'inference_losses.png')
 
-    plt.clf()
-    plt.plot(adap_dataset.used_thresholds, label="Used")
-    threshd = [i[0] for i in adap_dataset.wamsley_thresholds]
-    plt.plot(threshd, label="Thresh")
-    # Plot a vertical line at the desired threshold
-    plt.axhline(y=wamsley_out[1], color='r', linestyle='--', label="Desired")
-    plt.legend()
-    plt.savefig(f'used_thresholds.png')
+    # plt.clf()
+    # plt.plot(adap_dataset.used_thresholds, label="Used")
+    # threshd = [i[0] for i in adap_dataset.wamsley_thresholds]
+    # plt.plot(threshd, label="Thresh")
+    # # Plot a vertical line at the desired threshold
+    # plt.axhline(y=wamsley_out[1], color='r', linestyle='--', label="Desired")
+    # plt.legend()
+    # plt.savefig(f'used_thresholds.png')
 
     return all_metrics, net_inference
 
@@ -1301,17 +1301,17 @@ if __name__ == "__main__":
     config = {
         'experiment_name': 'REAL_BASELINE_NOTHING',
         'num_subjects': 1,
-        'train': False,
+        'train': True,
         'seq_len': net.config['seq_len'],
         'seq_stride': net.config['seq_stride'],
         'window_size': net.config['window_size'],
-        'lr': 0.00001,
+        'lr': 0.0001,
         'adam_w': 0.1,
-        'alpha_training': 0.0,
+        'alpha_training': 0.0,  # 1.0 -> Do not use learned, 0.0 -> Keep only learned weights
         'hidden_size': net.config['hidden_size'],
         'nb_rnn_layers': net.config['nb_rnn_layers'],
         # Whether to use the adaptable threshold in the detection of spindles with NN Model
-        'adapt_threshold_detect': False,
+        'adapt_threshold_detect': True,
         # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
         'adapt_threshold_wamsley': False,
         # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
