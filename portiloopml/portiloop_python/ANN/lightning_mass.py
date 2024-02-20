@@ -635,17 +635,18 @@ if __name__ == "__main__":
     config['hidden_size'] = 64
     config['nb_rnn_layers'] = 8
     config['lr'] = 1e-4
-    config['adamw_weight_decay'] = 0.01
+    config['adamw_weight_decay'] = 0.001
     config['epoch_length'] = -1
     config['validation_batch_size'] = 512
     config['segment_len'] = 1000
-    config['train_choice'] = 'spindles'  # One of "both", "spindles", "staging"
+    config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
     config['use_filtered'] = False
     config['alpha'] = 0.5
     config['useViT'] = False
     config['dropout'] = 0.5
     config['batch_size'] = 64
-    config['window_size'] = 100
+    config['window_size'] = 250
+    config['seq_stride'] = 50
     config['seq_len'] = 50
 
     if config['useViT']:
@@ -826,7 +827,7 @@ if __name__ == "__main__":
         accelerator='gpu',
         # fast_dev_run=10,
         logger=wandb_logger,
-        val_check_interval=1000,
+        val_check_interval=config['segment_len'],
         callbacks=[checkpoint_callback],
     )
 

@@ -1335,7 +1335,7 @@ if __name__ == "__main__":
         'num_batches_train': 1000,
         'wamsley_config': {
             'fixed': False,
-            'squarred': True,
+            'squarred': False,
             'remove_outliers': False,
             'threshold_multiplier': 4.5,
             'sampling_rate': 250,

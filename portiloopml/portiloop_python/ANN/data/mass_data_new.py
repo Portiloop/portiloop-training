@@ -431,9 +431,9 @@ class MassDataset(Dataset):
 
             else:
                 total_spindle_number += len(
-                    self.data[key]['spindle_mass_fixed'][key]['onsets'])
+                    self.data[key]['spindle_mass_lacourse'][key]['onsets'])
                 self.data[key]['spindle_label'] = self.onsets_2_labelvector(
-                    self.data[key]['spindle_mass_fixed'][key], len(self.data[key]['signal']))
+                    self.data[key]['spindle_mass_lacourse'][key], len(self.data[key]['signal']))
 
         # Get a lookup table to match all possible sampleable signals to a (subject, index) pair
         self.lookup_table = []
