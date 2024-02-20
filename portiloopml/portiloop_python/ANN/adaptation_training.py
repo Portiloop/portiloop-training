@@ -25,7 +25,7 @@ from portiloopml.portiloop_python.ANN.wamsley_utils import binary_f1_score, dete
 
 
 class AdaptationSampler2(torch.utils.data.Sampler):
-    def __init__(self, spindle_indexes, non_spindle_range, past_signal_len, window_size):
+    def __init__(self, spindle_indexes, non_spindle_range, past_signal_len, window_size, replay_dataset=None, replay_multiplier=1):
         """
         Sample random items from a dataset
         """
@@ -33,28 +33,44 @@ class AdaptationSampler2(torch.utils.data.Sampler):
         self.non_spindle_range = non_spindle_range
         self.past_signal_len = past_signal_len
         self.window_size = window_size
+        self.replay_dataset = replay_dataset
+        self.replay_multiplier = replay_multiplier
 
     def __iter__(self):
         """
-        Returns an iterator over the dataset
+        Returns an iterator over the dataset, and the replay dataset
         """
         # Choose the same number of spindles and non spindles
         num_spindles = len(self.spindle_indexes)
         non_spindle_indexes = random.sample(
             range(self.non_spindle_range[0], self.non_spindle_range[1]), num_spindles)
 
-        # Add the labels to the indexes
+        # Add the labels to the indexes for the new found spindles
         self.spindle_indexes = [
-            (i - self.past_signal_len - self.window_size + 1, 1) for i in self.spindle_indexes]
+            (i - self.past_signal_len - self.window_size + 1, 1, False) for i in self.spindle_indexes]
         non_spindle_indexes = [
-            (i - self.past_signal_len - self.window_size + 1, 0) for i in non_spindle_indexes]
-        indexes = self.spindle_indexes + non_spindle_indexes
-        random.shuffle(indexes)
+            (i - self.past_signal_len - self.window_size + 1, 0, False) for i in non_spindle_indexes]
+        self.indexes = self.spindle_indexes + non_spindle_indexes
 
-        return iter(indexes)
+        # Add the replay dataset indexes:
+        if self.replay_dataset is not None:
+            num_replay_sample = int(self.replay_multiplier * num_spindles)
+            replay_spindle_indexes = random.sample(
+                self.replay_dataset.labels_indexes['spindle_label'].tolist(), num_replay_sample)
+            replay_non_spindle_indexes = random.sample(
+                np.arange(self.replay_dataset.past_signal_len, len(self.replay_dataset)).tolist(), num_replay_sample)
+            replay_non_spindle_indexes = [
+                (index, 0, True) for index in replay_non_spindle_indexes]
+            replay_spindle_indexes = [
+                (index, 1, True) for index in replay_spindle_indexes]
+            self.indexes += replay_spindle_indexes + replay_non_spindle_indexes
+
+        random.shuffle(self.indexes)
+
+        return iter(self.indexes)
 
     def __len__(self):
-        return len(self.spindle_indexes) * 2
+        return len(self.indexes)
 
 
 class AdaptationSampler(torch.utils.data.Sampler):
@@ -223,12 +239,33 @@ class AdaptationDataset(torch.utils.data.Dataset):
             sampling_rate=wamsley_config['sampling_rate']
         ), None, None, None, None)
 
+        if config['use_replay']:
+            self.replay_dataset = MassDataset(
+                dataset_path,
+                subjects=config['replay_subjects'],
+                window_size=config['window_size'],
+                seq_stride=config['seq_stride'],
+                seq_len=50,
+                use_filtered=False,
+                compute_spindle_labels=False,
+                wamsley_config=config['wamsley_config']
+            )
+        else:
+            self.replay_dataset = None
+
     def __getitem__(self, index):
         """
         Returns a sample from the dataset
         """
         # Get the index and the sample type
-        index, label = index
+        index, label, replay = index
+
+        if replay:
+            # Get the data from the replay dataset
+            signal, _ = self.replay_dataset[index]
+            category = label
+            label = torch.Tensor([label]).type(torch.LongTensor)
+            return signal, label, category
 
         # Get data
         index = index + self.past_signal_len
@@ -244,7 +281,6 @@ class AdaptationDataset(torch.utils.data.Dataset):
         else:
             label = torch.Tensor([1]).type(torch.LongTensor)
 
-        label = torch.Tensor([label]).type(torch.LongTensor)
         signal = signal.unsqueeze(1)
 
         return signal, label, category
@@ -322,12 +358,19 @@ class AdaptationDataset(torch.utils.data.Dataset):
             usable_preds = self.prediction_buffer[-self.wamsley_interval:]
             usable_labels = self.spindle_labels[-self.wamsley_interval:]
 
-            # Get the Wamsley spindles using an adaptable threshold if desired
-            wamsley_spindles, threshold, used_threshold, spindle_powers, new_thresholds = self.wamsley_func(
-                np.array(usable_buffer),
-                np.array(usable_mask),
-                self.wamsley_thresholds if self.adapt_threshold_wamsley else None
-            )
+            if sum(usable_mask) > 0:
+                # Get the Wamsley spindles using an adaptable threshold if desired
+                wamsley_spindles, threshold, used_threshold, spindle_powers, new_thresholds = self.wamsley_func(
+                    np.array(usable_buffer),
+                    np.array(usable_mask),
+                    self.wamsley_thresholds if self.adapt_threshold_wamsley else None
+                )
+            else:
+                wamsley_spindles = []
+                threshold = None
+                used_threshold = None
+                spindle_powers = None
+                new_thresholds = None
 
             # Update the list of thresholds
             if new_thresholds is not None:
@@ -448,7 +491,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
             or len(self.sampleable_missed_spindles) > self.batch_size
 
 
-def run_adaptation(dataloader, net, device, config, train):
+def run_adaptation(dataloader, val_dataloader, net, device, config, train):
     """
     Goes over the dataset and learns at every step.
     Returns the accuracy and loss as well as fp, fn, tp, tn count for spindles
@@ -485,6 +528,8 @@ def run_adaptation(dataloader, net, device, config, train):
 
     training_losses = []
     validation_losses = []
+    val_losses_spindles = []
+    val_losses_non_spindles = []
     inference_loss = []
     train_loss_tp = []
     train_loss_fp = []
@@ -591,114 +636,108 @@ def run_adaptation(dataloader, net, device, config, train):
                     train_now = True
 
         # Training loop for the adaptation
-        if adap_dataset.has_samples() and train and train_now:
+        if adap_dataset.has_samples() and train and train_now or index == 0:
 
-            train_now = False
+            if index != 0:
+                train_now = False
 
-            train_indexes, val_indexes, train_spindle_indexes, val_spindle_indexes = adap_dataset.get_train_val_split(
-                split=0.8)
+                train_indexes, _, train_spindle_indexes, _ = adap_dataset.get_train_val_split(
+                    split=1.0)
 
-            # Initialize the dataloaders
-            train_sampler = AdaptationSampler2(
-                train_spindle_indexes,
-                train_indexes,
-                window_size=adap_dataset.window_size,
-                past_signal_len=adap_dataset.past_signal_len)
+                # Initialize the dataloaders
+                train_sampler = AdaptationSampler2(
+                    train_spindle_indexes,
+                    train_indexes,
+                    window_size=adap_dataset.window_size,
+                    past_signal_len=adap_dataset.past_signal_len,
+                    replay_dataset=adap_dataset.replay_dataset,
+                    replay_multiplier=config['replay_multiplier'])
 
-            val_sampler = AdaptationSampler2(
-                val_spindle_indexes,
-                val_indexes,
-                window_size=adap_dataset.window_size,
-                past_signal_len=adap_dataset.past_signal_len)
+                train_dataloader = torch.utils.data.DataLoader(
+                    adap_dataset,
+                    batch_size=batch_size,
+                    sampler=train_sampler,
+                    num_workers=0)
 
-            train_dataloader = torch.utils.data.DataLoader(
-                adap_dataset,
-                batch_size=batch_size,
-                sampler=train_sampler,
-                num_workers=0)
-            val_dataloader = torch.utils.data.DataLoader(
-                adap_dataset,
-                batch_size=batch_size,
-                sampler=val_sampler,
-                num_workers=0)
+                net_copy = copy.deepcopy(net_inference)
+                optimizer = optim.Adam(net_copy.parameters(),
+                                       lr=config['lr'], weight_decay=config['adam_w'])
 
-            net_copy = copy.deepcopy(net_inference)
-            optimizer = optim.Adam(net_copy.parameters(),
-                                   lr=config['lr'], weight_decay=config['adam_w'])
+                for batch, label, category in tqdm(train_dataloader):
+                    net_copy.train()
+                    # Training Loop
+                    train_sample = batch.to(device)
+                    train_label = label.to(device)
 
-            for batch, label, category in tqdm(train_dataloader):
-                net_copy.train()
-                # Training Loop
-                train_sample = batch.to(device)
-                train_label = label.to(device)
+                    optimizer.zero_grad()
 
-                optimizer.zero_grad()
+                    # Get the output of the network
+                    h_zero = torch.zeros((config['nb_rnn_layers'], train_sample.size(
+                        0), config['hidden_size']), device=device)
+                    output, _, _, _ = net_copy(train_sample, h_zero)
 
-                # Get the output of the network
-                h_zero = torch.zeros((config['nb_rnn_layers'], train_sample.size(
-                    0), config['hidden_size']), device=device)
-                output, _, _, _ = net_copy(train_sample, h_zero)
+                    # Compute the loss
+                    output = output.squeeze(-1)
+                    train_label = train_label.squeeze(-1).float()
+                    loss_step = criterion(output, train_label)
 
-                # Compute the loss
-                output = output.squeeze(-1)
-                train_label = train_label.squeeze(-1).float()
-                loss_step = criterion(output, train_label)
+                    # Split the categories
+                    train_loss_fn.append(
+                        loss_step[category == 0].mean().cpu().detach().numpy())
+                    train_loss_tp.append(
+                        loss_step[category == 1].mean().cpu().detach().numpy())
+                    # train_loss_fp.append(
+                    #     loss_step[category == 2].mean().cpu().detach().numpy())
+                    # train_loss_tn.append(
+                    #     loss_step[category == 3].mean().cpu().detach().numpy())
 
-                # Split the categories
-                train_loss_fn.append(
-                    loss_step[category == 0].mean().cpu().detach().numpy())
-                train_loss_tp.append(
-                    loss_step[category == 1].mean().cpu().detach().numpy())
-                # train_loss_fp.append(
-                #     loss_step[category == 2].mean().cpu().detach().numpy())
-                # train_loss_tn.append(
-                #     loss_step[category == 3].mean().cpu().detach().numpy())
+                    loss_step = loss_step.mean()
+                    loss_step.backward()
+                    optimizer.step()
 
-                loss_step = loss_step.mean()
-                loss_step.backward()
-                optimizer.step()
+                    training_losses.append(loss_step.item())
 
-                training_losses.append(loss_step.item())
+                # Plot the losses
+                plt.clf()
+                plt.plot(train_loss_fn,
+                         label="Non-Spindle Loss")
+                plt.plot(train_loss_tp,
+                         label="Spindle Loss")
+                plt.plot(train_loss_fp,
+                         label="False Positives")
+                plt.plot(train_loss_tn,
+                         label="True Negatives")
+                plt.legend()
+                # Axis titles:
+                plt.title('Training Losses')
+                plt.xlabel('Training Epochs')
+                plt.ylabel('Loss')
+                plt.savefig(f'training_losses_cat.png')
+                # Plot the losses
+                plt.clf()
+                plt.plot(training_losses)
+                # Axis titles:
+                plt.title('Training Losses')
+                plt.xlabel('Training Epochs')
+                plt.ylabel('Loss')
+                plt.savefig(f'training_losses.png')
 
-            # Plot the losses
-            plt.clf()
-            plt.plot(train_loss_fn,
-                     label="Non-Spindle Loss")
-            plt.plot(train_loss_tp,
-                     label="Spindle Loss")
-            plt.plot(train_loss_fp,
-                     label="False Positives")
-            plt.plot(train_loss_tn,
-                     label="True Negatives")
-            plt.legend()
-            # Axis titles:
-            plt.title('Training Losses')
-            plt.xlabel('Training Epochs')
-            plt.ylabel('Loss')
-            plt.savefig(f'training_losses_cat.png')
-            # Plot the losses
-            plt.clf()
-            plt.plot(training_losses)
-            # Axis titles:
-            plt.title('Training Losses')
-            plt.xlabel('Training Epochs')
-            plt.ylabel('Loss')
-            plt.savefig(f'training_losses.png')
+                # Average the weights of the model
+                net_inference = average_weights(
+                    net_inference, net_copy, alpha=config['alpha_training'])
 
-            # Average the weights of the model
-            net_inference = average_weights(
-                net_inference, net_copy, alpha=config['alpha_training'])
+            if index == 0:
+                net_copy = copy.deepcopy(net_inference)
 
             # Validation loop
             net_copy.eval()
-            val_loss_fn = []
-            val_loss_tp = []
-            val_loss_fp = []
-            val_loss_tn = []
+            validation_losses_epoch = []
+            val_loss_spindles_epoch = []
+            val_loss_non_spindles_epoch = []
             with torch.no_grad():
-                for batch, label, category in tqdm(val_dataloader):
+                for batch, label in tqdm(val_dataloader):
                     val_sample = batch.to(device)
-                    val_label = label.to(device)
+                    val_label = label['spindle_label'].to(device)
 
                     # Get the output of the network
                     h_zero = torch.zeros((config['nb_rnn_layers'], val_sample.size(
@@ -711,36 +750,26 @@ def run_adaptation(dataloader, net, device, config, train):
                     loss_step = criterion(output, val_label)
 
                     # Split the categories
-                    val_loss_fn.append(
-                        loss_step[category == 0].mean().cpu().detach().numpy())
-                    val_loss_tp.append(
-                        loss_step[category == 1].mean().cpu().detach().numpy())
-                    val_loss_fp.append(
-                        loss_step[category == 2].mean().cpu().detach().numpy())
-                    val_loss_tn.append(
-                        loss_step[category == 3].mean().cpu().detach().numpy())
+                    val_loss_spindles_epoch.append(
+                        loss_step[val_label == 1].mean().cpu().detach().numpy())
+                    val_loss_non_spindles_epoch.append(
+                        loss_step[val_label == 0].mean().cpu().detach().numpy())
 
-                    validation_losses.append(loss_step.mean().item())
+                    validation_losses_epoch.append(loss_step.mean().item())
 
             # Plot the losses
+            validation_losses.append(np.mean(validation_losses_epoch))
+            val_losses_spindles.append(np.mean(val_loss_spindles_epoch))
+            val_losses_non_spindles.append(
+                np.mean(val_loss_non_spindles_epoch))
             plt.clf()
-            plt.plot(val_loss_fn,
+            plt.plot(val_losses_spindles,
                      label="Non-Spindle Loss")
-            plt.plot(val_loss_tp,
+            plt.plot(val_losses_non_spindles,
                      label="Spindle Loss")
-            plt.plot(val_loss_fp,
-                     label="False Positives")
-            plt.plot(val_loss_tn,
-                     label="True Negatives")
+            plt.plot(validation_losses,
+                     label="Total Loss")
             plt.legend()
-            # Axis titles:
-            plt.title('Validation Losses')
-            plt.xlabel('Training Epochs')
-            plt.ylabel('Loss')
-            plt.savefig(f'validation_losses_cat.png')
-            # Plot the losses
-            plt.clf()
-            plt.plot(validation_losses)
             # Axis titles:
             plt.title('Validation Losses')
             plt.xlabel('Training Epochs')
@@ -1061,29 +1090,37 @@ def parse_worker_subject_div(subjects, total_workers, worker_id):
     return worker_subjects
 
 
-def dataloader_from_subject(subject, dataset_path, config):
+def dataloader_from_subject(subject, dataset_path, config, val):
     dataset = MassDataset(
         dataset_path,
         subjects=subject,
-        window_size=54,
-        seq_stride=42,
+        window_size=config['window_size'],
+        seq_stride=config['seq_stride'],
         seq_len=1,
         use_filtered=False,
-        compute_spindle_labels=True,
+        compute_spindle_labels=False,
         wamsley_config=config['wamsley_config']
     )
 
-    sampler = MassConsecutiveSampler(
-        dataset,
-        seq_stride=42,
-        segment_len=len(dataset) // 42,
-        # segment_len=10000,
-        max_batch_size=1
-    )
+    if val:
+        sampler = MassConsecutiveSampler(
+            dataset,
+            seq_stride=42,
+            segment_len=500,
+            max_batch_size=512,
+            late=True
+        )
+    else:
+        sampler = MassConsecutiveSampler(
+            dataset,
+            seq_stride=42,
+            segment_len=len(dataset) // 42,
+            max_batch_size=1
+        )
 
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=1,
+        batch_size=1 if not val else 512,
         sampler=sampler,
         num_workers=0,
         shuffle=False)
@@ -1107,9 +1144,9 @@ def get_all_configs():
             'experiment_name': 'BASELINE_NOTHING',
             'num_subjects': 1,
             'train': False,
-            'seq_len': 50,
-            'seq_stride': 42,
-            'window_size': 54,
+            'seq_len': net.config['seq_len'],
+            'seq_stride': net.config['seq_stride'],
+            'window_size': net.config['window_size'],
             'lr': 0.00001,
             'adam_w': 0.0,
             'hidden_size': net.config['hidden_size'],
@@ -1327,7 +1364,7 @@ if __name__ == "__main__":
         'max_threshold': 1.0,
         'starting_threshold': 0.5,
         # Interval between each run of online wamsley, threshold adaptation and finetuning if required (in minutes)
-        'adaptation_interval': 60,
+        'adaptation_interval': 10,
         # Weights for the sampling of the different spindle in the finetuning in order: [fn, tp, fp, tn]
         'sample_weights': [0.25, 0.25, 0.25, 0.25],
         # Batch size for the finetuning, the bigger the less time it takes to finetune
@@ -1339,7 +1376,10 @@ if __name__ == "__main__":
             'remove_outliers': False,
             'threshold_multiplier': 4.5,
             'sampling_rate': 250,
-        }
+        },
+        'use_replay': True,
+        'replay_subjects': net.config['subjects_val'][:10],
+        'replay_multiplier': 2,
     }
 
     dataset_path = args.dataset_path
@@ -1369,10 +1409,13 @@ if __name__ == "__main__":
         results[subject_id] = {}
         for config in all_configs:
             dataloader = dataloader_from_subject(
-                [subject_id], dataset_path, config)
+                [subject_id], dataset_path, config, val=False)
+            val_dataloader = dataloader_from_subject(
+                [subject_id], dataset_path, config, val=True)
             config['subject'] = subject_id
             metrics, net_copy = run_adaptation(
                 dataloader,
+                val_dataloader,
                 net,
                 device,
                 config,
