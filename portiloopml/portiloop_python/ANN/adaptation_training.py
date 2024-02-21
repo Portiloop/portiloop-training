@@ -267,6 +267,12 @@ class AdaptationDataset(torch.utils.data.Dataset):
             label = torch.Tensor([label]).type(torch.LongTensor)
             return signal, label, category
 
+        if label == 1:
+            real_index = index + self.window_size - 1
+            spindle = self.wamsley_buffer[real_index-250:real_index+250]
+            plot_spindle(spindle)
+            print()
+
         # Get data
         index = index + self.past_signal_len
         signal = torch.Tensor(self.wamsley_buffer[index - self.past_signal_len:index + self.window_size]).unfold(
@@ -331,6 +337,9 @@ class AdaptationDataset(torch.utils.data.Dataset):
             len(points_to_add)
         spindle_label_to_add = [spindle_label] * len(points_to_add)
 
+        if len(points_to_add) != 50:
+            print('WOW')
+
         # Add to the buffers
         self.wamsley_buffer += points_to_add
         self.ss_mask_buffer += ss_mask_to_add
@@ -385,8 +394,8 @@ class AdaptationDataset(torch.utils.data.Dataset):
             #     return
 
             # Get the indexes of the spindles predictions
-            spindle_indexes = np.where(np.array(usable_preds) == 1)[
-                0]
+            # spindle_indexes = np.where(np.array(usable_preds) == 1)[
+            #     0]
 
             # For testing purposes, we want to sometimes learn from the ground truth instead of Wamsley
             if self.learn_wamsley:
@@ -404,49 +413,48 @@ class AdaptationDataset(torch.utils.data.Dataset):
 
             # Get the difference in indexes between the buffer we studied and the total buffer
             index_diff = len(self.wamsley_buffer) - self.wamsley_interval
-            # index_diff = 0
 
             # Get the intersection of the two
-            true_positives = np.intersect1d(
-                spindle_indexes, gt_indexes) + index_diff
-            false_positives = np.setdiff1d(
-                spindle_indexes, gt_indexes) + index_diff
-            false_negatives = np.setdiff1d(
-                gt_indexes, spindle_indexes) + index_diff
+            # true_positives = np.intersect1d(
+            #     spindle_indexes, gt_indexes) + index_diff
+            # false_positives = np.setdiff1d(
+            #     spindle_indexes, gt_indexes) + index_diff
+            # false_negatives = np.setdiff1d(
+            #     gt_indexes, spindle_indexes) + index_diff
 
             wamsley_spindles = [(i[0] + index_diff, i[1] + index_diff,
                                  i[2] + index_diff) for i in wamsley_spindles]
 
             self.total_spindles += wamsley_spindles
-            self.sampleable_missed_spindles += false_negatives.tolist()
-            self.sampleable_false_spindles += false_positives.tolist()
-            self.sampleable_found_spindles += true_positives.tolist()
+            # self.sampleable_missed_spindles += false_negatives.tolist()
+            # self.sampleable_false_spindles += false_positives.tolist()
+            # self.sampleable_found_spindles += true_positives.tolist()
             self.sampleable_spindles += (gt_indexes + index_diff).tolist()
 
-            new_info = len(false_negatives) + \
-                len(true_positives) + len(false_positives)
+            # new_info = len(false_negatives) + \
+            #     len(true_positives) + len(false_positives)
 
-            print(
-                f"Got {new_info} new samples with Wamsley threshold {used_threshold}")
-            print(
-                f"False Negatives: {len(false_negatives)} | False Positives: {len(false_positives)} | True Positives: {len(true_positives)}")
+            # print(
+            #     f"Got {new_info} new samples with Wamsley threshold {used_threshold}")
+            # print(
+            #     f"False Negatives: {len(false_negatives)} | False Positives: {len(false_positives)} | True Positives: {len(true_positives)}")
 
             # Plot the ratios of the spindles
-            self.num_true_positive.append(len(true_positives) / new_info)
-            self.num_false_positive.append(len(false_positives) / new_info)
-            self.num_false_negative.append(len(false_negatives) / new_info)
+            # self.num_true_positive.append(len(true_positives) / new_info)
+            # self.num_false_positive.append(len(false_positives) / new_info)
+            # self.num_false_negative.append(len(false_negatives) / new_info)
 
             # Plot the ratios
-            plt.clf()
-            plt.plot(self.num_true_positive, label="True Positives")
-            plt.plot(self.num_false_positive, label="False Positives")
-            plt.plot(self.num_false_negative, label="False Negatives")
-            plt.legend()
-            # Axis titles:
-            plt.title('Ratios of the spindles')
-            plt.xlabel('Training Epochs')
-            plt.ylabel('Ratio')
-            plt.savefig(f'spindle_ratios.png')
+            # plt.clf()
+            # plt.plot(self.num_true_positive, label="True Positives")
+            # plt.plot(self.num_false_positive, label="False Positives")
+            # plt.plot(self.num_false_negative, label="False Negatives")
+            # plt.legend()
+            # # Axis titles:
+            # plt.title('Ratios of the spindles')
+            # plt.xlabel('Training Epochs')
+            # plt.ylabel('Ratio')
+            # plt.savefig(f'spindle_ratios.png')
 
             # Get the best threshold for the model
             if self.adapt_threshold_detect:
@@ -489,6 +497,22 @@ class AdaptationDataset(torch.utils.data.Dataset):
         return len(self.sampleable_false_spindles) > self.batch_size\
             or len(self.sampleable_found_spindles) > self.batch_size \
             or len(self.sampleable_missed_spindles) > self.batch_size
+
+
+def plot_spindle(data):
+    """
+    Plots the spindle data
+    """
+    # Plot a 16 Hz sine wave
+    plt.clf()
+    sine_wave = np.sin(2 * np.pi * 16 * np.arange(0, 2, 1/250)) * 30
+    plt.plot(sine_wave, label='16 Hz Sine Wave', color='blue', alpha=0.3)
+    plt.plot(data)
+    plt.axvline(x=len(data) // 2, color='r', linestyle='--')
+    plt.title('Spindle Data')
+    plt.xlabel('Time')
+    plt.ylabel('Amplitude')
+    plt.savefig(f'spindle_data.png')
 
 
 def run_adaptation(dataloader, val_dataloader, net, device, config, train):
@@ -605,14 +629,9 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train):
                     nplast_n_ss = torch.tensor(last_n_ss)
                     ss_output = torch.mean(nplast_n_ss, dim=0)
                     ss_output = torch.argmax(ss_output)
-
                 else:
                     ss_output = torch.argmax(ss_output, dim=1)
 
-            # if index == len(dataloader) - 1:
-            #     force_wamsley = True
-            # else:
-            #     force_wamsley = False
             ss_preds_argmaxed.append(ss_output)
             out_dataset = adap_dataset.add_window(
                 window_data,
@@ -620,7 +639,6 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train):
                 output,
                 spindle_label=window_labels.cpu().item(),
                 detect_threshold=used_threshold,
-                # force_wamsley=force_wamsley
             )
 
             spindle_pred_with_thresh.append(
@@ -750,10 +768,13 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train):
                     loss_step = criterion(output, val_label)
 
                     # Split the categories
-                    val_loss_spindles_epoch.append(
-                        loss_step[val_label == 1].mean().cpu().detach().numpy())
-                    val_loss_non_spindles_epoch.append(
-                        loss_step[val_label == 0].mean().cpu().detach().numpy())
+                    if sum(val_label == 1) > 0:
+                        val_loss_spindles_epoch.append(
+                            loss_step[val_label == 1].mean().cpu().detach().numpy())
+
+                    if sum(val_label == 0) > 0:
+                        val_loss_non_spindles_epoch.append(
+                            loss_step[val_label == 0].mean().cpu().detach().numpy())
 
                     validation_losses_epoch.append(loss_step.mean().item())
 
@@ -764,9 +785,9 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train):
                 np.mean(val_loss_non_spindles_epoch))
             plt.clf()
             plt.plot(val_losses_spindles,
-                     label="Non-Spindle Loss")
-            plt.plot(val_losses_non_spindles,
                      label="Spindle Loss")
+            plt.plot(val_losses_non_spindles,
+                     label="Non-Spindle Loss")
             plt.plot(validation_losses,
                      label="Total Loss")
             plt.legend()
@@ -1099,22 +1120,23 @@ def dataloader_from_subject(subject, dataset_path, config, val):
         seq_len=1,
         use_filtered=False,
         compute_spindle_labels=False,
+        sampleable='spindles',
         wamsley_config=config['wamsley_config']
     )
 
     if val:
         sampler = MassConsecutiveSampler(
             dataset,
-            seq_stride=42,
+            seq_stride=config['seq_stride'],
             segment_len=500,
             max_batch_size=512,
-            late=True
+            late=False
         )
     else:
         sampler = MassConsecutiveSampler(
             dataset,
-            seq_stride=42,
-            segment_len=len(dataset) // 42,
+            seq_stride=config['seq_stride'],
+            segment_len=(len(dataset) // config['seq_stride']),
             max_batch_size=1
         )
 
@@ -1138,188 +1160,6 @@ class NumpyEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def get_all_configs():
-    big_config = [
-        {
-            'experiment_name': 'BASELINE_NOTHING',
-            'num_subjects': 1,
-            'train': False,
-            'seq_len': net.config['seq_len'],
-            'seq_stride': net.config['seq_stride'],
-            'window_size': net.config['window_size'],
-            'lr': 0.00001,
-            'adam_w': 0.0,
-            'hidden_size': net.config['hidden_size'],
-            'nb_rnn_layers': net.config['nb_rnn_layers'],
-            # Whether to use the adaptable threshold in the detection of spindles with NN Model
-            'adapt_threshold_detect': False,
-            # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
-            'adapt_threshold_wamsley': False,
-            # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
-            'learn_wamsley': True,
-            # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-            'use_ss_label': False,
-            'use_ss_smoothing': False,
-            'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
-            # Thresholds for the adaptable threshold
-            'min_threshold': 0.0,
-            'max_threshold': 1.0,
-        },
-        {
-            'experiment_name': 'BASELINE_WAMSLEY',
-            'num_subjects': 1,
-            'train': False,
-            'seq_len': 50,
-            'seq_stride': 42,
-            'window_size': 54,
-            'lr': 0.00001,
-            'adam_w': 0.0,
-            'hidden_size': net.config['hidden_size'],
-            'nb_rnn_layers': net.config['nb_rnn_layers'],
-            # Whether to use the adaptable threshold in the detection of spindles with NN Model
-            'adapt_threshold_detect': False,
-            # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
-            'adapt_threshold_wamsley': True,
-            # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
-            'learn_wamsley': True,
-            # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-            'use_ss_label': False,
-            'use_ss_smoothing': False,
-            'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
-            # Thresholds for the adaptable threshold
-            'min_threshold': 0.0,
-            'max_threshold': 1.0,
-        },
-        {
-            'experiment_name': 'BASELINE_WAMSLEY_GT',
-            'num_subjects': 1,
-            'train': False,
-            'seq_len': 50,
-            'seq_stride': 42,
-            'window_size': 54,
-            'lr': 0.00001,
-            'adam_w': 0.0,
-            'hidden_size': net.config['hidden_size'],
-            'nb_rnn_layers': net.config['nb_rnn_layers'],
-            # Whether to use the adaptable threshold in the detection of spindles with NN Model
-            'adapt_threshold_detect': False,
-            # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
-            'adapt_threshold_wamsley': True,
-            # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
-            'learn_wamsley': True,
-            # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-            'use_ss_label': True,
-            'use_ss_smoothing': False,
-            'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
-            # Thresholds for the adaptable threshold
-            'min_threshold': 0.0,
-            'max_threshold': 1.0,
-        },
-        {
-            'experiment_name': 'ADAPT_THRESHOLD_DETECTION',
-            'num_subjects': 1,
-            'train': False,
-            'seq_len': 50,
-            'seq_stride': 42,
-            'window_size': 54,
-            'lr': 0.00001,
-            'adam_w': 0.0,
-            'hidden_size': net.config['hidden_size'],
-            'nb_rnn_layers': net.config['nb_rnn_layers'],
-            # Whether to use the adaptable threshold in the detection of spindles with NN Model
-            'adapt_threshold_detect': True,
-            # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
-            'adapt_threshold_wamsley': True,
-            # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
-            'learn_wamsley': True,
-            # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-            'use_ss_label': False,
-            'use_ss_smoothing': False,
-            'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
-            # Thresholds for the adaptable threshold
-            'min_threshold': 0.0,
-            'max_threshold': 1.0,
-        },
-        {
-            'experiment_name': 'TRAIN_WITH_THRESH_ADAPT',
-            'num_subjects': 1,
-            'train': True,
-            'seq_len': 50,
-            'seq_stride': 42,
-            'window_size': 54,
-            'lr': 0.00001,
-            'adam_w': 0.0,
-            'hidden_size': net.config['hidden_size'],
-            'nb_rnn_layers': net.config['nb_rnn_layers'],
-            # Whether to use the adaptable threshold in the detection of spindles with NN Model
-            'adapt_threshold_detect': True,
-            # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
-            'adapt_threshold_wamsley': True,
-            # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
-            'learn_wamsley': True,
-            # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-            'use_ss_label': False,
-            'use_ss_smoothing': False,
-            'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
-            # Thresholds for the adaptable threshold
-            'min_threshold': 0.0,
-            'max_threshold': 1.0,
-        },
-        {
-            'experiment_name': 'TRAIN_BASELINE_GT',
-            'num_subjects': 1,
-            'train': True,
-            'seq_len': 50,
-            'seq_stride': 42,
-            'window_size': 54,
-            'lr': 0.00001,
-            'adam_w': 0.0,
-            'hidden_size': net.config['hidden_size'],
-            'nb_rnn_layers': net.config['nb_rnn_layers'],
-            # Whether to use the adaptable threshold in the detection of spindles with NN Model
-            'adapt_threshold_detect': True,
-            # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
-            'adapt_threshold_wamsley': True,
-            # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
-            'learn_wamsley': False,
-            # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-            'use_ss_label': False,
-            'use_ss_smoothing': False,
-            'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
-            # Thresholds for the adaptable threshold
-            'min_threshold': 0.0,
-            'max_threshold': 1.0,
-        },
-        {
-            'experiment_name': 'TRAIN_WITH_SS_GT',
-            'num_subjects': 1,
-            'train': True,
-            'seq_len': 50,
-            'seq_stride': 42,
-            'window_size': 54,
-            'lr': 0.00001,
-            'adam_w': 0.0,
-            'hidden_size': net.config['hidden_size'],
-            'nb_rnn_layers': net.config['nb_rnn_layers'],
-            # Whether to use the adaptable threshold in the detection of spindles with NN Model
-            'adapt_threshold_detect': True,
-            # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
-            'adapt_threshold_wamsley': True,
-            # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
-            'learn_wamsley': True,
-            # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-            'use_ss_label': True,
-            'use_ss_smoothing': False,
-            'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
-            # Thresholds for the adaptable threshold
-            'min_threshold': 0.0,
-            'max_threshold': 1.0,
-        }
-    ]
-
-    return big_config
-
-
 if __name__ == "__main__":
     # Parse config dict important for the adapatation
     args = parse_config()
@@ -1338,7 +1178,7 @@ if __name__ == "__main__":
     config = {
         'experiment_name': 'REAL_BASELINE_NOTHING',
         'num_subjects': 1,
-        'train': True,
+        'train': False,
         'seq_len': net.config['seq_len'],
         'seq_stride': net.config['seq_stride'],
         'window_size': net.config['window_size'],
@@ -1348,7 +1188,7 @@ if __name__ == "__main__":
         'hidden_size': net.config['hidden_size'],
         'nb_rnn_layers': net.config['nb_rnn_layers'],
         # Whether to use the adaptable threshold in the detection of spindles with NN Model
-        'adapt_threshold_detect': True,
+        'adapt_threshold_detect': False,
         # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
         'adapt_threshold_wamsley': False,
         # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
@@ -1364,7 +1204,7 @@ if __name__ == "__main__":
         'max_threshold': 1.0,
         'starting_threshold': 0.5,
         # Interval between each run of online wamsley, threshold adaptation and finetuning if required (in minutes)
-        'adaptation_interval': 10,
+        'adaptation_interval': 60,
         # Weights for the sampling of the different spindle in the finetuning in order: [fn, tp, fp, tn]
         'sample_weights': [0.25, 0.25, 0.25, 0.25],
         # Batch size for the finetuning, the bigger the less time it takes to finetune
@@ -1377,9 +1217,9 @@ if __name__ == "__main__":
             'threshold_multiplier': 4.5,
             'sampling_rate': 250,
         },
-        'use_replay': True,
+        'use_replay': False,
         'replay_subjects': net.config['subjects_val'][:10],
-        'replay_multiplier': 2,
+        'replay_multiplier': 10,
     }
 
     dataset_path = args.dataset_path

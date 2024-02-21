@@ -261,8 +261,9 @@ class MassConsecutiveSampler(Sampler):
 
         # Find all the possible start indexes for segments by splitting the dataset into segments
         # We remove the alst one to make sure we do not go out of bounds
+
         self.start_indexes = np.arange(
-            0, len(self.data_source), self.segment_len * self.seq_stride)[:-1]
+            self.data_source.past_signal_len, len(self.data_source), self.segment_len * self.seq_stride)[:-1]
         # if len(self.start_indexes) > 1:
         #     self.start_indexes = self.start_indexes[:-1]
 
@@ -283,6 +284,8 @@ class MassConsecutiveSampler(Sampler):
                     self.new_indexes, self.max_batch_size, replace=False)
         else:
             self.start_indexes = self.new_indexes
+
+        print(f"Chose starting random indexes: {self.start_indexes}")
 
     def get_batch_size(self):
         return len(self.start_indexes)
@@ -328,7 +331,8 @@ class MassDataset(Dataset):
         self.window_size = window_size
         self.seq_stride = seq_stride
         self.seq_len = seq_len
-        self.past_signal_len = (self.seq_len - 1) * self.seq_stride
+        self.past_signal_len = (self.seq_len - 1) * \
+            self.seq_stride + self.window_size
 
         # Start by finding the necessary subsets to load based on the names of the subjects required
         if self.subjects is not None:
@@ -450,8 +454,7 @@ class MassDataset(Dataset):
         start = time.time()
         for subject in self.data:
             indices = np.arange(len(self.data[subject]['signal']))
-            valid_indices = indices[(indices >= self.past_signal_len) & (
-                indices <= len(self.data[subject]['signal']) - self.window_size)]
+            valid_indices = indices[(indices >= self.past_signal_len)]
 
             if sampleable == 'spindles' or sampleable == 'both':
                 # Get the labels of the label indices and keep track of them
@@ -492,6 +495,33 @@ class MassDataset(Dataset):
         print(
             f"Number of W indexes: {len(self.labels_indexes['staging_label_W'])}")
 
+        # Used to check that the above code has the right indexes
+        ########### KEEP COMMENTED FOR USAGE ############
+        # for spindle_index in self.labels_indexes['spindle_label']:
+        #     _, label = self.__getitem__(spindle_index)
+        #     assert label['spindle_label'] == 1, "Spindle label is not 1"
+
+        # for N1_index in self.labels_indexes['staging_label_N1']:
+        #     _, label = self.__getitem__(N1_index)
+        #     assert label['sleep_stage'] == 0, "N1 label is not 0"
+
+        # for N2_index in self.labels_indexes['staging_label_N2']:
+        #     _, label = self.__getitem__(N2_index)
+        #     assert label['sleep_stage'] == 1, "N2 label is not 1"
+
+        # for N3_index in self.labels_indexes['staging_label_N3']:
+        #     _, label = self.__getitem__(N3_index)
+        #     assert label['sleep_stage'] == 2, "N3 label is not 2"
+
+        # for R_index in self.labels_indexes['staging_label_R']:
+        #     _, label = self.__getitem__(R_index)
+        #     assert label['sleep_stage'] == 3, "R label is not 3"
+
+        # for W_index in self.labels_indexes['staging_label_W']:
+        #     _, label = self.__getitem__(W_index)
+        #     assert label['sleep_stage'] == 4, "W label is not 4"
+        ######################################################
+
     def get_labels(self, subject, signal_idx):
         '''
         Return the labels of a subject and signal.
@@ -526,8 +556,8 @@ class MassDataset(Dataset):
             Whether to return the filtered signal or the mass signal. The default is False.
         '''
         # Make sure this works
-        signal = self.data[subject]['signal'][signal_idx - self.past_signal_len:signal_idx +
-                                              self.window_size]
+        signal = self.data[subject]['signal'][signal_idx -
+                                              self.past_signal_len:signal_idx]
         signal = torch.tensor(signal, dtype=torch.float).unfold(
             0, self.window_size, self.seq_stride)
         signal = signal.unsqueeze(1)
@@ -545,6 +575,9 @@ class MassDataset(Dataset):
     def __getitem__(self, index):
         '''
         Return the signal and labels of a subject and signal.
+
+        This index corresponds to the index at the END of the sequence as we're trying to learn online.
+        This means that the signal will be from (index - self.past_signal_len) to (index).
 
         Parameters
         ----------
