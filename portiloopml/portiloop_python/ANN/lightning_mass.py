@@ -612,7 +612,7 @@ if __name__ == "__main__":
     parser.add_argument('--experiment_name', type=str, help='Name of the experiment',
                         default='DEFAULT_NAME')
     parser.add_argument('--num_train_subjects', type=int,  help='Number of subjects for training',
-                        default=2)
+                        default=10)
     parser.add_argument('--num_val_subjects', type=int, help='Number of subjects for validation',
                         default=2)
     parser.add_argument('--dataset_path', type=str, help='Path to the MASS dataset.',
@@ -632,7 +632,7 @@ if __name__ == "__main__":
         set_seeds(seed)
 
     config = get_configs(experiment_name, True, seed)
-    config['hidden_size'] = 64
+    config['hidden_size'] = 256
     config['nb_rnn_layers'] = 8
     config['lr'] = 1e-4
     config['adamw_weight_decay'] = 0.001
