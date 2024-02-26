@@ -1,5 +1,6 @@
 import time
 from typing import Iterator, Optional, Sized
+from matplotlib import pyplot as plt
 import numpy as np
 from torch.utils.data import DataLoader, Dataset, Sampler
 import torch
@@ -7,7 +8,7 @@ import os
 import pandas as pd
 import sys
 
-from portiloopml.portiloop_python.ANN.wamsley_utils import detect_lacourse, detect_wamsley
+from portiloopml.portiloop_python.ANN.wamsley_utils import detect_lacourse, detect_wamsley, plot_spindle
 
 
 def get_size(obj, seen=None):
@@ -262,8 +263,8 @@ class MassConsecutiveSampler(Sampler):
         # Find all the possible start indexes for segments by splitting the dataset into segments
         # We remove the alst one to make sure we do not go out of bounds
 
-        self.start_indexes = np.arange(
-            self.data_source.past_signal_len, len(self.data_source), self.segment_len * self.seq_stride)[:-1]
+        self.start_indexes = np.arange(0,
+                                       len(self.data_source), self.segment_len * self.seq_stride)[:-1]
         # if len(self.start_indexes) > 1:
         #     self.start_indexes = self.start_indexes[:-1]
 
@@ -284,8 +285,6 @@ class MassConsecutiveSampler(Sampler):
                     self.new_indexes, self.max_batch_size, replace=False)
         else:
             self.start_indexes = self.new_indexes
-
-        print(f"Chose starting random indexes: {self.start_indexes}")
 
     def get_batch_size(self):
         return len(self.start_indexes)
@@ -588,6 +587,18 @@ class MassDataset(Dataset):
         subject = self.get_subject_by_index(index)
         labels = self.get_labels(subject, signal_idx)
         signal = self.get_signal(subject, signal_idx)
+
+        # if labels['spindle_label'] == 1:
+        #     around_spindle = self.data[subject]['signal'][signal_idx -
+        #                                                   250:signal_idx + 250]
+        #     spindle_on_off = self.data[subject]['spindle_label'][signal_idx -
+        #                                                          250:signal_idx + 250]
+        #     plot_spindle(around_spindle, spindle_on_off)
+        #     plt.clf()
+        #     plt.plot(signal[0, 0, :])
+        #     plt.savefig(f"spindle_signal_sampled.png")
+        #     print()
+
         return signal, labels
 
     def __len__(self):

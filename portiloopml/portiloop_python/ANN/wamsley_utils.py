@@ -3,6 +3,25 @@ import numpy as np
 from scipy.signal import fftconvolve, filtfilt, firwin, kaiserord, kaiser_atten, kaiser_beta
 import torch
 from wonambi.detect.spindle import DetectSpindle, detect_Lacourse2018
+import matplotlib.pyplot as plt
+
+
+def plot_spindle(data, ground_truth=None):
+    """
+    Plots the spindle data
+    """
+    # Plot a 16 Hz sine wave
+    plt.clf()
+    sine_wave = np.sin(2 * np.pi * 16 * np.arange(0, 2, 1/250)) * 30
+    plt.plot(sine_wave, label='16 Hz Sine Wave', color='blue', alpha=0.3)
+    plt.plot(data)
+    if ground_truth is not None:
+        plt.plot(ground_truth, label='Ground Truth', color='red', alpha=0.5)
+    plt.axvline(x=len(data) // 2, color='r', linestyle='--')
+    plt.title('Spindle Data')
+    plt.xlabel('Time')
+    plt.ylabel('Amplitude')
+    plt.savefig(f'spindle_data.png')
 
 
 def detect_lacourse(data, mask, sampling_rate=250):

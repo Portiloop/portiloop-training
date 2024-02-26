@@ -645,8 +645,8 @@ if __name__ == "__main__":
     config['useViT'] = False
     config['dropout'] = 0.5
     config['batch_size'] = 64
-    config['window_size'] = 250
-    config['seq_stride'] = 50
+    config['window_size'] = 54
+    config['seq_stride'] = 42
     config['seq_len'] = 50
 
     if config['useViT']:
@@ -796,6 +796,7 @@ if __name__ == "__main__":
     # Add a timestamps to the name
     project_name = "dual_model"
     group = 'TESTING_STUFF'
+    # group = 'TrainingBoth'
     wandb_logger = WandbLogger(
         project=project_name,
         group=group,
@@ -823,7 +824,7 @@ if __name__ == "__main__":
 
     ############### Trainer ##################
     trainer = pl.Trainer(
-        max_epochs=1,
+        max_epochs=10,
         accelerator='gpu',
         # fast_dev_run=10,
         logger=wandb_logger,

@@ -186,7 +186,8 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.seq_len = config['seq_len']
         self.seq_stride = config['seq_stride']
         self.window_size = config['window_size']
-        self.past_signal_len = (self.seq_len - 1) * self.seq_stride
+        self.past_signal_len = (self.seq_len - 1) * \
+            self.seq_stride + self.window_size
         self.min_signal_len = self.past_signal_len + self.window_size
 
         # Buffers
@@ -497,22 +498,6 @@ class AdaptationDataset(torch.utils.data.Dataset):
         return len(self.sampleable_false_spindles) > self.batch_size\
             or len(self.sampleable_found_spindles) > self.batch_size \
             or len(self.sampleable_missed_spindles) > self.batch_size
-
-
-def plot_spindle(data):
-    """
-    Plots the spindle data
-    """
-    # Plot a 16 Hz sine wave
-    plt.clf()
-    sine_wave = np.sin(2 * np.pi * 16 * np.arange(0, 2, 1/250)) * 30
-    plt.plot(sine_wave, label='16 Hz Sine Wave', color='blue', alpha=0.3)
-    plt.plot(data)
-    plt.axvline(x=len(data) // 2, color='r', linestyle='--')
-    plt.title('Spindle Data')
-    plt.xlabel('Time')
-    plt.ylabel('Amplitude')
-    plt.savefig(f'spindle_data.png')
 
 
 def run_adaptation(dataloader, val_dataloader, net, device, config, train):
@@ -1136,7 +1121,7 @@ def dataloader_from_subject(subject, dataset_path, config, val):
         sampler = MassConsecutiveSampler(
             dataset,
             seq_stride=config['seq_stride'],
-            segment_len=(len(dataset) // config['seq_stride']),
+            segment_len=(len(dataset) // config['seq_stride']) - 1,
             max_batch_size=1
         )
 
