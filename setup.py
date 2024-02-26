@@ -22,7 +22,8 @@ install_requires = [
     'PyWavelets==1.4.1',
     'torchsummary',
     'transformers==4.32.1',
-    'torchvision'
+    'torchvision',
+    'wonambi'
 ]
 
 setup(name='portiloopml',
