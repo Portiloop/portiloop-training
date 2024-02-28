@@ -331,7 +331,7 @@ class MassDataset(Dataset):
         self.seq_stride = seq_stride
         self.seq_len = seq_len
         self.past_signal_len = (self.seq_len - 1) * \
-            self.seq_stride # + self.window_size
+            self.seq_stride + self.window_size
 
         # Start by finding the necessary subsets to load based on the names of the subjects required
         if self.subjects is not None:
@@ -433,10 +433,13 @@ class MassDataset(Dataset):
                     f"Computed spindles for {key} with {len(spindles['onsets'])} spindles")
 
             else:
+                spindles_used = 'spindle_mass_lacourse'
+                # spindles_used = 'spindle_label_mass'
+                # spindles_used = 'spindle_mass_fixed'
                 total_spindle_number += len(
-                    self.data[key]['spindle_mass_lacourse'][key]['onsets'])
+                    self.data[key][spindles_used][key]['onsets'])
                 self.data[key]['spindle_label'] = self.onsets_2_labelvector(
-                    self.data[key]['spindle_mass_lacourse'][key], len(self.data[key]['signal']))
+                    self.data[key][spindles_used][key], len(self.data[key]['signal']))
 
         # Get a lookup table to match all possible sampleable signals to a (subject, index) pair
         self.lookup_table = []
@@ -453,7 +456,8 @@ class MassDataset(Dataset):
         start = time.time()
         for subject in self.data:
             indices = np.arange(len(self.data[subject]['signal']))
-            valid_indices = indices[(indices >= self.past_signal_len) & (indices <= len(self.data[subject]['signal']) - self.window_size)]
+            # & (indices <= len(self.data[subject]['signal']) - self.window_size)]
+            valid_indices = indices[(indices >= self.past_signal_len)]
 
             if sampleable == 'spindles' or sampleable == 'both':
                 # Get the labels of the label indices and keep track of them
@@ -554,9 +558,8 @@ class MassDataset(Dataset):
         filtered_signal : bool, optional
             Whether to return the filtered signal or the mass signal. The default is False.
         '''
-        # Make sure this works
         signal = self.data[subject]['signal'][signal_idx -
-                                              self.past_signal_len:signal_idx + self.window_size]
+                                              self.past_signal_len:signal_idx]
         signal = torch.tensor(signal, dtype=torch.float).unfold(
             0, self.window_size, self.seq_stride)
         signal = signal.unsqueeze(1)

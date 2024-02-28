@@ -47,9 +47,9 @@ class AdaptationSampler2(torch.utils.data.Sampler):
 
         # Add the labels to the indexes for the new found spindles
         self.spindle_indexes = [
-            (i - self.past_signal_len - self.window_size + 1, 1, False) for i in self.spindle_indexes]
+            (i, 1, False) for i in self.spindle_indexes]
         non_spindle_indexes = [
-            (i - self.past_signal_len - self.window_size + 1, 0, False) for i in non_spindle_indexes]
+            (i, 0, False) for i in non_spindle_indexes]
         self.indexes = self.spindle_indexes + non_spindle_indexes
 
         # Add the replay dataset indexes:
@@ -187,7 +187,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.seq_stride = config['seq_stride']
         self.window_size = config['window_size']
         self.past_signal_len = (self.seq_len - 1) * \
-            self.seq_stride + self.window_size
+            self.seq_stride
         self.min_signal_len = self.past_signal_len + self.window_size
 
         # Buffers

@@ -146,6 +146,7 @@ class PortiloopNetwork(nn.Module):
             nn.Linear(in_features=fc_features,
                       out_features=fc_features),
             nn.ReLU(),
+            nn.Dropout(dropout_p),
         )
 
         # Classifier for the spindle detection
@@ -156,7 +157,9 @@ class PortiloopNetwork(nn.Module):
         self.classifier_spindles = nn.Sequential(
             hidden_fc_spindles,
             nn.ReLU(),
-            fc_spindles)
+            nn.Dropout(dropout_p),
+            fc_spindles,
+        )
 
         # Classifier for the sleep stage
         hidden_fc_ss = nn.Linear(in_features=fc_features,
@@ -166,7 +169,9 @@ class PortiloopNetwork(nn.Module):
         self.classifier_sleep_stage = nn.Sequential(
             hidden_fc_ss,
             nn.ReLU(),
-            fc_sleep_stage)
+            nn.Dropout(dropout_p),
+            fc_sleep_stage,
+        )
 
     def forward(self, x, h, past_x=None, max_value=np.inf, run_classifiers=True):
         # x: input data (batch_size, sequence_len, features)

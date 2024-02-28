@@ -259,7 +259,7 @@ class MassLightning(pl.LightningModule):
 
         # Compute the metrics for spindle detection using out binary f1 score
         spindle_precision, spindle_recall, spindle_f1, tp, fp, fn, _ = binary_f1_score(
-            spindle_onsets_labels, spindle_onsets_preds)
+            spindle_onsets_labels, spindle_onsets_preds, sampling_rate=250, min_time_positive=0.4)
         tn = len_spindle_preds - tp - fp - fn
         cm = np.array([[tn, fp], [fn, tp]])
 
@@ -610,7 +610,7 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=42,
                         help='Seed for random number generator')
     parser.add_argument('--experiment_name', type=str, help='Name of the experiment',
-                        default='DEFAULT_NAME')
+                        default='NewDL_Lacourse_smallerlr')
     parser.add_argument('--num_train_subjects', type=int,  help='Number of subjects for training',
                         default=10)
     parser.add_argument('--num_val_subjects', type=int, help='Number of subjects for validation',
@@ -639,9 +639,9 @@ if __name__ == "__main__":
     config['epoch_length'] = -1
     config['validation_batch_size'] = 512
     config['segment_len'] = 1000
-    config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
+    config['train_choice'] = 'spindles'  # One of "both", "spindles", "staging"
     config['use_filtered'] = False
-    config['alpha'] = 0.5
+    config['alpha'] = 0.1
     config['useViT'] = False
     config['dropout'] = 0.5
     config['batch_size'] = 64
