@@ -331,7 +331,7 @@ class MassDataset(Dataset):
         self.seq_stride = seq_stride
         self.seq_len = seq_len
         self.past_signal_len = (self.seq_len - 1) * \
-            self.seq_stride + self.window_size
+            self.seq_stride  # + self.window_size
 
         # Start by finding the necessary subsets to load based on the names of the subjects required
         if self.subjects is not None:
@@ -457,7 +457,8 @@ class MassDataset(Dataset):
         for subject in self.data:
             indices = np.arange(len(self.data[subject]['signal']))
             # & (indices <= len(self.data[subject]['signal']) - self.window_size)]
-            valid_indices = indices[(indices >= self.past_signal_len)]
+            valid_indices = indices[(indices >= self.past_signal_len) & (
+                indices <= len(self.data[subject]['signal']) - self.window_size)]
 
             if sampleable == 'spindles' or sampleable == 'both':
                 # Get the labels of the label indices and keep track of them
@@ -559,7 +560,7 @@ class MassDataset(Dataset):
             Whether to return the filtered signal or the mass signal. The default is False.
         '''
         signal = self.data[subject]['signal'][signal_idx -
-                                              self.past_signal_len:signal_idx]
+                                              self.past_signal_len:signal_idx + self.window_size]
         signal = torch.tensor(signal, dtype=torch.float).unfold(
             0, self.window_size, self.seq_stride)
         signal = signal.unsqueeze(1)

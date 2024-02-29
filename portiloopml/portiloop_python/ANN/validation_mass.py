@@ -3,6 +3,12 @@ from pathlib import Path
 import wandb
 
 from portiloopml.portiloop_python.ANN.lightning_mass import MassLightning
+import pytorch_lightning as pl
+from torch import optim, utils
+from portiloopml.portiloop_python.ANN.utils import get_configs, set_seeds
+from portiloopml.portiloop_python.ANN.data.mass_data_new import (
+    CombinedDataLoader, MassConsecutiveSampler, MassDataset, MassRandomSampler,
+    SubjectLoader)
 
 
 def load_model(checkpoint_ref, project, group, run_id):
@@ -28,7 +34,7 @@ def load_model_mass(new_run_name):
     # Get checkpoint reference
     user = "milosobral"
     project = "dual_model"
-    run_id = 'both_cc_bigwindow_71469'
+    run_id = 'both_cc_newdl_lac_newdropout_46240'
     # run_id = "both_cc_smallLR_1706210166"
     # run_id = "both_cc_newGT_60674"
     artifact_name = "best"
@@ -41,28 +47,78 @@ def load_model_mass(new_run_name):
     return model, run
 
 
-def validate_model(dataloader, model, device):
-    '''
-    Run through the validation set and return the metrics
-    '''
-    # Run through the validation set
-    for batch in dataloader:
-        # Get the data
-        vector = batch[0].to(device)
-
-
 if __name__ == "__main__":
-    # Log in with our wandb id
-    os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
 
-    # Get checkpoint reference
-    user = "milosobral"
-    project = "dual_model"
-    run_id = "both_cc_ViT_unfrozen_1706028506"
-    artifact_name = "best"
-    group = "Validation"
-    run_id_val = run_id + "_val"
-    checkpoint_ref = f"{user}/{project}/model-{run_id}:{artifact_name}"
+    seed = 42
+    experiment_name = "mass_val"
 
-    # Load model
-    model, run = load_model(checkpoint_ref, project, group, run_id_val)
+    config = get_configs(experiment_name, True, seed)
+    config['hidden_size'] = 256
+    config['nb_rnn_layers'] = 8
+    config['lr'] = 1e-4
+    config['adamw_weight_decay'] = 0.001
+    config['epoch_length'] = -1
+    config['validation_batch_size'] = 512
+    config['segment_len'] = 1000
+    config['train_choice'] = 'spindles'  # One of "both", "spindles", "staging"
+    config['use_filtered'] = False
+    config['alpha'] = 0.1
+    config['useViT'] = False
+    config['dropout'] = 0.5
+    config['batch_size'] = 64
+    config['window_size'] = 54
+    config['seq_stride'] = 42
+    config['seq_len'] = 50
+    config['num_subjects_val'] = 2
+
+    dataset_path = '/project/MASS/mass_spindles_dataset/'
+
+    model, _ = load_model_mass("Validating")
+
+    subject_loader = SubjectLoader(
+        os.path.join(dataset_path, 'subject_info.csv'))
+
+    val_subjects = subject_loader.select_subjects_age(
+        min_age=0,
+        max_age=40,
+        num_subjects=config['num_subjects_val'] // 2,
+        seed=seed)
+    val_subjects += subject_loader.select_subjects_age(
+        min_age=40,
+        max_age=100,
+        num_subjects=config['num_subjects_val'] // 2,
+        seed=seed,
+        exclude=val_subjects)
+
+    val_dataset = MassDataset(
+        dataset_path,
+        subjects=val_subjects,
+        window_size=config['window_size'],
+        seq_len=1,
+        seq_stride=config['seq_stride'],
+        use_filtered=config['use_filtered'],
+        sampleable='both')
+
+    val_sampler = MassConsecutiveSampler(
+        val_dataset,
+        config['seq_stride'],
+        config['segment_len'],
+        max_batch_size=config['validation_batch_size'],
+    )
+    real_batch_size = val_sampler.get_batch_size()
+    val_loader = utils.data.DataLoader(
+        val_dataset,
+        batch_size=real_batch_size,
+        sampler=val_sampler)
+
+    trainer = pl.Trainer(
+        max_epochs=10,
+        accelerator='gpu',
+        # fast_dev_run=10,
+    )
+
+    trainer.validate(
+        model,
+        val_loader
+    )
+    print("Validation done")

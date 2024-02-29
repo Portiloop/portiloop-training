@@ -257,7 +257,7 @@ class MassLightning(pl.LightningModule):
         spindle_onsets_labels = get_spindle_onsets(spindle_labels)
         spindle_onsets_preds = get_spindle_onsets(spindle_preds)
 
-        # Compute the metrics for spindle detection using out binary f1 score
+        # Compute the metrics for spindle detection using our binary f1 score
         spindle_precision, spindle_recall, spindle_f1, tp, fp, fn, _ = binary_f1_score(
             spindle_onsets_labels, spindle_onsets_preds, sampling_rate=250, min_time_positive=0.4)
         tn = len_spindle_preds - tp - fp - fn
@@ -639,7 +639,7 @@ if __name__ == "__main__":
     config['epoch_length'] = -1
     config['validation_batch_size'] = 512
     config['segment_len'] = 1000
-    config['train_choice'] = 'spindles'  # One of "both", "spindles", "staging"
+    config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
     config['use_filtered'] = False
     config['alpha'] = 0.1
     config['useViT'] = False
