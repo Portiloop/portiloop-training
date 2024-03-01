@@ -21,7 +21,7 @@ from portiloopml.portiloop_python.ANN.utils import get_configs, get_metrics, set
 from scipy.signal import firwin, remez, kaiser_atten, kaiser_beta, kaiserord, filtfilt
 from portiloopml.portiloop_python.ANN.validation_mass import load_model_mass
 
-from portiloopml.portiloop_python.ANN.wamsley_utils import binary_f1_score, detect_lacourse, detect_wamsley, get_spindle_onsets
+from portiloopml.portiloop_python.ANN.wamsley_utils import binary_f1_score, detect_lacourse, detect_wamsley, get_spindle_onsets, plot_spindle
 
 
 class AdaptationSampler2(torch.utils.data.Sampler):
@@ -63,7 +63,7 @@ class AdaptationSampler2(torch.utils.data.Sampler):
                 (index, 0, True) for index in replay_non_spindle_indexes]
             replay_spindle_indexes = [
                 (index, 1, True) for index in replay_spindle_indexes]
-            self.indexes += replay_spindle_indexes + replay_non_spindle_indexes
+            self.indexes = replay_spindle_indexes + replay_non_spindle_indexes
 
         random.shuffle(self.indexes)
 
@@ -268,27 +268,35 @@ class AdaptationDataset(torch.utils.data.Dataset):
             label = torch.Tensor([label]).type(torch.LongTensor)
             return signal, label, category
 
-        if label == 1:
-            real_index = index + self.window_size - 1
-            spindle = self.wamsley_buffer[real_index-250:real_index+250]
-            plot_spindle(spindle)
-            print()
-
         # Get data
-        index = index + self.past_signal_len
-        signal = torch.Tensor(self.wamsley_buffer[index - self.past_signal_len:index + self.window_size]).unfold(
+        signal = torch.Tensor(
+            self.wamsley_buffer[index - self.past_signal_len:index + self.window_size])
+
+        signal = signal.unfold(
             0, self.window_size, self.seq_stride)
+        signal = signal.unsqueeze(1)
+
+        # if label == 1:
+        #     around_spindle = self.wamsley_buffer[index - 250:index + 250]
+        #     spindle_on_off = self.spindle_labels[index - 250:index + 250]
+        #     plot_spindle(around_spindle, spindle_on_off)
+        #     plt.clf()
+        #     plt.plot(signal[-1, 0, :])
+        #     plt.savefig(f"spindle_signal_sampled.png")
+        #     print()
 
         # Make sure that the last index of the signal is the same as the label
         # assert signal[-1, -1] == self.full_signal[index + self.window_size - 1], "Issue with the data and the labels"
         # Keep the categorical loss to see if it improves in all domains or only some of them
+
+        assert signal.shape == (
+            self.seq_len, 1, self.window_size), "Signal shape is not correct"
+
         category = label
         if label == 0 or label == 2:
             label = torch.Tensor([0]).type(torch.LongTensor)
         else:
             label = torch.Tensor([1]).type(torch.LongTensor)
-
-        signal = signal.unsqueeze(1)
 
         return signal, label, category
 
@@ -305,14 +313,19 @@ class AdaptationDataset(torch.utils.data.Dataset):
         total_indexes_pos = len(self.sampleable_spindles)
         split_index_pos = int(total_indexes_pos * split)
 
+        # Keep only the indexes which are sampleable
         sampleable_indexes = np.array(self.sampleable_spindles)
+        sampleable_indexes = sampleable_indexes[(sampleable_indexes >= self.past_signal_len) & (
+            sampleable_indexes <= len(self.wamsley_buffer) - self.window_size)]
         train_spindle_indexes = sampleable_indexes[:split_index_pos]
         val_spindle_indexes = sampleable_indexes[split_index_pos:]
 
-        total_indexes_neg = len(self.wamsley_buffer)
+        total_indexes_neg = len(self.wamsley_buffer) - self.min_signal_len
         split_index_neg = int(total_indexes_neg * split)
-        train_indexes = (self.min_signal_len, split_index_neg)
-        val_indexes = (split_index_neg, total_indexes_neg)
+        train_indexes = (self.past_signal_len,
+                         split_index_neg - self.window_size)
+        val_indexes = (split_index_neg + self.past_signal_len,
+                       total_indexes_neg - self.window_size)
 
         return train_indexes, val_indexes, train_spindle_indexes, val_spindle_indexes
 
@@ -337,9 +350,6 @@ class AdaptationDataset(torch.utils.data.Dataset):
         preds_to_add = [bool(model_pred.cpu() >= detect_threshold)] * \
             len(points_to_add)
         spindle_label_to_add = [spindle_label] * len(points_to_add)
-
-        if len(points_to_add) != 50:
-            print('WOW')
 
         # Add to the buffers
         self.wamsley_buffer += points_to_add
@@ -431,6 +441,9 @@ class AdaptationDataset(torch.utils.data.Dataset):
             # self.sampleable_false_spindles += false_positives.tolist()
             # self.sampleable_found_spindles += true_positives.tolist()
             self.sampleable_spindles += (gt_indexes + index_diff).tolist()
+            new_info = len(self.sampleable_spindles)
+
+            print(f"Adding {new_info} new samples...")
 
             # new_info = len(false_negatives) + \
             #     len(true_positives) + len(false_positives)
@@ -495,9 +508,10 @@ class AdaptationDataset(torch.utils.data.Dataset):
         return sum_spindles / len(self)
 
     def has_samples(self):
-        return len(self.sampleable_false_spindles) > self.batch_size\
-            or len(self.sampleable_found_spindles) > self.batch_size \
-            or len(self.sampleable_missed_spindles) > self.batch_size
+        return len(self.sampleable_spindles) > self.batch_size
+        # return len(self.sampleable_false_spindles) > self.batch_size\
+        #     or len(self.sampleable_found_spindles) > self.batch_size \
+        #     or len(self.sampleable_missed_spindles) > self.batch_size
 
 
 def run_adaptation(dataloader, val_dataloader, net, device, config, train):
@@ -630,7 +644,6 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train):
                 output.cpu().item() > used_threshold)
 
             if out_dataset is not None:
-                print(f"Got something at index {index}")
                 new_threshold, num_new_info = out_dataset
                 if new_threshold is not None and config['adapt_threshold_detect']:
                     used_threshold = new_threshold[0]
@@ -639,7 +652,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train):
                     train_now = True
 
         # Training loop for the adaptation
-        if adap_dataset.has_samples() and train and train_now or index == 0:
+        if (adap_dataset.has_samples() and train and train_now) or (index == 0 and train):
 
             if index != 0:
                 train_now = False
@@ -1145,6 +1158,58 @@ class NumpyEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
+def get_config(index=0):
+        config = {
+            'experiment_name': f'config_{index}',
+            'num_subjects': 1,
+            'train': False,
+            'seq_len': net.config['seq_len'],
+            'seq_stride': net.config['seq_stride'],
+            'window_size': net.config['window_size'],
+            'lr': 0.00001,
+            'adam_w': 0.1,
+            'alpha_training': 0.0,  # 1.0 -> Do not use learned, 0.0 -> Keep only learned weights
+            'hidden_size': net.config['hidden_size'],
+            'nb_rnn_layers': net.config['nb_rnn_layers'],
+            # Whether to use the adaptable threshold in the detection of spindles with NN Model
+            'adapt_threshold_detect': False if index == 0 else True,
+            # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
+            'adapt_threshold_wamsley': True,
+            # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
+            'learn_wamsley': False,
+            # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
+            'use_ss_label': False,
+            'use_mask_wamsley': True,
+            # Smoothing for the sleep staging (WIP)
+            'use_ss_smoothing': False,
+            'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
+            # Thresholds for the adaptable threshold
+            'min_threshold': 0.0,
+            'max_threshold': 1.0,
+            'starting_threshold': 0.5,
+            # Interval between each run of online wamsley, threshold adaptation and finetuning if required (in minutes)
+            'adaptation_interval': 60,
+            # Weights for the sampling of the different spindle in the finetuning in order: [fn, tp, fp, tn]
+            'sample_weights': [0.25, 0.25, 0.25, 0.25],
+            # Batch size for the finetuning, the bigger the less time it takes to finetune
+            'batch_size': 64,
+            'num_batches_train': 1000,
+            'wamsley_config': {
+                'fixed': False,
+                'squarred': False,
+                'remove_outliers': False,
+                'threshold_multiplier': 4.5,
+                'sampling_rate': 250,
+            },
+            'use_replay': False,
+            # Select ten random subjects on which the model was trained
+            'replay_subjects': np.random.choice(net.config['subjects_train'], 10),
+            'replay_multiplier': 1,
+        }
+        
+        return config
+
+
 if __name__ == "__main__":
     # Parse config dict important for the adapatation
     args = parse_config()
@@ -1155,57 +1220,13 @@ if __name__ == "__main__":
     seed = 42
     set_seeds(seed)
 
-    net, run = load_model_mass("Adaptation")
-    net.freeze_embeddings()
+    run_id = 'both_cc_olddl_lac_newdropout_32142'
+    # run_id_old = "both_cc_smallLR_1706210166"
+
+    net, run = load_model_mass("Adaptation", run_id=run_id)
+    # net.freeze_embeddings()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    config = {
-        'experiment_name': 'REAL_BASELINE_NOTHING',
-        'num_subjects': 1,
-        'train': False,
-        'seq_len': net.config['seq_len'],
-        'seq_stride': net.config['seq_stride'],
-        'window_size': net.config['window_size'],
-        'lr': 0.0001,
-        'adam_w': 0.1,
-        'alpha_training': 0.0,  # 1.0 -> Do not use learned, 0.0 -> Keep only learned weights
-        'hidden_size': net.config['hidden_size'],
-        'nb_rnn_layers': net.config['nb_rnn_layers'],
-        # Whether to use the adaptable threshold in the detection of spindles with NN Model
-        'adapt_threshold_detect': False,
-        # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
-        'adapt_threshold_wamsley': False,
-        # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
-        'learn_wamsley': False,
-        # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-        'use_ss_label': True,
-        'use_mask_wamsley': True,
-        # Smoothing for the sleep staging (WIP)
-        'use_ss_smoothing': False,
-        'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
-        # Thresholds for the adaptable threshold
-        'min_threshold': 0.0,
-        'max_threshold': 1.0,
-        'starting_threshold': 0.5,
-        # Interval between each run of online wamsley, threshold adaptation and finetuning if required (in minutes)
-        'adaptation_interval': 60,
-        # Weights for the sampling of the different spindle in the finetuning in order: [fn, tp, fp, tn]
-        'sample_weights': [0.25, 0.25, 0.25, 0.25],
-        # Batch size for the finetuning, the bigger the less time it takes to finetune
-        'batch_size': 64,
-        'num_batches_train': 1000,
-        'wamsley_config': {
-            'fixed': False,
-            'squarred': False,
-            'remove_outliers': False,
-            'threshold_multiplier': 4.5,
-            'sampling_rate': 250,
-        },
-        'use_replay': False,
-        'replay_subjects': net.config['subjects_val'][:10],
-        'replay_multiplier': 10,
-    }
 
     dataset_path = args.dataset_path
     # loader = SubjectLoader(
@@ -1214,7 +1235,6 @@ if __name__ == "__main__":
 
     # Taking only the subjects on which the model wasnt trained to avoid data contamination
     subjects = net.config['subjects_test']
-    subjects = [subjects[0]]
 
     # Each worker only does its subjects
     worker_id = args.worker_id
@@ -1224,7 +1244,7 @@ if __name__ == "__main__":
 
     # all_configs = get_all_configs()[:2]
 
-    all_configs = [config]
+    all_configs = [get_config(i) for i in range(2)]
 
     results = {}
 

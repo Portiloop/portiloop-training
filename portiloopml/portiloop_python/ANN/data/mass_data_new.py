@@ -599,7 +599,7 @@ class MassDataset(Dataset):
         #                                                          250:signal_idx + 250]
         #     plot_spindle(around_spindle, spindle_on_off)
         #     plt.clf()
-        #     plt.plot(signal[0, 0, :])
+        #     plt.plot(signal[-1, 0, :])
         #     plt.savefig(f"spindle_signal_sampled.png")
         #     print()
 
