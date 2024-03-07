@@ -480,14 +480,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         '''
         # Our predictions
         spindle_preds = torch.tensor(self.prediction_buffer_raw)
-
-        # Get the labels to choose the best threshold
-        if self.learn_wamsley:
-            wamsley_spindles_onsets = [i[0] for i in self.total_spindles]
-            spindle_labels = torch.zeros_like(spindle_preds)
-            spindle_labels[wamsley_spindles_onsets] = 1
-        else:
-            spindle_labels = self.spindle_labels
+        spindle_labels = self.get_lacourse_spindle_vector()
 
         best_f1, best_thresh = hierarchical_search(
             lambda x: spindle_metrics(
@@ -563,7 +556,6 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
 
     # Keep the sleep staging labels and predictions
     used_threshold = config['starting_threshold']
-    used_thresholds_detect = [used_threshold]
     spindle_pred_with_thresh = []
     used_lr = config['lr']
 
@@ -769,7 +761,15 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
             h1 = torch.zeros((config['nb_rnn_layers'], 1,
                               config['hidden_size']), device=device)
 
-        if (out_dataset or index == 0) and False:
+        if out_dataset:
+            # Run the adaptation of threshold
+            new_thresh, _ = adap_dataset.get_thresholds()
+            logger.log({'best_threshold': new_thresh}, step=index)
+
+            if config['adapt_threshold_detect']:
+                used_threshold = new_thresh
+
+        if (out_dataset or index == 0):
             # Validation loop
             net_inference.eval()
             validation_losses_epoch = []
@@ -889,7 +889,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
         spindle_labels,
         spindle_preds_real,
         threshold=0.5,
-        sampling_rate=6,
+        sampling_rate=250,
         min_label_time=0.5)
 
     logger.summary['spindle_metrics_real'] = spindle_metrics_real
@@ -899,15 +899,12 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
         'ss_metrics': ss_metrics[0],
         'ss_confusion_matrix': ss_metrics[1],
         # Metrics of the spindles using adaptable threshold
-        'detect_spindle_metrics': spindle_metrics_adaptable_thresh,
+        'detect_spindle_metrics': spindle_metrics_real,
         # Metrics of the online wamsley spindle detection
-        'online_wamsley_metrics': online_wamsley_metrics,
+        'online_lacourse_metrics': online_lacourse_metrics,
         # Metrics of the spindles using different thresholds
-        'multi_threshold_metrics': spindle_mets,
+        # 'multi_threshold_metrics': spindle_mets,
         # All the thresholds used adapted to the data using wamsley
-        'used_thresholds': used_thresholds_detect,
-        # Training loss of the adaptation
-        'training_losses': training_losses,
     }
 
     return all_metrics, net_inference
@@ -1134,7 +1131,7 @@ def dataloader_from_subject(subject, dataset_path, config, val):
             dataset,
             seq_stride=config['seq_stride'],
             segment_len=(len(dataset) // config['seq_stride']) - 1,
-            # segment_len=10000,
+            # segment_len=1000,
             max_batch_size=1,
             random=False,
         )
@@ -1165,7 +1162,7 @@ def get_config(index=0, replay_subjects=None):
     config = {
         'experiment_name': f'config_{index}',
         'num_subjects': 1,
-        'train': False,
+        'train': True if index == 2 or index == 3 else False,
         'seq_len': net.config['seq_len'],
         'seq_stride': net.config['seq_stride'],
         'window_size': net.config['window_size'],
@@ -1175,7 +1172,7 @@ def get_config(index=0, replay_subjects=None):
         'hidden_size': net.config['hidden_size'],
         'nb_rnn_layers': net.config['nb_rnn_layers'],
         # Whether to use the adaptable threshold in the detection of spindles with NN Model
-        'adapt_threshold_detect': False if index == 0 else True,
+        'adapt_threshold_detect': True if index == 1 or index == 3 else False,
         # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
         'adapt_threshold_wamsley': True,
         # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
@@ -1225,10 +1222,13 @@ if __name__ == "__main__":
     set_seeds(seed)
 
     run_id = 'both_cc_olddl_lac_newdropout_32142'
-    exp_name_val = 'testing_online_lacourse'
+    exp_name_val = 'testing_all_configs'
+    # Each worker only does its subjects
+    worker_id = args.worker_id
     # run_id_old = "both_cc_smallLR_1706210166"
     unique_id = f"{int(time.time())}"[5:]
-    net, run = load_model_mass(f"{exp_name_val}_{unique_id}", run_id=run_id)
+    net, run = load_model_mass(
+        f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id)
     # net.freeze_embeddings()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -1241,26 +1241,28 @@ if __name__ == "__main__":
     # Taking only the subjects on which the model wasnt trained to avoid data contamination
     subjects = net.config['subjects_test']
 
-    # Each worker only does its subjects
-    worker_id = args.worker_id
-
     subjects = parse_worker_subject_div(
         subjects, args.num_workers, worker_id)
 
-    # all_configs = get_all_configs()[:2]
-
-    # all_configs = [get_config(i) for i in range(2)]
-    all_configs = [get_config(0, replay_subjects=[subjects[0]])]
+    all_configs = [get_config(i) for i in range(4)]
+    # all_configs = [get_config(1, replay_subjects=[subjects[0]])]
 
     results = {}
-    # subjects = [subjects[0]]
-    subjects = ['01-03-0025']
+    # subjects = ['01-03-0025']
+
+    run.finish()
 
     # print(f"Doing subjects: {subjects}")
     for subject_id in subjects:
         print(f"Running subject {subject_id}")
         results[subject_id] = {}
         for config in all_configs:
+            print(f"Running config {config['experiment_name']}")
+            unique_id = f"{int(time.time())}"[5:]
+            net, run = load_model_mass(
+                f"{exp_name_val}_{config['experiment_name']}_{subject_id}_{unique_id}", run_id=run_id)
+            config['subject'] = subject_id
+            run.config.update(config)
             dataloader = dataloader_from_subject(
                 [subject_id], dataset_path, config, val=False)
             val_dataloader = dataloader_from_subject(
@@ -1280,6 +1282,14 @@ if __name__ == "__main__":
                 'metrics': metrics
             }
 
+            # Save the results to json file with indentation
+            with open(f'results_{exp_name_val}.json', 'w') as f:
+                json.dump(results, f, indent=4, cls=NumpyEncoder)
+
+            # Save the results to wandb as well
+            run.save(f'results_{exp_name_val}.json')
+            run.finish()
+
     # Save the results to json file with indentation
-    with open(f'experiment_result_worker_{unique_id}.json', 'w') as f:
+    with open(f'experiment_result_worker_{worker_id}.json', 'w') as f:
         json.dump(results, f, indent=4, cls=NumpyEncoder)

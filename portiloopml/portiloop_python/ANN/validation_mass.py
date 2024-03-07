@@ -35,7 +35,7 @@ def load_model_mass(new_run_name, run_id):
     user = "milosobral"
     project = "dual_model"
     artifact_name = "best"
-    group = "Validation"
+    group = "Adapt_cc_1"
     run_id_val = new_run_name
     checkpoint_ref = f"{user}/{project}/model-{run_id}:{artifact_name}"
 
