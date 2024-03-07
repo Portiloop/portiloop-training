@@ -254,7 +254,7 @@ class MassRandomSampler(Sampler):
 
 
 class MassConsecutiveSampler(Sampler):
-    def __init__(self, data_source, seq_stride, segment_len, max_batch_size=None, late=False):
+    def __init__(self, data_source, seq_stride, segment_len, max_batch_size=None, late=False, random=True):
         self.data_source = data_source
         self.seq_stride = seq_stride
         self.segment_len = segment_len
@@ -263,7 +263,7 @@ class MassConsecutiveSampler(Sampler):
         # Find all the possible start indexes for segments by splitting the dataset into segments
         # We remove the alst one to make sure we do not go out of bounds
 
-        self.start_indexes = np.arange(0,
+        self.start_indexes = np.arange(data_source.past_signal_len,
                                        len(self.data_source), self.segment_len * self.seq_stride)[:-1]
         # if len(self.start_indexes) > 1:
         #     self.start_indexes = self.start_indexes[:-1]
@@ -282,7 +282,7 @@ class MassConsecutiveSampler(Sampler):
                 self.start_indexes = self.new_indexes[-self.max_batch_size:]
             else:
                 self.start_indexes = np.random.choice(
-                    self.new_indexes, self.max_batch_size, replace=False)
+                    self.new_indexes, self.max_batch_size, replace=False) if random else self.new_indexes[:self.max_batch_size]
         else:
             self.start_indexes = self.new_indexes
 
@@ -543,6 +543,7 @@ class MassDataset(Dataset):
             'gender': self.data[subject]['gender'],
             'subject': subject,
             'sleep_stage': self.data[subject]['ss_label'][signal_idx],
+            'all_sleep_stage': self.data[subject]['ss_label'][signal_idx - self.past_signal_len:signal_idx + self.window_size]
         }
         return labels
 

@@ -176,7 +176,6 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.batch_size = batch_size
         self.samples = []
         self.window_buffer = []
-        self.label_buffer = []
         self.spindle_indexes = []
         self.non_spindle_indexes = []
         self.pred_threshold = 0.50
@@ -193,11 +192,13 @@ class AdaptationDataset(torch.utils.data.Dataset):
 
         # Buffers
         self.wamsley_buffer = []
-        self.ss_mask_buffer = []
+        self.ss_pred_buffer = []
+        self.ss_label_buffer = []
         self.prediction_buffer = []
         self.prediction_buffer_raw = []
         self.spindle_labels = []
         self.last_wamsley_run = 0
+        self.online_wamsley_spindles = []
 
         self.wamsley_outs = []
 
@@ -223,6 +224,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.adapt_threshold_detect = config['adapt_threshold_detect']
         self.adapt_threshold_wamsley = config['adapt_threshold_wamsley']
         self.learn_wamsley = config['learn_wamsley']
+        self.use_ss_label = config['use_ss_label']
         wamsley_config = config['wamsley_config']
         # self.wamsley_func = lambda x, y, z: detect_wamsley(
         #     x,
@@ -330,7 +332,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
 
         return train_indexes, val_indexes, train_spindle_indexes, val_spindle_indexes
 
-    def add_window(self, window, ss_label, model_pred, spindle_label, detect_threshold, force_wamsley=False):
+    def add_window(self, window, ss_pred, ss_label, spindle_pred, spindle_label, detect_threshold, force_wamsley=False):
         """
         Adds a window to the buffers to make it a sample when enough windows have arrived
 
@@ -345,27 +347,37 @@ class AdaptationDataset(torch.utils.data.Dataset):
         Returns:
         A boolean indicating if Wamsley was run
         """
-        # Check if we are in one of the right sleep stages for the Wamsley Mask
-        if (ss_label == SleepStageDataset.get_labels().index("2") or ss_label == SleepStageDataset.get_labels().index("3")):
-            ss_label = True
-        else:
-            ss_label = False
-
-        if not self.use_mask_wamsley:
-            ss_label = True
-
         # Prepare the data to be added to the buffers
         points_to_add = window.squeeze().tolist() if len(
             self.wamsley_buffer) == 0 else window.squeeze().tolist()[-self.seq_stride:]
-        ss_mask_to_add = [ss_label] * len(points_to_add)
-        preds_raw_to_add = [model_pred.cpu()] * len(points_to_add)
-        preds_to_add = [bool(model_pred.cpu() >= detect_threshold)] * \
+
+        # Check the sleep stage label
+        # if not self.use_mask_wamsley:
+        #     ss_label = True
+        #     ss_mask_to_add = [ss_label] * len(points_to_add)
+        # elif type(ss_label) == int:
+        #     if (ss_label == SleepStageDataset.get_labels().index("2") or ss_label == SleepStageDataset.get_labels().index("3")):
+        #         ss_label = True
+        #     else:
+        #         ss_label = False
+        #     ss_mask_to_add = [ss_label] * len(points_to_add)
+        # else:
+        #     ss_label = ss_label.squeeze(0)
+        #     ss_mask_to_add = ((ss_label == SleepStageDataset.get_labels().index(
+        #         "2")) | (ss_label == SleepStageDataset.get_labels().index("3"))).tolist()
+        #     ss_mask_to_add = ss_mask_to_add[-len(points_to_add):]
+
+        preds_raw_to_add = [spindle_pred.cpu()] * len(points_to_add)
+        preds_to_add = [bool(spindle_pred.cpu() >= detect_threshold)] * \
             len(points_to_add)
         spindle_label_to_add = [spindle_label] * len(points_to_add)
+        ss_pred_to_add = [ss_pred] * len(points_to_add)
+        ss_label_to_add = ss_label.squeeze(0)[-len(points_to_add):]
 
         # Add to the buffers
         self.wamsley_buffer += points_to_add
-        self.ss_mask_buffer += ss_mask_to_add
+        self.ss_pred_buffer += ss_pred_to_add
+        self.ss_label_buffer += ss_label_to_add
         self.prediction_buffer += preds_to_add
         self.prediction_buffer_raw += preds_raw_to_add
         self.spindle_labels += spindle_label_to_add
@@ -373,163 +385,78 @@ class AdaptationDataset(torch.utils.data.Dataset):
         # Update the last wamsley run counter
         self.last_wamsley_run += len(points_to_add)
 
-        assert len(self.ss_mask_buffer) == len(
+        assert len(self.ss_pred_buffer) == len(
             self.wamsley_buffer), "Buffers are not the same length"
         assert len(self.prediction_buffer) == len(
             self.wamsley_buffer), "Buffers are not the same length"
+        assert len(self.spindle_labels) == len(
+            self.wamsley_buffer), "Buffers are not the same length"
+        assert len(self.ss_label_buffer) == len(
+            self.wamsley_buffer), "Buffers are not the same length"
+        assert len(self.prediction_buffer_raw) == len(
+            self.wamsley_buffer), "Buffers are not the same length"
 
         if self.last_wamsley_run >= self.wamsley_interval or force_wamsley:
-            self.run_spindle_detection(self.wamsley_interval)
+            self.run_spindle_detection(self.last_wamsley_run)
             self.last_wamsley_run = 0
             return True
 
         return False
 
-        # # Check if we have reached the Wamsley interval
-        # if self.last_wamsley_run >= self.wamsley_interval or force_wamsley:
-
-        #     # Reset the counter to 0
-        #     self.last_wamsley_run = 0
-
-        #     # Run Wamsley on the buffer
-        #     usable_buffer = self.wamsley_buffer[-self.wamsley_interval:]
-        #     usable_mask = self.ss_mask_buffer[-self.wamsley_interval:]
-        #     usable_preds = self.prediction_buffer[-self.wamsley_interval:]
-        #     usable_labels = self.spindle_labels[-self.wamsley_interval:]
-
-        #     if sum(usable_mask) > 0:
-        #         # Get the Wamsley spindles using an adaptable threshold if desired
-        #         wamsley_spindles, threshold, used_threshold, spindle_powers, new_thresholds = self.wamsley_func(
-        #             np.array(usable_buffer),
-        #             np.array(usable_mask),
-        #             self.wamsley_thresholds if self.adapt_threshold_wamsley else None
-        #         )
-        #     else:
-        #         wamsley_spindles = []
-        #         threshold = None
-        #         used_threshold = None
-        #         spindle_powers = None
-        #         new_thresholds = None
-
-        #     # Update the list of thresholds
-        #     if new_thresholds is not None:
-        #         self.wamsley_thresholds = new_thresholds
-
-        #     # Update the used thresholds for testing purposes
-        #     if threshold is not None and spindle_powers is not None:
-        #         self.wamsley_outs += spindle_powers.tolist()
-        #         self.used_thresholds.append(used_threshold)
-
-        #     # For testing purposes, we want to sometimes learn from the ground truth instead of Wamsley
-        #     if self.learn_wamsley:
-        #         events_array = np.array(wamsley_spindles)
-        #         if len(events_array) == 0:
-        #             return
-        #         event_ranges = np.concatenate([np.arange(start, stop)
-        #                                        for start, stop in zip(events_array[:, 0], events_array[:, 2])])
-        #         gt_indexes = np.hstack(event_ranges)
-        #     else:
-        #         event_ranges_labels = np.where(np.array(usable_labels) == 1)[0]
-        #         if len(event_ranges_labels) == 0:
-        #             return
-        #         gt_indexes = np.hstack(event_ranges_labels)
-
-        #     # Get the difference in indexes between the buffer we studied and the total buffer
-        #     index_diff = len(self.wamsley_buffer) - self.wamsley_interval
-
-        #     # Get the intersection of the two
-        #     # true_positives = np.intersect1d(
-        #     #     spindle_indexes, gt_indexes) + index_diff
-        #     # false_positives = np.setdiff1d(
-        #     #     spindle_indexes, gt_indexes) + index_diff
-        #     # false_negatives = np.setdiff1d(
-        #     #     gt_indexes, spindle_indexes) + index_diff
-
-        #     wamsley_spindles = [(i[0] + index_diff, i[1] + index_diff,
-        #                          i[2] + index_diff) for i in wamsley_spindles]
-
-        #     self.total_spindles += wamsley_spindles
-        #     # self.sampleable_missed_spindles += false_negatives.tolist()
-        #     # self.sampleable_false_spindles += false_positives.tolist()
-        #     # self.sampleable_found_spindles += true_positives.tolist()
-        #     self.sampleable_spindles += (gt_indexes + index_diff).tolist()
-        #     new_info = len(self.sampleable_spindles)
-
-        #     print(f"Adding {new_info} new samples...")
-
-        #     # Get the best threshold for the model
-        #     if self.adapt_threshold_detect:
-        #         best_threshold, thresh_results = self.get_thresholds()
-        #         return (best_threshold, thresh_results), new_info
-        #     else:
-        #         return None, new_info
-
     def run_spindle_detection(self, detect_len):
+
         # Run Wamsley on the buffer
         usable_buffer = self.wamsley_buffer[-detect_len:]
-        usable_mask = self.ss_mask_buffer[-detect_len:]
-        usable_preds = self.prediction_buffer[-detect_len:]
+        if not self.use_mask_wamsley:
+            usable_mask = [2] * len(usable_buffer)
+        elif self.use_ss_label:
+            usable_mask = self.ss_label_buffer[-detect_len:]
+        else:
+            usable_mask = self.ss_pred_buffer[-detect_len:]
+
+        usable_mask = np.array(usable_mask)
+        usable_mask = ((usable_mask == SleepStageDataset.get_labels().index(
+            "2")) | (usable_mask == SleepStageDataset.get_labels().index("3")))
         usable_labels = self.spindle_labels[-detect_len:]
 
         if sum(usable_mask) > 0:
-            # Get the Wamsley spindles using an adaptable threshold if desired
-            wamsley_spindles, threshold, used_threshold, spindle_powers, new_thresholds = self.wamsley_func(
+            wamsley_spindles, _, _, _, _ = self.wamsley_func(
                 np.array(usable_buffer),
                 np.array(usable_mask),
                 self.wamsley_thresholds if self.adapt_threshold_wamsley else None
             )
         else:
             wamsley_spindles = []
-            threshold = None
-            used_threshold = None
-            spindle_powers = None
-            new_thresholds = None
 
-        # Update the list of thresholds
-        if new_thresholds is not None:
-            self.wamsley_thresholds = new_thresholds
-
-        # Update the used thresholds for testing purposes
-        if threshold is not None and spindle_powers is not None:
-            self.wamsley_outs += spindle_powers.tolist()
-            self.used_thresholds.append(used_threshold)
-
-        # For testing purposes, we want to sometimes learn from the ground truth instead of Wamsley
-        if self.learn_wamsley:
-            events_array = np.array(wamsley_spindles)
-            if len(events_array) == 0:
-                return
-            event_ranges = np.concatenate([np.arange(start, stop)
-                                           for start, stop in zip(events_array[:, 0], events_array[:, 2])])
-            gt_indexes = np.hstack(event_ranges)
+        # Get the spindles we detected using Lacourse
+        events_online = np.array(wamsley_spindles)
+        if len(events_online) != 0:
+            events_online_ranges = np.concatenate([np.arange(start, stop)
+                                                   for start, stop in zip(events_online[:, 0], events_online[:, 2])])
+            events_online_indexes = np.hstack(events_online_ranges)
         else:
-            event_ranges_labels = np.where(np.array(usable_labels) == 1)[0]
-            if len(event_ranges_labels) == 0:
-                return
-            gt_indexes = np.hstack(event_ranges_labels)
+            events_online_indexes = []
+
+        # Get the spindles from the labels:
+        event_labels_ranges = np.where(np.array(usable_labels) == 1)[0]
+        if len(event_labels_ranges) != 0:
+            event_labels_indexes = np.hstack(event_labels_ranges)
+        else:
+            event_labels_indexes = []
 
         # Get the difference in indexes between the buffer we studied and the total buffer
-        index_diff = len(self.wamsley_buffer) - self.wamsley_interval
+        index_diff = len(self.wamsley_buffer) - detect_len
 
-        # Get the intersection of the two
-        # true_positives = np.intersect1d(
-        #     spindle_indexes, gt_indexes) + index_diff
-        # false_positives = np.setdiff1d(
-        #     spindle_indexes, gt_indexes) + index_diff
-        # false_negatives = np.setdiff1d(
-        #     gt_indexes, spindle_indexes) + index_diff
+        if self.learn_wamsley:
+            self.sampleable_spindles += (np.array(events_online_indexes) +
+                                         index_diff).tolist()
+            new_info = len(events_online_indexes)
+        else:
+            self.sampleable_spindles += (np.array(event_labels_indexes) +
+                                         index_diff).tolist()
+            new_info = len(event_labels_indexes)
 
-        wamsley_spindles = [(i[0] + index_diff, i[1] + index_diff,
-                             i[2] + index_diff) for i in wamsley_spindles]
-
-        self.total_spindles += wamsley_spindles
-        # self.sampleable_missed_spindles += false_negatives.tolist()
-        # self.sampleable_false_spindles += false_positives.tolist()
-        # self.sampleable_found_spindles += true_positives.tolist()
-        self.sampleable_spindles += (gt_indexes + index_diff).tolist()
-        new_info = len(self.sampleable_spindles)
-
-        print(f"Adding {new_info} new samples...")
+        return new_info
 
     def run_metrics(self):
         '''
@@ -583,6 +510,14 @@ class AdaptationDataset(torch.utils.data.Dataset):
         #     or len(self.sampleable_found_spindles) > self.batch_size \
         #     or len(self.sampleable_missed_spindles) > self.batch_size
 
+    def get_lacourse_spindle_vector(self):
+        """
+        Returns the spindle vector
+        """
+        vector = np.zeros((len(self.wamsley_buffer)))
+        vector[self.sampleable_spindles] = 1
+        return vector
+
 
 def run_adaptation(dataloader, val_dataloader, net, device, config, train, logger):
     """
@@ -592,12 +527,8 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
     """
 
     # Run Wamsley to compare to the online Wamsley
-    signal = dataloader.dataset.data[config['subject']]['signal']
-    ss_labels = dataloader.dataset.data[config['subject']]['ss_label']
-
-    mask = (ss_labels == 1) | (ss_labels == 2)
-
     batch_size = config['batch_size']
+
     # Initialize adaptation dataset stuff
     adap_dataset = AdaptationDataset(config, batch_size)
     # sampler = AdaptationSampler(adap_dataset, config['sample_weights'])
@@ -631,11 +562,6 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
     n = 0
 
     # Keep the sleep staging labels and predictions
-    ss_labels = []
-    ss_preds_argmaxed = []
-    ss_preds = []
-    spindle_labels = []
-    spindle_preds = []
     used_threshold = config['starting_threshold']
     used_thresholds_detect = [used_threshold]
     spindle_pred_with_thresh = []
@@ -647,11 +573,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
     h1 = torch.zeros((config['nb_rnn_layers'], 1,
                      config['hidden_size']), device=device)
 
-    # Run through the dataloader
-    train_iterations = 0
-
     counter = 0
-    train_now = False
     for index, batch in enumerate(tqdm(dataloader)):
 
         net_inference.eval()
@@ -668,12 +590,12 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
             # Get the output of the network
             spindle_output, ss_output, h1, _ = net_inference(window_data, h1)
 
-            ss_labels.append(ss_label.cpu().item())
-            ss_preds.append(ss_output.cpu())
+            # ss_labels.append(ss_label.cpu().item())
+            # ss_preds.append(ss_output.cpu())
 
             # spindle_output = spindle_output.squeeze(-1)
-            spindle_labels.append(window_labels.cpu().item())
-            spindle_preds.append(spindle_output.cpu())
+            # spindle_labels.append(window_labels.cpu().item())
+            # spindle_preds.append(spindle_output.cpu())
 
             # Compute the loss
             output = spindle_output.squeeze(-1)
@@ -687,30 +609,29 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
 
             # Add the window to the adaptation dataset given the sleep stage
             output = torch.sigmoid(output)
-            if config['use_ss_label']:
-                ss_output = ss_label.cpu().item()
-            else:
-                if config['use_ss_smoothing']:
-                    # Use a voting system to smooth the sleep stage depending on the last n predictions
-                    this_output = torch.softmax(ss_output, dim=1)
-                    last_n_ss.append(this_output.cpu().detach().numpy())
+            ss_labels = labels['all_sleep_stage']
 
-                    # Compute the average over the last n predictions
-                    nplast_n_ss = torch.tensor(last_n_ss)
-                    ss_output = torch.mean(nplast_n_ss, dim=0)
-                    ss_output = torch.argmax(ss_output)
-                else:
-                    ss_output = torch.argmax(ss_output, dim=1)
+            if config['use_ss_smoothing']:
+                # Use a voting system to smooth the sleep stage depending on the last n predictions
+                this_output = torch.softmax(ss_output, dim=1)
+                last_n_ss.append(this_output.cpu().detach().numpy())
+
+                # Compute the average over the last n predictions
+                nplast_n_ss = torch.tensor(last_n_ss)
+                ss_output = torch.mean(nplast_n_ss, dim=0)
+                ss_output = torch.argmax(ss_output)
+            else:
+                ss_output = torch.argmax(ss_output, dim=1)
 
             spindle_pred_with_thresh.append(
                 output.cpu().item() > used_threshold)
 
-            ss_preds_argmaxed.append(ss_output)
             out_dataset = adap_dataset.add_window(
                 window_data,
                 ss_output,
+                ss_labels,
                 output,
-                spindle_label=window_labels.cpu().item(),
+                window_labels.cpu().item(),
                 detect_threshold=used_threshold,
             )
 
@@ -740,6 +661,32 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
                 commit=False,
                 step=index,
             )
+
+        # Used for testing online Lacourse
+        # if out_dataset:
+        #     subject = '01-03-0025'
+        #     baseline_signal = dataloader.dataset.data[subject]['signal'][:len(
+        #         adap_dataset.wamsley_buffer)]
+        #     baseline_mask = (dataloader.dataset.data[subject]['ss_label'][:len(adap_dataset.wamsley_buffer)] == 1) | (
+        #         dataloader.dataset.data[subject]['ss_label'][:len(adap_dataset.wamsley_buffer)] == 2)
+        #     baseline_spindles = detect_lacourse(
+        #         np.array(baseline_signal), np.array(baseline_mask), sampling_rate=250)
+        #     baseline_spindles = [e[0] for e in baseline_spindles]
+        #     # small_signal = adap_dataset.wamsley_buffer
+        #     # small_mask = adap_dataset.ss_pred_buffer
+        #     # online_spindles = detect_lacourse(
+        #     #     np.array(small_signal), np.array(small_mask), sampling_rate=250)
+        #     # online_spindles_mask = detect_lacourse(
+        #     #     np.array(small_signal), np.array(baseline_mask), sampling_rate=250)
+        #     # online_spindles = [e[0] for e in online_spindles]
+        #     # online_spindles_mask = [e[0] for e in online_spindles_mask]
+        #     online_spindles = [i[0] for i in adap_dataset.total_spindles]
+
+        #     metrics = binary_f1_score(
+        #         np.array(baseline_spindles), np.array(online_spindles), 250)
+        #     # metrics_real_mask = binary_f1_score(
+        #     #     np.array(baseline_spindles), np.array(online_spindles_mask), 250)
+        #     print(metrics)
 
         # If we have just added some new detection data, train is on and we have enough samples, we train
         if (out_dataset and train and adap_dataset.has_samples()):
@@ -822,7 +769,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
             h1 = torch.zeros((config['nb_rnn_layers'], 1,
                               config['hidden_size']), device=device)
 
-        if out_dataset or index == 0:
+        if (out_dataset or index == 0) and False:
             # Validation loop
             net_inference.eval()
             validation_losses_epoch = []
@@ -886,54 +833,66 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
                 'val_loss_spindle': np.mean(val_loss_spindles_epoch),
                 'val_loss_non_spindle': np.mean(val_loss_non_spindles_epoch),
                 'val_loss': np.mean(validation_losses_epoch),
+                'used_threshold': used_threshold,
             }, step=index)
 
-    # Compute the metrics for sleep staging
-    ss_labels = torch.Tensor(ss_labels).type(torch.LongTensor)
-    ss_preds = torch.cat(ss_preds, dim=0)
-    ss_preds_argmaxed = torch.tensor(ss_preds_argmaxed)
-    ss_metrics = staging_metrics(ss_labels, ss_preds_argmaxed)
+    # Run one last time the online spindle detection
+    adap_dataset.run_spindle_detection(adap_dataset.last_wamsley_run)
+
+    # Sleep staging metrics:
+    ss_preds = adap_dataset.ss_pred_buffer
+    ss_labels = adap_dataset.ss_label_buffer
+    ss_preds = torch.tensor(ss_preds)
+    ss_labels = torch.tensor(ss_labels)
+    ss_metrics = staging_metrics(
+        ss_labels,
+        ss_preds)
+
+    logger.summary['ss_metrics'] = ss_metrics
 
     # Compute the metrics for spindles
-    spindle_labels = torch.Tensor(spindle_labels).type(torch.LongTensor)
-    spindle_preds = torch.cat(spindle_preds, dim=0)
-    spindle_preds = torch.sigmoid(spindle_preds)
+    # spindle_labels = torch.Tensor(spindle_labels).type(torch.LongTensor)
+    # spindle_preds = torch.cat(spindle_preds, dim=0)
+    # spindle_preds = torch.sigmoid(spindle_preds)
 
-    ss_preds_4_spindles = torch.argmax(ss_preds, dim=1)
-    thresholds = np.arange(config['min_threshold'],
-                           config['max_threshold'], 0.01)
-    spindle_mets = {}
-    for threshold in thresholds:
-        spindle_mets[threshold] = spindle_metrics(
-            spindle_labels,
-            spindle_preds,
-            ss_preds_4_spindles,
-            threshold=threshold,
-            sampling_rate=6,
-            min_label_time=0.5)['f1']
+    # ss_preds_4_spindles = torch.argmax(ss_preds, dim=1)
+    # thresholds = np.arange(config['min_threshold'],
+    #                        config['max_threshold'], 0.01)
+    # spindle_mets = {}
+    # for threshold in thresholds:
+    #     spindle_mets[threshold] = spindle_metrics(
+    #         spindle_labels,
+    #         spindle_preds,
+    #         ss_preds_4_spindles,
+    #         threshold=threshold,
+    #         sampling_rate=6,
+    #         min_label_time=0.5)['f1']
 
-    # Compute the metrics for the online Wamsley
+    # Compute the metrics for the online Lacourse
     true_labels = torch.tensor(adap_dataset.spindle_labels)
-    wamsley_preds = torch.zeros_like(true_labels)
-    wamsley_spindles_onsets = [i[0] for i in adap_dataset.total_spindles]
-    wamsley_preds[wamsley_spindles_onsets] = 1
-    online_wamsley_metrics = spindle_metrics(
+    online_lacourse_preds = adap_dataset.get_lacourse_spindle_vector()
+    online_lacourse_metrics = spindle_metrics(
         true_labels,
-        wamsley_preds,
+        online_lacourse_preds,
         threshold=0.5,
         sampling_rate=250,
         min_label_time=0.5)
 
-    # Compute the metrics for the adaptable threshold
-    spindle_preds_adaptable = torch.tensor(
-        spindle_pred_with_thresh).type(torch.LongTensor)
-    spindle_metrics_adaptable_thresh = spindle_metrics(
+    logger.summary['online_lacourse_metrics'] = online_lacourse_metrics
+
+    # Compute the real_life metrics for spindle detection
+    spindle_preds_real = torch.tensor(
+        adap_dataset.prediction_buffer).type(torch.LongTensor)
+    spindle_labels = torch.tensor(
+        adap_dataset.spindle_labels).type(torch.LongTensor)
+    spindle_metrics_real = spindle_metrics(
         spindle_labels,
-        spindle_preds_adaptable,
-        ss_preds_4_spindles,
+        spindle_preds_real,
         threshold=0.5,
         sampling_rate=6,
         min_label_time=0.5)
+
+    logger.summary['spindle_metrics_real'] = spindle_metrics_real
 
     all_metrics = {
         # Metrics of the sleep staging
@@ -1175,7 +1134,9 @@ def dataloader_from_subject(subject, dataset_path, config, val):
             dataset,
             seq_stride=config['seq_stride'],
             segment_len=(len(dataset) // config['seq_stride']) - 1,
-            max_batch_size=1
+            # segment_len=10000,
+            max_batch_size=1,
+            random=False,
         )
 
     batch_size = sampler.get_batch_size()
@@ -1204,7 +1165,7 @@ def get_config(index=0, replay_subjects=None):
     config = {
         'experiment_name': f'config_{index}',
         'num_subjects': 1,
-        'train': True,
+        'train': False,
         'seq_len': net.config['seq_len'],
         'seq_stride': net.config['seq_stride'],
         'window_size': net.config['window_size'],
@@ -1264,7 +1225,7 @@ if __name__ == "__main__":
     set_seeds(seed)
 
     run_id = 'both_cc_olddl_lac_newdropout_32142'
-    exp_name_val = 'training_on_lacourse_low_train'
+    exp_name_val = 'testing_online_lacourse'
     # run_id_old = "both_cc_smallLR_1706210166"
     unique_id = f"{int(time.time())}"[5:]
     net, run = load_model_mass(f"{exp_name_val}_{unique_id}", run_id=run_id)
@@ -1292,7 +1253,8 @@ if __name__ == "__main__":
     all_configs = [get_config(0, replay_subjects=[subjects[0]])]
 
     results = {}
-    subjects = [subjects[0]]
+    # subjects = [subjects[0]]
+    subjects = ['01-03-0025']
 
     # print(f"Doing subjects: {subjects}")
     for subject_id in subjects:
