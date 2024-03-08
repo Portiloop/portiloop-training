@@ -149,7 +149,8 @@ portiloop_software/models/*
 *.csv
 *.edf
 *.zip
-
+*.json
+*.png
 
 temp/
 lightning_logs/
