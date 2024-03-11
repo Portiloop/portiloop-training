@@ -27,7 +27,7 @@ def load_model(checkpoint_ref, project, group, run_id):
     return model, run
 
 
-def load_model_mass(new_run_name, run_id):
+def load_model_mass(new_run_name, run_id, group_name=None):
     # Log in with our wandb id
     os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
 
@@ -35,7 +35,7 @@ def load_model_mass(new_run_name, run_id):
     user = "milosobral"
     project = "dual_model"
     artifact_name = "best"
-    group = "Adapt_cc_1"
+    group = "Adapt_cc_1" if group_name is None else group_name
     run_id_val = new_run_name
     checkpoint_ref = f"{user}/{project}/model-{run_id}:{artifact_name}"
 

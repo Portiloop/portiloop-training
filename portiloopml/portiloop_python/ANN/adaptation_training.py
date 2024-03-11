@@ -524,34 +524,22 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
 
     # Initialize adaptation dataset stuff
     adap_dataset = AdaptationDataset(config, batch_size)
-    # sampler = AdaptationSampler(adap_dataset, config['sample_weights'])
-    # adap_dataloader = torch.utils.data.DataLoader(
-    #     adap_dataset,
-    #     batch_size=batch_size,
-    #     sampler=sampler,
-    #     num_workers=0)
-
-    # wamsley_out = adap_dataset.wamsley_func(
-    #     signal,
-    #     mask,
-    #     None)
 
     # Initialize All the necessary variables
     net_inference = copy.deepcopy(net)
     net_inference = net_inference.to(device)
 
+    net_init = copy.deepcopy(net)
+    net_init = net_init.to(device)
+    net_init.eval()
+
     # optimizer = optim.SGD(net_copy.parameters(), lr=0.000003, momentum=0.9)
     criterion = nn.BCEWithLogitsLoss(reduction='none')
 
     training_losses = []
-    validation_losses = []
-    val_losses_spindles = []
-    val_losses_non_spindles = []
     inference_loss = []
     train_loss_tp = []
-    train_loss_fp = []
     train_loss_fn = []
-    train_loss_tn = []
     n = 0
 
     # Keep the sleep staging labels and predictions
@@ -576,18 +564,10 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
             window_data, labels = batch
 
             window_data = window_data.to(device)
-            ss_label = labels['sleep_stage'].to(device)
             window_labels = labels['spindle_label'].to(device)
 
             # Get the output of the network
             spindle_output, ss_output, h1, _ = net_inference(window_data, h1)
-
-            # ss_labels.append(ss_label.cpu().item())
-            # ss_preds.append(ss_output.cpu())
-
-            # spindle_output = spindle_output.squeeze(-1)
-            # spindle_labels.append(window_labels.cpu().item())
-            # spindle_preds.append(spindle_output.cpu())
 
             # Compute the loss
             output = spindle_output.squeeze(-1)
@@ -628,7 +608,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
             )
 
         # If we have just added some new data, we log the metrics
-        if out_dataset:
+        if out_dataset or index == len(dataloader) - 1:
             metrics = adap_dataset.run_metrics()
             logger.log({'adap_online_f1': metrics['f1']}, step=index)
             logger.log(
@@ -739,10 +719,6 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
                     loss_step[train_label == 0].mean().cpu().detach().numpy())
                 train_loss_tp.append(
                     loss_step[train_label == 1].mean().cpu().detach().numpy())
-                # train_loss_fp.append(
-                #     loss_step[category == 2].mean().cpu().detach().numpy())
-                # train_loss_tn.append(
-                #     loss_step[category == 3].mean().cpu().detach().numpy())
 
                 loss_step = loss_step.mean()
                 loss_step.backward()
@@ -755,7 +731,9 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
 
             # Average the weights of the model
             net_inference = average_weights(
-                net_inference, net_copy, alpha=config['alpha_training'])
+                net_init, net_copy, alpha=config['alpha_training'])
+            # net_inference = average_weights(
+            #     net_inference, net_copy, alpha=config['alpha_training'])
 
             # Reset the hidden state of the GRU
             h1 = torch.zeros((config['nb_rnn_layers'], 1,
@@ -769,7 +747,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
             if config['adapt_threshold_detect']:
                 used_threshold = new_thresh
 
-        if (out_dataset or index == 0):
+        if out_dataset or index == 0 or index == len(dataloader) - 1:
             # Validation loop
             net_inference.eval()
             validation_losses_epoch = []
@@ -849,24 +827,6 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
         ss_preds)
 
     logger.summary['ss_metrics'] = ss_metrics
-
-    # Compute the metrics for spindles
-    # spindle_labels = torch.Tensor(spindle_labels).type(torch.LongTensor)
-    # spindle_preds = torch.cat(spindle_preds, dim=0)
-    # spindle_preds = torch.sigmoid(spindle_preds)
-
-    # ss_preds_4_spindles = torch.argmax(ss_preds, dim=1)
-    # thresholds = np.arange(config['min_threshold'],
-    #                        config['max_threshold'], 0.01)
-    # spindle_mets = {}
-    # for threshold in thresholds:
-    #     spindle_mets[threshold] = spindle_metrics(
-    #         spindle_labels,
-    #         spindle_preds,
-    #         ss_preds_4_spindles,
-    #         threshold=threshold,
-    #         sampling_rate=6,
-    #         min_label_time=0.5)['f1']
 
     # Compute the metrics for the online Lacourse
     true_labels = torch.tensor(adap_dataset.spindle_labels)
@@ -1168,7 +1128,7 @@ def get_config(index=0, replay_subjects=None):
         'window_size': net.config['window_size'],
         'lr': 0.00001,
         'adam_w': 0.000,
-        'alpha_training': 0.9,  # 1.0 -> Do not use learned, 0.0 -> Keep only learned weights
+        'alpha_training': 0.5,  # 1.0 -> Do not use learned, 0.0 -> Keep only learned weights
         'hidden_size': net.config['hidden_size'],
         'nb_rnn_layers': net.config['nb_rnn_layers'],
         # Whether to use the adaptable threshold in the detection of spindles with NN Model
@@ -1221,14 +1181,15 @@ if __name__ == "__main__":
     seed = 40
     set_seeds(seed)
 
+    group_name = 'adapt_avg'
     run_id = 'both_cc_olddl_lac_newdropout_32142'
-    exp_name_val = 'testing_all_configs'
+    exp_name_val = 'new_avg_eval'
     # Each worker only does its subjects
     worker_id = args.worker_id
     # run_id_old = "both_cc_smallLR_1706210166"
     unique_id = f"{int(time.time())}"[5:]
     net, run = load_model_mass(
-        f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id)
+        f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id, group_name=group_name)
     # net.freeze_embeddings()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -1244,8 +1205,9 @@ if __name__ == "__main__":
     subjects = parse_worker_subject_div(
         subjects, args.num_workers, worker_id)
 
-    all_configs = [get_config(i) for i in range(4)]
+    all_configs = [get_config(i) for i in [0, 1, 2, 3]]
     # all_configs = [get_config(1, replay_subjects=[subjects[0]])]
+    # subjects = [subjects[0]]
 
     results = {}
     # subjects = ['01-03-0025']
@@ -1260,7 +1222,7 @@ if __name__ == "__main__":
             print(f"Running config {config['experiment_name']}")
             unique_id = f"{int(time.time())}"[5:]
             net, run = load_model_mass(
-                f"{exp_name_val}_{config['experiment_name']}_{subject_id}_{unique_id}", run_id=run_id)
+                f"{exp_name_val}_{config['experiment_name']}_{subject_id}_{unique_id}", run_id=run_id, group_name=group_name)
             config['subject'] = subject_id
             run.config.update(config)
             dataloader = dataloader_from_subject(
