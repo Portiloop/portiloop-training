@@ -71,6 +71,13 @@ class MassLightning(pl.LightningModule):
                 # print(f"Freezing layer {name}")
                 param.requires_grad = False
 
+    def freeze_classifiers(self):
+        for name, param in self.model.named_parameters():
+            # Freeze if not a classifier
+            if 'classifier' in name.split('.')[0]:
+                # print(f"Freezing layer {name}")
+                param.requires_grad = False
+
     def training_step(self, batch, batch_idx):
         # Define the training step here
         batch_ss, batch_spindles = batch

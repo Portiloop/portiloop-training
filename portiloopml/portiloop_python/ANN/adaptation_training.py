@@ -472,7 +472,11 @@ class AdaptationDataset(torch.utils.data.Dataset):
             sampling_rate=250,
             min_label_time=0.5)
 
-        return metrics
+        ss_metrics = staging_metrics(
+            torch.tensor(self.ss_label_buffer),
+            torch.tensor(self.ss_pred_buffer))
+
+        return metrics, ss_metrics
 
     def get_thresholds(self):
         '''
@@ -609,7 +613,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
 
         # If we have just added some new data, we log the metrics
         if out_dataset or index == len(dataloader) - 1:
-            metrics = adap_dataset.run_metrics()
+            metrics, ss_metrics = adap_dataset.run_metrics()
             logger.log({'adap_online_f1': metrics['f1']}, step=index)
             logger.log(
                 {'adap_online_precision': metrics['precision']}, step=index)
@@ -633,6 +637,9 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
                 commit=False,
                 step=index,
             )
+
+            ss_metrics = ss_metrics[0]
+            logger.log({'adap_ss_metrics': ss_metrics['accuracy']}, step=index)
 
         # Used for testing online Lacourse
         # if out_dataset:
@@ -1138,8 +1145,8 @@ def get_config(index=0, replay_subjects=None):
         # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
         'learn_wamsley': True,
         # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-        'use_ss_label': True,
-        'use_mask_wamsley': True,
+        'use_ss_label': True if index == 6 else False,
+        'use_mask_wamsley': False if index == 4 else True,
         # Smoothing for the sleep staging (WIP)
         'use_ss_smoothing': False,
         'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
@@ -1166,6 +1173,8 @@ def get_config(index=0, replay_subjects=None):
         'replay_subjects': np.random.choice(net.config['subjects_train'], 10) if replay_subjects is None else replay_subjects,
         # 'replay_subjects': net.config['subjects_train'],
         'replay_multiplier': 1,
+        'freeze_embeddings': False,
+        'freeze_classifier': True,
     }
 
     return config
@@ -1183,14 +1192,13 @@ if __name__ == "__main__":
 
     group_name = 'adapt_avg'
     run_id = 'both_cc_olddl_lac_newdropout_32142'
-    exp_name_val = 'new_avg_eval'
+    exp_name_val = 'new_avg_freeze_clas'
     # Each worker only does its subjects
     worker_id = args.worker_id
     # run_id_old = "both_cc_smallLR_1706210166"
     unique_id = f"{int(time.time())}"[5:]
     net, run = load_model_mass(
-        f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id, group_name=group_name)
-    # net.freeze_embeddings()
+        f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id, group_name='ModelLoaders')
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -1205,7 +1213,7 @@ if __name__ == "__main__":
     subjects = parse_worker_subject_div(
         subjects, args.num_workers, worker_id)
 
-    all_configs = [get_config(i) for i in [0, 1, 2, 3]]
+    all_configs = [get_config(i) for i in [4, 5, 6]]
     # all_configs = [get_config(1, replay_subjects=[subjects[0]])]
     # subjects = [subjects[0]]
 
@@ -1223,6 +1231,13 @@ if __name__ == "__main__":
             unique_id = f"{int(time.time())}"[5:]
             net, run = load_model_mass(
                 f"{exp_name_val}_{config['experiment_name']}_{subject_id}_{unique_id}", run_id=run_id, group_name=group_name)
+
+            if config['freeze_embeddings']:
+                net.freeze_embeddings()
+
+            if config['freeze_classifier']:
+                net.freeze_classifiers()
+
             config['subject'] = subject_id
             run.config.update(config)
             dataloader = dataloader_from_subject(
