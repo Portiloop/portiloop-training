@@ -371,7 +371,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         preds_to_add = [bool(spindle_pred.cpu() >= detect_threshold)] * \
             len(points_to_add)
         spindle_label_to_add = [spindle_label] * len(points_to_add)
-        ss_pred_to_add = [ss_pred] * len(points_to_add)
+        ss_pred_to_add = [ss_pred[0].cpu()] * len(points_to_add)
         ss_label_to_add = ss_label.squeeze(0)[-len(points_to_add):]
 
         # Add to the buffers
@@ -1213,9 +1213,9 @@ if __name__ == "__main__":
     subjects = parse_worker_subject_div(
         subjects, args.num_workers, worker_id)
 
-    all_configs = [get_config(i) for i in [4, 5, 6]]
+    all_configs = [get_config(i) for i in [6]]
     # all_configs = [get_config(1, replay_subjects=[subjects[0]])]
-    # subjects = [subjects[0]]
+    subjects = [subjects[0]]
 
     results = {}
     # subjects = ['01-03-0025']
