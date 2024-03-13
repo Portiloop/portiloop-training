@@ -1129,7 +1129,7 @@ def get_config(index=0, replay_subjects=None):
     config = {
         'experiment_name': f'config_{index}',
         'num_subjects': 1,
-        'train': True if index == 2 or index == 3 else False,
+        'train': True if index in [3, 4, 5, 6] else False,
         'seq_len': net.config['seq_len'],
         'seq_stride': net.config['seq_stride'],
         'window_size': net.config['window_size'],
@@ -1139,14 +1139,14 @@ def get_config(index=0, replay_subjects=None):
         'hidden_size': net.config['hidden_size'],
         'nb_rnn_layers': net.config['nb_rnn_layers'],
         # Whether to use the adaptable threshold in the detection of spindles with NN Model
-        'adapt_threshold_detect': True if index == 1 or index == 3 else False,
+        'adapt_threshold_detect': True if index in [1, 2, 5, 6] else False,
         # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
         'adapt_threshold_wamsley': True,
         # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
         'learn_wamsley': True,
         # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-        'use_ss_label': True if index == 6 else False,
-        'use_mask_wamsley': False if index == 4 else True,
+        'use_ss_label': True if index in [2, 4, 6] else False,
+        'use_mask_wamsley': True,
         # Smoothing for the sleep staging (WIP)
         'use_ss_smoothing': False,
         'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
@@ -1213,7 +1213,7 @@ if __name__ == "__main__":
     subjects = parse_worker_subject_div(
         subjects, args.num_workers, worker_id)
 
-    all_configs = [get_config(i) for i in [4, 5, 6]]
+    all_configs = [get_config(i) for i in range(7)]
     # all_configs = [get_config(1, replay_subjects=[subjects[0]])]
     # subjects = [subjects[0]]
 
