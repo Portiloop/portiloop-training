@@ -1213,9 +1213,9 @@ if __name__ == "__main__":
     subjects = parse_worker_subject_div(
         subjects, args.num_workers, worker_id)
 
-    all_configs = [get_config(i) for i in [6]]
+    all_configs = [get_config(i) for i in [4, 5, 6]]
     # all_configs = [get_config(1, replay_subjects=[subjects[0]])]
-    subjects = [subjects[0]]
+    # subjects = [subjects[0]]
 
     results = {}
     # subjects = ['01-03-0025']
