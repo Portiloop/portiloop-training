@@ -90,6 +90,7 @@ class PortiloopNetwork(nn.Module):
         self.classification = c_dict["classification"]
         n_heads = c_dict["n_heads"]
         self.after = c_dict['after_rnn']
+        train_all_ss = c_dict['train_all_ss']
 
         conv_padding = 0  # int(kernel_conv // 2)
         pool_padding = 0  # int(kernel_pool // 2)
@@ -165,7 +166,7 @@ class PortiloopNetwork(nn.Module):
         hidden_fc_ss = nn.Linear(in_features=fc_features,
                                  out_features=fc_features)
         fc_sleep_stage = nn.Linear(in_features=in_fc,
-                                   out_features=5)
+                                   out_features=5 if train_all_ss else 1)
         self.classifier_sleep_stage = nn.Sequential(
             hidden_fc_ss,
             nn.ReLU(),

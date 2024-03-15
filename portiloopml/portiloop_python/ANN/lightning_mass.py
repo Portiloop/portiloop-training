@@ -38,7 +38,11 @@ class MassLightning(pl.LightningModule):
         # Define your model architecture here
         self.model = PortiloopNetwork(config)
         self.spindle_criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
-        self.staging_criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+
+        if config['train_all_ss']:
+            self.staging_criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+        else:
+            self.staging_criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
 
         self.ss_val_preds = []
         self.ss_val_labels = []
@@ -86,11 +90,16 @@ class MassLightning(pl.LightningModule):
         vector = batch_ss[0].to(self.device)
 
         _, out_ss, _, _ = self(vector, None)
+        if not self.config['train_all_ss']:
+            out_ss = out_ss.squeeze(-1)
         ss_label = batch_ss[1]['sleep_stage'].to(self.device)
         ss_loss = self.staging_criterion(out_ss, ss_label)
 
         # Get the accuracy of sleep staging
-        _, ss_pred = torch.max(out_ss, dim=1)
+        if self.config['train_all_ss']:
+            _, ss_pred = torch.max(out_ss, dim=1)
+        else:
+            ss_pred = (out_ss > 0.5).float()
         ss_acc = torch.sum(ss_pred == ss_label).float() / ss_label.shape[0]
 
         self.log('train_ss_loss', ss_loss)
@@ -148,18 +157,27 @@ class MassLightning(pl.LightningModule):
         label_ss = label_ss.cpu().detach()
         label_spindles = label_spindles.cpu().detach()
 
+
         # Get the validation losses
         # remove all columns where the label is 5 (unknown)
-        mask = label_ss != 5
-        label_ss_4loss = label_ss[mask]
-        out_sleep_stages_4loss = out_sleep_stages[mask]
+        if self.config['train_all_ss']:
+            mask = label_ss != 5
+            label_ss_4loss = label_ss[mask]
+            out_sleep_stages_4loss = out_sleep_stages[mask]
+        else:
+            label_ss_4loss = label_ss
+            out_sleep_stages_4loss = out_sleep_stages.squeeze(-1)
+        
         ss_loss = self.staging_criterion(
             out_sleep_stages_4loss, label_ss_4loss)
         spindle_loss = self.spindle_criterion(out_spindles, label_spindles)
 
         # Apply softmax and sigmoid to get probabilities
         out_spindles = torch.sigmoid(out_spindles)
-        out_sleep_stages = torch.softmax(out_sleep_stages, dim=1)
+        if not self.config['train_all_ss']:
+            out_sleep_stages = torch.sigmoid(out_sleep_stages)
+        else:
+            out_sleep_stages = torch.softmax(out_sleep_stages, dim=1)
 
         self.val_h = h
 
@@ -194,13 +212,19 @@ class MassLightning(pl.LightningModule):
 
         # Flatten all the predictions and get the argmax
         ss_preds = self.ss_val_preds.flatten(start_dim=0, end_dim=1)
-        ss_preds = torch.argmax(ss_preds, dim=1)
         ss_labels = self.ss_val_labels.flatten(start_dim=0, end_dim=1)
 
         # We remove all indexes where the label is 5 (unknown)
-        mask = ss_labels != 5
-        ss_labels = ss_labels[mask]
-        ss_preds = ss_preds[mask]
+        if self.config['train_all_ss']:
+            ss_preds = torch.argmax(ss_preds, dim=1)
+            mask = ss_labels != 5
+            ss_labels = ss_labels[mask]
+            ss_preds = ss_preds[mask]
+        else:
+            ss_preds = (ss_preds > 0.5).float()
+            mask = ss_labels != 5
+            ss_labels = ss_labels[mask]
+            ss_preds = ss_preds[mask]
 
         # Compute the metrics for sleep staging using sklearn classification report
         report_ss = classification_report(
@@ -210,15 +234,20 @@ class MassLightning(pl.LightningModule):
         )
 
         # Get the confusion matrix
+        if not self.config['train_all_ss']:
+            labels = [0, 1]
+        else:
+            labels = [0, 1, 2, 3, 4]
         cm = confusion_matrix(
             ss_labels,
             ss_preds,
-            labels=[0, 1, 2, 3, 4],
+            labels=labels,
         )
 
         # Create a matplotlib figure for the confusion matrix
+        display_labels = MassDataset.get_ss_labels()[:-1] if self.config['train_all_ss'] else ["Non-spindle", "N2-N3"]
         disp = ConfusionMatrixDisplay(confusion_matrix=cm,
-                                      display_labels=MassDataset.get_ss_labels()[:-1])
+                                      display_labels=display_labels)
         disp.plot()
 
         # Log the figure
@@ -617,7 +646,7 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=42,
                         help='Seed for random number generator')
     parser.add_argument('--experiment_name', type=str, help='Name of the experiment',
-                        default='NewDL_Lacourse_smallerlr')
+                        default='DebuggingSS')
     parser.add_argument('--num_train_subjects', type=int,  help='Number of subjects for training',
                         default=10)
     parser.add_argument('--num_val_subjects', type=int, help='Number of subjects for validation',
@@ -655,6 +684,7 @@ if __name__ == "__main__":
     config['window_size'] = 54
     config['seq_stride'] = 42
     config['seq_len'] = 50
+    config['train_all_ss'] = False
 
     if config['useViT']:
         config['batch_size'] = 16
@@ -724,7 +754,8 @@ if __name__ == "__main__":
         seq_len=config['seq_len'],
         seq_stride=config['seq_stride'],
         use_filtered=config['use_filtered'],
-        sampleable='both')
+        sampleable='both',
+        train_all_ss=config['train_all_ss'])
 
     val_dataset = MassDataset(
         dataset_path,
@@ -733,7 +764,8 @@ if __name__ == "__main__":
         seq_len=1,
         seq_stride=config['seq_stride'],
         use_filtered=config['use_filtered'],
-        sampleable='both')
+        sampleable='both',
+        train_all_ss=config['train_all_ss'])
 
     test_dataset = MassDataset(
         dataset_path,
@@ -742,7 +774,8 @@ if __name__ == "__main__":
         seq_len=1,
         seq_stride=config['seq_stride'],
         use_filtered=config['use_filtered'],
-        sampleable='both')
+        sampleable='both',
+        train_all_ss=config['train_all_ss'])
 
     num_samples = config['epoch_length'] * \
         config['batch_size'] if config['epoch_length'] >= 0 else None

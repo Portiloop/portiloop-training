@@ -299,7 +299,7 @@ class MassConsecutiveSampler(Sampler):
 
 
 class MassDataset(Dataset):
-    def __init__(self, data_path, window_size, seq_stride, seq_len, subjects=None, use_filtered=True, sampleable='both', compute_spindle_labels=False, wamsley_config=None):
+    def __init__(self, data_path, window_size, seq_stride, seq_len, subjects=None, use_filtered=True, sampleable='both', compute_spindle_labels=False, wamsley_config=None, train_all_ss=True):
         '''
         A Class which loads the MASS dataset and returns the signals and labels of the subjects.
 
@@ -332,6 +332,7 @@ class MassDataset(Dataset):
         self.seq_len = seq_len
         self.past_signal_len = (self.seq_len - 1) * \
             self.seq_stride  # + self.window_size
+        self.train_all_ss = train_all_ss
 
         # Start by finding the necessary subsets to load based on the names of the subjects required
         if self.subjects is not None:
@@ -537,12 +538,17 @@ class MassDataset(Dataset):
         signal_idx : int
             Index of the signal to return the labels from.
         '''
+        if self.train_all_ss: 
+            ss_label = self.data[subject]['ss_label'][signal_idx]
+        else:
+            ss_label = 1. if self.data[subject]['ss_label'][signal_idx] in [1, 2] else 0.
+
         labels = {
             'spindle_label': self.data[subject]['spindle_label'][signal_idx],
             'age': self.data[subject]['age'],
             'gender': self.data[subject]['gender'],
             'subject': subject,
-            'sleep_stage': self.data[subject]['ss_label'][signal_idx],
+            'sleep_stage': ss_label,             
             'all_sleep_stage': self.data[subject]['ss_label'][signal_idx - self.past_signal_len:signal_idx + self.window_size]
         }
         return labels
