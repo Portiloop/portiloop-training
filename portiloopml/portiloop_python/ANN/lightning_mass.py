@@ -24,7 +24,7 @@ import wandb
 # import wandb
 from portiloopml.portiloop_python.ANN.data.mass_data_new import (
     CombinedDataLoader, MassConsecutiveSampler, MassDataset, MassRandomSampler,
-    SubjectLoader)
+    SubjectLoader, get_subjects_folds)
 from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork
 from portiloopml.portiloop_python.ANN.utils import get_configs, set_seeds
 from portiloopml.portiloop_python.ANN.wamsley_utils import (binary_f1_score,
@@ -653,16 +653,20 @@ if __name__ == "__main__":
                         default=2)
     parser.add_argument('--dataset_path', type=str, help='Path to the MASS dataset.',
                         default='/project/MASS/mass_spindles_dataset/')
+    parser.add_argument('--fold', type=str, help='Fold number [Number between 1 and 4]',
+                        default=0)
 
     args = parser.parse_args()
 
     # Use the command-line arguments
     seed = args.seed
     unique_id = f"{int(time.time())}"[5:]
-    experiment_name = f"{args.experiment_name}_{unique_id}"
     num_train_subjects = args.num_train_subjects
     num_val_subjects = args.num_val_subjects
     dataset_path = args.dataset_path
+    fold = args.fold
+    experiment_name = f"{args.experiment_name}_fold{fold}_{unique_id}"
+
     ################ Model Config ##################
     if seed > 0:
         set_seeds(seed)
@@ -676,7 +680,7 @@ if __name__ == "__main__":
     config['validation_batch_size'] = 512
     config['segment_len'] = 1000
     config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
-    config['use_filtered'] = False
+    config['use_filtered'] = True
     config['alpha'] = 0.1
     config['useViT'] = False
     config['dropout'] = 0.5
@@ -702,46 +706,43 @@ if __name__ == "__main__":
     ############### DATA STUFF ##################
     config['num_subjects_train'] = num_train_subjects
     config['num_subjects_val'] = num_val_subjects
-    subject_loader = SubjectLoader(
-        os.path.join(dataset_path, 'subject_info.csv'))
-
     config['overfit'] = False
 
-    # train_subjects = subject_loader.select_random_subjects(
-    #     num_subjects=config['num_subjects_train'], seed=seed)
-    # val_subjects = subject_loader.select_random_subjects(
-    #     num_subjects=config['num_subjects_val'], seed=seed, exclude=train_subjects)
-    # test_subjects = subject_loader.select_random_subjects(
-    #     num_subjects=config['num_subjects_val'], seed=seed, exclude=train_subjects + val_subjects)
+    subject_loader = SubjectLoader(
+        os.path.join(dataset_path, 'subject_info.csv'))
+    
+    assert fold in [-1, 0, 1, 2, 3, 4], "Fold must be between 1 and 4 or -1 for no fold"
 
-    # For validation and testing, we select 10 old and 10 young subjects for each
-    val_subjects = subject_loader.select_subjects_age(
-        min_age=0,
-        max_age=40,
-        num_subjects=config['num_subjects_val'] // 2,
-        seed=seed)
-    val_subjects += subject_loader.select_subjects_age(
-        min_age=40,
-        max_age=100,
-        num_subjects=config['num_subjects_val'] // 2,
-        seed=seed,
-        exclude=val_subjects)
+    if fold != -1:
+        train_subjects, val_subjects, test_subjects = get_subjects_folds(fold, subject_loader)
+    else:
+        val_subjects = subject_loader.select_subjects_age(
+            min_age=0,
+            max_age=40,
+            num_subjects=config['num_subjects_val'] // 2,
+            seed=seed)
+        val_subjects += subject_loader.select_subjects_age(
+            min_age=40,
+            max_age=100,
+            num_subjects=config['num_subjects_val'] // 2,
+            seed=seed,
+            exclude=val_subjects)
 
-    test_subjects = subject_loader.select_subjects_age(
-        min_age=0,
-        max_age=40,
-        num_subjects=config['num_subjects_val'] // 2,
-        seed=seed,
-        exclude=val_subjects)
-    test_subjects += subject_loader.select_subjects_age(
-        min_age=40,
-        max_age=100,
-        num_subjects=config['num_subjects_val'] // 2,
-        seed=seed,
-        exclude=test_subjects + val_subjects)
+        test_subjects = subject_loader.select_subjects_age(
+            min_age=0,
+            max_age=40,
+            num_subjects=config['num_subjects_val'] // 2,
+            seed=seed,
+            exclude=val_subjects)
+        test_subjects += subject_loader.select_subjects_age(
+            min_age=40,
+            max_age=100,
+            num_subjects=config['num_subjects_val'] // 2,
+            seed=seed,
+            exclude=test_subjects + val_subjects)
 
-    train_subjects = subject_loader.select_random_subjects(
-        num_subjects=config['num_subjects_train'], seed=seed, exclude=val_subjects + test_subjects)
+        train_subjects = subject_loader.select_random_subjects(
+            num_subjects=config['num_subjects_train'], seed=seed, exclude=val_subjects + test_subjects)
 
     if config['overfit']:
         val_subjects = train_subjects

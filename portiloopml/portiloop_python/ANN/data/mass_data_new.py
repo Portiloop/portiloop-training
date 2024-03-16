@@ -30,6 +30,76 @@ def get_size(obj, seen=None):
     return size
 
 
+def get_subjects_folds(fold_num, subject_loader, test_subjects_per_fold=28, seed=42):
+    '''
+    Get the subjects for a specific fold
+
+    Args:
+    - fold_num: int
+        The fold number in [0, 1, 2, 3, 4]
+    '''
+    # Get the number of subjects
+    num_subjects_total = len(subject_loader.select_all_subjects()) - 1
+
+    # Generate 5 different sets of 28 subjects each with balanced age distribution
+    fold_test_subjects = []
+    subjects_sampled_so_far = []
+    for i in range(5):
+        # On the last fold, we simply take whatever is left
+        if i == 4:
+            subjects_left = subject_loader.select_random_subjects(
+                num_subjects=test_subjects_per_fold,
+                exclude=subjects_sampled_so_far
+            )
+            fold_test_subjects.append(subjects_left)
+            break
+
+        young_test = subject_loader.select_subjects_age(
+            min_age=0,
+            max_age=30,
+            num_subjects=test_subjects_per_fold // 2,
+            seed=seed,
+            exclude=subjects_sampled_so_far)
+        
+        old_test = subject_loader.select_subjects_age(
+            min_age=40,
+            max_age=100,
+            num_subjects=test_subjects_per_fold // 2,
+            seed=seed,
+            exclude=subjects_sampled_so_far)
+        
+        subjects_sampled_so_far += young_test + old_test
+        fold_test_subjects.append(young_test + old_test)
+
+    # Get the subjects for the fold
+    subjects_test = fold_test_subjects[fold_num] 
+    
+    # Get 6 young and 6 old subjects for the validation set 
+    young_val_subjects = subject_loader.select_subjects_age(
+        min_age=0,
+        max_age=30,
+        num_subjects=6,
+        seed=seed,
+        exclude=subjects_test)
+    old_val_subjects = subject_loader.select_subjects_age(
+        min_age=40,
+        max_age=100,
+        num_subjects=6,
+        seed=seed,
+        exclude=subjects_test + young_val_subjects)
+    
+    subjects_val = young_val_subjects + old_val_subjects
+    
+    # Get the subjects for the training set
+    all_subjects_so_far = subjects_test + subjects_val
+    subjects_train = subject_loader.select_random_subjects(
+        num_subjects=num_subjects_total - len(all_subjects_so_far),
+        exclude=all_subjects_so_far
+    )
+
+    return subjects_train, subjects_val, subjects_test
+
+
 class SubjectLoader:
     def __init__(self, csv_file):
         '''
