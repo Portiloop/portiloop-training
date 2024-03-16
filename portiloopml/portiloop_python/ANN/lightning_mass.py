@@ -704,18 +704,20 @@ if __name__ == "__main__":
         model = MassLightning(config)
 
     ############### DATA STUFF ##################
-    config['num_subjects_train'] = num_train_subjects
-    config['num_subjects_val'] = num_val_subjects
     config['overfit'] = False
 
     subject_loader = SubjectLoader(
         os.path.join(dataset_path, 'subject_info.csv'))
     
-    assert fold in [-1, 0, 1, 2, 3, 4], "Fold must be between 1 and 4 or -1 for no fold"
+    assert fold in [-1, 0, 1, 2, 3, 4], "Fold must be between 0 and 4 or -1 for no fold"
 
     if fold != -1:
         train_subjects, val_subjects, test_subjects = get_subjects_folds(fold, subject_loader)
+        config['num_subjects_train'] = len(train_subjects)
+        config['num_subjects_val'] = len(val_subjects)
     else:
+        config['num_subjects_train'] = num_train_subjects
+        config['num_subjects_val'] = num_val_subjects
         val_subjects = subject_loader.select_subjects_age(
             min_age=0,
             max_age=40,
