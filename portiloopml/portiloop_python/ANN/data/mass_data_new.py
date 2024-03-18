@@ -1,3 +1,4 @@
+from torch.utils.data import Dataset
 import time
 from typing import Iterator, Optional, Sized
 from matplotlib import pyplot as plt
@@ -60,21 +61,21 @@ def get_subjects_folds(fold_num, subject_loader, test_subjects_per_fold=28, seed
             num_subjects=test_subjects_per_fold // 2,
             seed=seed,
             exclude=subjects_sampled_so_far)
-        
+
         old_test = subject_loader.select_subjects_age(
             min_age=40,
             max_age=100,
             num_subjects=test_subjects_per_fold // 2,
             seed=seed,
             exclude=subjects_sampled_so_far)
-        
+
         subjects_sampled_so_far += young_test + old_test
         fold_test_subjects.append(young_test + old_test)
 
     # Get the subjects for the fold
-    subjects_test = fold_test_subjects[fold_num] 
-    
-    # Get 6 young and 6 old subjects for the validation set 
+    subjects_test = fold_test_subjects[fold_num]
+
+    # Get 6 young and 6 old subjects for the validation set
     young_val_subjects = subject_loader.select_subjects_age(
         min_age=0,
         max_age=30,
@@ -87,9 +88,9 @@ def get_subjects_folds(fold_num, subject_loader, test_subjects_per_fold=28, seed
         num_subjects=6,
         seed=seed,
         exclude=subjects_test + young_val_subjects)
-    
+
     subjects_val = young_val_subjects + old_val_subjects
-    
+
     # Get the subjects for the training set
     all_subjects_so_far = subjects_test + subjects_val
     subjects_train = subject_loader.select_random_subjects(
@@ -406,8 +407,13 @@ class MassDataset(Dataset):
 
         # Start by finding the necessary subsets to load based on the names of the subjects required
         if self.subjects is not None:
-            self.subsets = list(set([subject[3:5]
-                                for subject in self.subjects]))
+            self.subsets = []
+            for subject in self.subjects:
+                if subject[:2] == 'PN':
+                    self.subsets.append(subject[:8])
+                else:
+                    self.subsets.append(subject[3:5])
+            self.subsets = list(set(self.subsets))
         else:
             self.subsets = ['01', '02', '03', '05']
 
@@ -428,10 +434,16 @@ class MassDataset(Dataset):
 
         # Open the necessary files and store them in a dictionary
         for subset in self.subsets:
-            data = self.read_data(os.path.join(
-                self.data_path, f'mass_spindles_ss{subset[1]}.npz'))
-            self.data_unloaded[subset] = data
-            all_subjects += list(data.keys())
+            if subset[0] == '0':
+                data = self.read_data(os.path.join(
+                    self.data_path, f'mass_spindles_ss{subset[1]}.npz'))
+                self.data_unloaded[subset] = data
+                all_subjects += list(data.keys())
+            else:
+                data = self.read_data(os.path.join(
+                    self.data_path, f'{subset}.npz'))
+                self.data_unloaded[subset] = data
+                all_subjects += list(data.keys())
 
         self.subjects = all_subjects if self.subjects is None else self.subjects
 
@@ -439,8 +451,14 @@ class MassDataset(Dataset):
         self.data = {}
         for key in self.subjects:
             start = time.time()
-            subset = key[3:5]
-            self.data[key] = self.data_unloaded[subset][key].item()
+            if key[:2] == 'PN':
+                subset = key[:8]
+                all_nights = self.data_unloaded[subset]['arr_0'].item()
+                self.data[key] = all_nights[key]
+            else:
+                subset = key[3:5]
+                self.data[key] = self.data_unloaded[subset][key].item()
+
             end = time.time()
             print(f"Time taken to load {key}: {end - start}")
 
@@ -608,17 +626,18 @@ class MassDataset(Dataset):
         signal_idx : int
             Index of the signal to return the labels from.
         '''
-        if self.train_all_ss: 
+        if self.train_all_ss:
             ss_label = self.data[subject]['ss_label'][signal_idx]
         else:
-            ss_label = 1. if self.data[subject]['ss_label'][signal_idx] in [1, 2] else 0.
+            ss_label = 1. if self.data[subject]['ss_label'][signal_idx] in [
+                1, 2] else 0.
 
         labels = {
             'spindle_label': self.data[subject]['spindle_label'][signal_idx],
             'age': self.data[subject]['age'],
             'gender': self.data[subject]['gender'],
             'subject': subject,
-            'sleep_stage': ss_label,             
+            'sleep_stage': ss_label,
             'all_sleep_stage': self.data[subject]['ss_label'][signal_idx - self.past_signal_len:signal_idx + self.window_size]
         }
         return labels

@@ -1048,7 +1048,9 @@ def parse_config():
     parser.add_argument('--job_id', type=int, default=0,
                         help='Id of the job used for the output file naming scheme')
     parser.add_argument('--num_workers', type=int, default=1,
-                        help='Total number of workers used to compute which arguments to run')
+                        help='Total number of workers used to compute which subjects to run')
+    parser.add_argument('--fold', type=int, default=0,
+                        help='Fold of the cross validation')
     args = parser.parse_args()
 
     return args
@@ -1146,7 +1148,7 @@ def get_config(index=0, replay_subjects=None):
         'learn_wamsley': True,
         # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
         'use_ss_label': True if index in [2, 4, 6] else False,
-        'use_mask_wamsley': True,
+        'use_mask_wamsley': True if index in [2, 4, 6] else False,
         # Smoothing for the sleep staging (WIP)
         'use_ss_smoothing': False,
         'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
@@ -1175,6 +1177,7 @@ def get_config(index=0, replay_subjects=None):
         'replay_multiplier': 1,
         'freeze_embeddings': False,
         'freeze_classifier': True,
+        'keep_net': True,
     }
 
     return config
@@ -1190,15 +1193,34 @@ if __name__ == "__main__":
     seed = 40
     set_seeds(seed)
 
-    group_name = 'adapt_avg'
-    run_id = 'both_cc_olddl_lac_newdropout_32142'
-    exp_name_val = 'new_avg_freeze_clas'
-    # Each worker only does its subjects
-    worker_id = args.worker_id
-    # run_id_old = "both_cc_smallLR_1706210166"
-    unique_id = f"{int(time.time())}"[5:]
-    net, run = load_model_mass(
-        f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id, group_name='ModelLoaders')
+    if args.fold == -1:
+        group_name = 'portinight'
+        # run_id = 'both_cc_olddl_lac_newdropout_32142'
+        run_id = 'both_cc_limited_ss_44055'
+        exp_name_val = 'portinight_train_keeplearned_adathresh'
+        # Each worker only does its subjects
+        worker_id = args.worker_id
+        # run_id_old = "both_cc_smallLR_1706210166"
+        unique_id = f"{int(time.time())}"[5:]
+        net, run = load_model_mass(
+            f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id, group_name='ModelLoaders')
+        subjects = net.config['subjects_test']
+    else:
+        fold_runs = {
+            0: 'both_cc_fold_training_fold0_24332',
+            1: 'both_cc_fold_training_fold1_24366',
+            2: 'both_cc_fold_training_fold2_24397',
+            3: 'both_cc_fold_training_fold3_24361',
+            4: 'both_cc_fold_training_fold4_24368',
+        }
+        run_id = fold_runs[args.fold]
+        group_name = f'mass_adapt_fold{args.fold}'
+        exp_name_val = f'mass_adapt_fold{args.fold}'
+        worker_id = args.worker_id
+        unique_id = f"{int(time.time())}"[5:]
+        net, run = load_model_mass(
+            f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id, group_name='ModelLoaders')
+        subjects = net.config['subjects_test']
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -1208,19 +1230,20 @@ if __name__ == "__main__":
     # subjects = loader.select_random_subjects(config['num_subjects'])
 
     # Taking only the subjects on which the model wasnt trained to avoid data contamination
-    subjects = net.config['subjects_test']
 
     subjects = parse_worker_subject_div(
         subjects, args.num_workers, worker_id)
 
-    all_configs = [get_config(i) for i in range(7)]
-    # all_configs = [get_config(1, replay_subjects=[subjects[0]])]
+    # all_configs = [get_config(i) for i in range(7)]
+    all_configs = [get_config(5)]
     # subjects = [subjects[0]]
+    # subjects = ['PN_01_HJ_Night1', 'PN_01_HJ_Night3', 'PN_01_HJ_Night4']
 
     results = {}
     # subjects = ['01-03-0025']
 
     run.finish()
+    net_copy = None
 
     # print(f"Doing subjects: {subjects}")
     for subject_id in subjects:
@@ -1239,12 +1262,18 @@ if __name__ == "__main__":
                 net.freeze_classifiers()
 
             config['subject'] = subject_id
+            config['train_all_ss'] = net.config['train_all_ss']
+            config['fold'] = args.fold
+
             run.config.update(config)
             dataloader = dataloader_from_subject(
                 [subject_id], dataset_path, config, val=False)
             val_dataloader = dataloader_from_subject(
                 [subject_id], dataset_path, config, val=True)
-            config['subject'] = subject_id
+
+            if net_copy is not None and config['keep_net']:
+                net = net_copy
+
             metrics, net_copy = run_adaptation(
                 dataloader,
                 val_dataloader,
@@ -1268,5 +1297,5 @@ if __name__ == "__main__":
             run.finish()
 
     # Save the results to json file with indentation
-    with open(f'experiment_result_worker_{worker_id}.json', 'w') as f:
+    with open(f'experiment_result_fold{args.fold}_worker{worker_id}.json', 'w') as f:
         json.dump(results, f, indent=4, cls=NumpyEncoder)
