@@ -226,6 +226,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
         self.learn_wamsley = config['learn_wamsley']
         self.use_ss_label = config['use_ss_label']
         wamsley_config = config['wamsley_config']
+        self.train_all_ss = config['train_all_ss']
         # self.wamsley_func = lambda x, y, z: detect_wamsley(
         #     x,
         #     y,
@@ -372,7 +373,13 @@ class AdaptationDataset(torch.utils.data.Dataset):
             len(points_to_add)
         spindle_label_to_add = [spindle_label] * len(points_to_add)
         ss_pred_to_add = [ss_pred[0].cpu()] * len(points_to_add)
-        ss_label_to_add = ss_label.squeeze(0)[-len(points_to_add):]
+
+        if self.train_all_ss:
+            ss_label_to_add = ss_label.squeeze(0)[-len(points_to_add):]
+        else:
+            ss_label = ss_label.squeeze(0)
+            ss_label_to_add = ((ss_label == 1) | (ss_label ==
+                               2))[-len(points_to_add):]
 
         # Add to the buffers
         self.wamsley_buffer += points_to_add
@@ -414,9 +421,17 @@ class AdaptationDataset(torch.utils.data.Dataset):
         else:
             usable_mask = self.ss_pred_buffer[-detect_len:]
 
-        usable_mask = np.array(usable_mask)
-        usable_mask = ((usable_mask == SleepStageDataset.get_labels().index(
-            "2")) | (usable_mask == SleepStageDataset.get_labels().index("3")))
+        if self.train_all_ss:
+            usable_mask = np.array(usable_mask)
+            usable_mask = ((usable_mask == SleepStageDataset.get_labels().index(
+                "2")) | (usable_mask == SleepStageDataset.get_labels().index("3")))
+        else:
+            # If we only check if we are in the right sleep stage
+            usable_mask = np.array(usable_mask)
+            if len(usable_mask.shape) > 1:
+                usable_mask = usable_mask[:, 0]
+            usable_mask = usable_mask == 1
+
         usable_labels = self.spindle_labels[-detect_len:]
 
         if sum(usable_mask) > 0:
@@ -468,6 +483,8 @@ class AdaptationDataset(torch.utils.data.Dataset):
         metrics = spindle_metrics(
             np.array(self.spindle_labels),
             np.array(self.prediction_buffer),
+            ss_labels=np.array(self.ss_label_buffer) if self.use_ss_label else np.array(
+                self.ss_pred_buffer),
             threshold=0.5,
             sampling_rate=250,
             min_label_time=0.5)
@@ -597,7 +614,11 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
                 ss_output = torch.mean(nplast_n_ss, dim=0)
                 ss_output = torch.argmax(ss_output)
             else:
-                ss_output = torch.argmax(ss_output, dim=1)
+                if config['train_all_ss']:
+                    ss_output = torch.argmax(ss_output, dim=1)
+                else:
+                    ss_output = torch.sigmoid(ss_output)
+                    ss_output = ss_output >= 0.5
 
             spindle_pred_with_thresh.append(
                 output.cpu().item() > used_threshold)
@@ -833,7 +854,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
         ss_labels,
         ss_preds)
 
-    logger.summary['ss_metrics'] = ss_metrics
+    logger.summary['ss_metrics'] = ss_metrics[0]
 
     # Compute the metrics for the online Lacourse
     true_labels = torch.tensor(adap_dataset.spindle_labels)
@@ -855,6 +876,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
     spindle_metrics_real = spindle_metrics(
         spindle_labels,
         spindle_preds_real,
+        ss_labels=adap_dataset.ss_label_buffer if config['use_ss_label'] else adap_dataset.ss_pred_buffer,
         threshold=0.5,
         sampling_rate=250,
         min_label_time=0.5)
@@ -923,7 +945,9 @@ def spindle_metrics(labels, preds, ss_labels=None, threshold=0.5, sampling_rate=
         onsets_preds_corrected = []
         for spindle in onsets_preds:
             ss_label = ss_labels[spindle]
-            if ss_label == SleepStageDataset.get_labels().index("2") or ss_label == SleepStageDataset.get_labels().index("3"):
+            # if ss_label == SleepStageDataset.get_labels().index("2") or ss_label == SleepStageDataset.get_labels().index("3"):
+            #     onsets_preds_corrected.append(spindle)
+            if ss_label == 1:
                 onsets_preds_corrected.append(spindle)
 
         precision_corrected, recall_corrected, f1_corrected, tp_corrected, fp_corrected, fn_corrected, closest_corrected = binary_f1_score(
@@ -1008,8 +1032,8 @@ def staging_metrics(labels, preds):
 
     # We remove all indexes where the label is 5 (unknown)
     mask = labels != 5
-    ss_labels = labels[mask]
-    ss_preds = ss_preds_all[mask]
+    ss_labels = labels[mask].type(torch.IntTensor)
+    ss_preds = ss_preds_all[mask].type(torch.IntTensor)
 
     # Compute the metrics for sleep staging using sklearn classification report
     report_ss = classification_report(
@@ -1084,7 +1108,8 @@ def dataloader_from_subject(subject, dataset_path, config, val):
         use_filtered=False,
         compute_spindle_labels=False,
         sampleable='spindles',
-        wamsley_config=config['wamsley_config']
+        wamsley_config=config['wamsley_config'],
+        train_all_ss=config['train_all_ss'],
     )
 
     if val:
@@ -1125,6 +1150,62 @@ class NumpyEncoder(json.JSONEncoder):
             return int(obj)
 
         return json.JSONEncoder.default(self, obj)
+
+
+def get_configs_ola7(index=0, replay_subjects=None):
+    config = {
+        'experiment_name': f'config_{index}',
+        'num_subjects': 1,
+        'train': False,
+        'seq_len': net.config['seq_len'],
+        'seq_stride': net.config['seq_stride'],
+        'window_size': net.config['window_size'],
+        'lr': 0.00001,
+        'adam_w': 0.000,
+        'alpha_training': 0.5,  # 1.0 -> Do not use learned, 0.0 -> Keep only learned weights
+        'hidden_size': net.config['hidden_size'],
+        'nb_rnn_layers': net.config['nb_rnn_layers'],
+        # Whether to use the adaptable threshold in the detection of spindles with NN Model
+        'adapt_threshold_detect': False,
+        # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
+        'adapt_threshold_wamsley': True,
+        # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
+        'learn_wamsley': True,
+        # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
+        'use_ss_label': True if index in [2] else False,
+        'use_mask_wamsley': True if index in [1, 2] else False,
+        # Smoothing for the sleep staging (WIP)
+        'use_ss_smoothing': False,
+        'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
+        # Thresholds for the adaptable threshold
+        'min_threshold': 0.0,
+        'max_threshold': 1.0,
+        'starting_threshold': 0.5,
+        # Interval between each run of online wamsley, threshold adaptation and finetuning if required (in minutes)
+        'adaptation_interval': 60,
+        # Weights for the sampling of the different spindle in the finetuning in order: [fn, tp, fp, tn]
+        'sample_weights': [0.25, 0.25, 0.25, 0.25],
+        # Batch size for the finetuning, the bigger the less time it takes to finetune
+        'batch_size': 512,
+        'num_batches_train': 1000,
+        'wamsley_config': {
+            'fixed': False,
+            'squarred': False,
+            'remove_outliers': False,
+            'threshold_multiplier': 4.5,
+            'sampling_rate': 250,
+        },
+        'use_replay': False,
+        # Select ten random subjects on which the model was trained
+        'replay_subjects': np.random.choice(net.config['subjects_train'], 10) if replay_subjects is None else replay_subjects,
+        # 'replay_subjects': net.config['subjects_train'],
+        'replay_multiplier': 1,
+        'freeze_embeddings': False,
+        'freeze_classifier': True,
+        'keep_net': True,
+    }
+
+    return config
 
 
 def get_config(index=0, replay_subjects=None):
@@ -1177,7 +1258,7 @@ def get_config(index=0, replay_subjects=None):
         'replay_multiplier': 1,
         'freeze_embeddings': False,
         'freeze_classifier': True,
-        'keep_net': True,
+        'keep_net': False,
     }
 
     return config
@@ -1214,8 +1295,8 @@ if __name__ == "__main__":
             4: 'both_cc_fold_training_fold4_24368',
         }
         run_id = fold_runs[args.fold]
-        group_name = f'mass_adapt_fold{args.fold}'
-        exp_name_val = f'mass_adapt_fold{args.fold}'
+        group_name = f'cc_OLA7_adapt_fold{args.fold}'
+        exp_name_val = f'cc_OLA7_adapt_fold{args.fold}'
         worker_id = args.worker_id
         unique_id = f"{int(time.time())}"[5:]
         net, run = load_model_mass(
@@ -1235,8 +1316,9 @@ if __name__ == "__main__":
         subjects, args.num_workers, worker_id)
 
     # all_configs = [get_config(i) for i in range(7)]
-    all_configs = [get_config(5)]
-    # subjects = [subjects[0]]
+    all_configs = [get_configs_ola7(i) for i in [0, 1, 2]]
+    # all_configs = [get_config(5)]
+    subjects = [subjects[0]]
     # subjects = ['PN_01_HJ_Night1', 'PN_01_HJ_Night3', 'PN_01_HJ_Night4']
 
     results = {}
