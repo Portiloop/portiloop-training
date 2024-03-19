@@ -415,7 +415,10 @@ class AdaptationDataset(torch.utils.data.Dataset):
         # Run Wamsley on the buffer
         usable_buffer = self.wamsley_buffer[-detect_len:]
         if not self.use_mask_wamsley:
-            usable_mask = [2] * len(usable_buffer)
+            if self.train_all_ss:
+                usable_mask = [2] * len(usable_buffer)
+            else:
+                usable_mask = [1] * len(usable_buffer)
         elif self.use_ss_label:
             usable_mask = self.ss_label_buffer[-detect_len:]
         else:
@@ -1318,7 +1321,7 @@ if __name__ == "__main__":
     # all_configs = [get_config(i) for i in range(7)]
     all_configs = [get_configs_ola7(i) for i in [0, 1, 2]]
     # all_configs = [get_config(5)]
-    subjects = [subjects[0]]
+    # subjects = [subjects[0]]
     # subjects = ['PN_01_HJ_Night1', 'PN_01_HJ_Night3', 'PN_01_HJ_Night4']
 
     results = {}
