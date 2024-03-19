@@ -1127,8 +1127,8 @@ def dataloader_from_subject(subject, dataset_path, config, val):
         sampler = MassConsecutiveSampler(
             dataset,
             seq_stride=config['seq_stride'],
-            segment_len=(len(dataset) // config['seq_stride']) - 1,
-            # segment_len=1000,
+            # segment_len=(len(dataset) // config['seq_stride']) - 1,
+            segment_len=1000,
             max_batch_size=1,
             random=False,
         )
@@ -1205,7 +1205,7 @@ def get_configs_ola7(index=0, replay_subjects=None):
         'replay_multiplier': 1,
         'freeze_embeddings': False,
         'freeze_classifier': True,
-        'keep_net': True,
+        'keep_net': False,
     }
 
     return config
@@ -1232,7 +1232,7 @@ def get_config(index=0, replay_subjects=None):
         'learn_wamsley': True,
         # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
         'use_ss_label': True if index in [2, 4, 6] else False,
-        'use_mask_wamsley': True if index in [2, 4, 6] else False,
+        'use_mask_wamsley': True,
         # Smoothing for the sleep staging (WIP)
         'use_ss_smoothing': False,
         'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
@@ -1298,8 +1298,8 @@ if __name__ == "__main__":
             4: 'both_cc_fold_training_fold4_24368',
         }
         run_id = fold_runs[args.fold]
-        group_name = f'cc_OLA7_adapt_fold{args.fold}'
-        exp_name_val = f'cc_OLA7_adapt_fold{args.fold}'
+        group_name = f'cc_all_adapt_adapt_fold{args.fold}'
+        exp_name_val = f'cc_all_adapt_adapt_fold{args.fold}'
         worker_id = args.worker_id
         unique_id = f"{int(time.time())}"[5:]
         net, run = load_model_mass(
@@ -1318,8 +1318,8 @@ if __name__ == "__main__":
     subjects = parse_worker_subject_div(
         subjects, args.num_workers, worker_id)
 
-    # all_configs = [get_config(i) for i in range(7)]
-    all_configs = [get_configs_ola7(i) for i in [0, 1, 2]]
+    all_configs = [get_config(i) for i in [0, 1, 3, 5]]
+    # all_configs = [get_configs_ola7(i) for i in [0]]
     # all_configs = [get_config(5)]
     # subjects = [subjects[0]]
     # subjects = ['PN_01_HJ_Night1', 'PN_01_HJ_Night3', 'PN_01_HJ_Night4']
