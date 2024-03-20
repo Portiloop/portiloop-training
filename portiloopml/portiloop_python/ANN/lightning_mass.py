@@ -653,7 +653,7 @@ if __name__ == "__main__":
                         default=2)
     parser.add_argument('--dataset_path', type=str, help='Path to the MASS dataset.',
                         default='/project/MASS/mass_spindles_dataset/')
-    parser.add_argument('--fold', type=str, help='Fold number [Number between 1 and 4]',
+    parser.add_argument('--fold', type=int, help='Fold number [Number between 0 and 4]',
                         default=0)
 
     args = parser.parse_args()
@@ -680,8 +680,8 @@ if __name__ == "__main__":
     config['validation_batch_size'] = 512
     config['segment_len'] = 1000
     config['train_choice'] = 'both'  # One of "both", "spindles", "staging"
-    config['use_filtered'] = True
-    config['alpha'] = 0.1
+    config['use_filtered'] = False
+    config['alpha'] = 0.5
     config['useViT'] = False
     config['dropout'] = 0.5
     config['batch_size'] = 64
@@ -838,8 +838,8 @@ if __name__ == "__main__":
     os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
     # Add a timestamps to the name
     project_name = "dual_model"
-    group = 'TESTING_STUFF'
-    # group = 'TrainingBoth'
+    # group = 'TESTING_STUFF'
+    group = 'TrainingBothFolds2'
     wandb_logger = WandbLogger(
         project=project_name,
         group=group,
