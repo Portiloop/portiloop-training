@@ -1055,33 +1055,6 @@ def staging_metrics(labels, preds):
     return report_ss, cm, ss_preds_all
 
 
-def parse_config():
-    """
-    Parses the config file
-    """
-    parser = argparse.ArgumentParser(description='Argument parser')
-    parser.add_argument('--subject_id', type=str, default='01-01-0001',
-                        help='Subject on which to run the experiment')
-    parser.add_argument('--model_path', type=str, default='larger_and_hidden_on_loss',
-                        help='Model for the starting point of the model')
-    parser.add_argument('--dataset_path', type=str, default='/project/MASS/mass_spindles_dataset/',
-                        help='Path to the dataset')
-    parser.add_argument('--experiment_name', type=str,
-                        default='test', help='Name of the model')
-    parser.add_argument('--seed', type=int, default=-1,
-                        help='Seed for the experiment')
-    parser.add_argument('--worker_id', type=int, default=0,
-                        help='Id of the worker')
-    parser.add_argument('--job_id', type=int, default=0,
-                        help='Id of the job used for the output file naming scheme')
-    parser.add_argument('--num_workers', type=int, default=1,
-                        help='Total number of workers used to compute which subjects to run')
-    parser.add_argument('--fold', type=int, default=0,
-                        help='Fold of the cross validation')
-    args = parser.parse_args()
-
-    return args
-
 
 def parse_worker_subject_div(subjects, total_workers, worker_id):
     # Calculate the number of subjects per worker
@@ -1127,8 +1100,8 @@ def dataloader_from_subject(subject, dataset_path, config, val):
         sampler = MassConsecutiveSampler(
             dataset,
             seq_stride=config['seq_stride'],
-            segment_len=(len(dataset) // config['seq_stride']) - 1,
-            # segment_len=1000,
+            # segment_len=(len(dataset) // config['seq_stride']) - 1,
+            segment_len=1000,
             max_batch_size=1,
             random=False,
         )
@@ -1155,11 +1128,11 @@ class NumpyEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def get_configs_ola7(index=0, replay_subjects=None):
+def get_config_portinight(index, net):
     config = {
         'experiment_name': f'config_{index}',
         'num_subjects': 1,
-        'train': False,
+        'train': True if index in [2, 3, 4, 5] else False,
         'seq_len': net.config['seq_len'],
         'seq_stride': net.config['seq_stride'],
         'window_size': net.config['window_size'],
@@ -1169,69 +1142,13 @@ def get_configs_ola7(index=0, replay_subjects=None):
         'hidden_size': net.config['hidden_size'],
         'nb_rnn_layers': net.config['nb_rnn_layers'],
         # Whether to use the adaptable threshold in the detection of spindles with NN Model
-        'adapt_threshold_detect': False,
+        'adapt_threshold_detect': True if index in [1, 4, 5] else False,
         # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
         'adapt_threshold_wamsley': True,
         # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
         'learn_wamsley': True,
         # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-        'use_ss_label': True if index in [2] else False,
-        'use_mask_wamsley': True if index in [1, 2] else False,
-        # Smoothing for the sleep staging (WIP)
-        'use_ss_smoothing': False,
-        'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
-        # Thresholds for the adaptable threshold
-        'min_threshold': 0.0,
-        'max_threshold': 1.0,
-        'starting_threshold': 0.5,
-        # Interval between each run of online wamsley, threshold adaptation and finetuning if required (in minutes)
-        'adaptation_interval': 60,
-        # Weights for the sampling of the different spindle in the finetuning in order: [fn, tp, fp, tn]
-        'sample_weights': [0.25, 0.25, 0.25, 0.25],
-        # Batch size for the finetuning, the bigger the less time it takes to finetune
-        'batch_size': 512,
-        'num_batches_train': 1000,
-        'wamsley_config': {
-            'fixed': False,
-            'squarred': False,
-            'remove_outliers': False,
-            'threshold_multiplier': 4.5,
-            'sampling_rate': 250,
-        },
-        'use_replay': False,
-        # Select ten random subjects on which the model was trained
-        'replay_subjects': np.random.choice(net.config['subjects_train'], 10) if replay_subjects is None else replay_subjects,
-        # 'replay_subjects': net.config['subjects_train'],
-        'replay_multiplier': 1,
-        'freeze_embeddings': False,
-        'freeze_classifier': True,
-        'keep_net': False,
-    }
-
-    return config
-
-
-def get_config(index=0, replay_subjects=None):
-    config = {
-        'experiment_name': f'config_{index}',
-        'num_subjects': 1,
-        'train': True if index in [3, 4, 5, 6] else False,
-        'seq_len': net.config['seq_len'],
-        'seq_stride': net.config['seq_stride'],
-        'window_size': net.config['window_size'],
-        'lr': 0.00001,
-        'adam_w': 0.000,
-        'alpha_training': 0.5,  # 1.0 -> Do not use learned, 0.0 -> Keep only learned weights
-        'hidden_size': net.config['hidden_size'],
-        'nb_rnn_layers': net.config['nb_rnn_layers'],
-        # Whether to use the adaptable threshold in the detection of spindles with NN Model
-        'adapt_threshold_detect': True if index in [1, 2, 5, 6] else False,
-        # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
-        'adapt_threshold_wamsley': True,
-        # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
-        'learn_wamsley': True,
-        # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
-        'use_ss_label': True if index in [2, 4, 6] else False,
+        'use_ss_label': False,
         'use_mask_wamsley': True,
         # Smoothing for the sleep staging (WIP)
         'use_ss_smoothing': False,
@@ -1256,7 +1173,63 @@ def get_config(index=0, replay_subjects=None):
         },
         'use_replay': False,
         # Select ten random subjects on which the model was trained
-        'replay_subjects': np.random.choice(net.config['subjects_train'], 10) if replay_subjects is None else replay_subjects,
+        'replay_subjects': np.random.choice(net.config['subjects_train'], 10),
+        # 'replay_subjects': net.config['subjects_train'],
+        'replay_multiplier': 1,
+        'freeze_embeddings': False,
+        'freeze_classifier': True,
+        'keep_net': True if index in [3, 5] else False,
+    }
+
+    return config
+
+
+def get_config_mass(index, net):
+    config = {
+        'experiment_name': f'config_{index}',
+        'num_subjects': 1,
+        'train': True if index in [4, 5] else False,
+        'seq_len': net.config['seq_len'],
+        'seq_stride': net.config['seq_stride'],
+        'window_size': net.config['window_size'],
+        'lr': 0.00001,
+        'adam_w': 0.000,
+        'alpha_training': 0.5,  # 1.0 -> Do not use learned, 0.0 -> Keep only learned weights
+        'hidden_size': net.config['hidden_size'],
+        'nb_rnn_layers': net.config['nb_rnn_layers'],
+        # Whether to use the adaptable threshold in the detection of spindles with NN Model
+        'adapt_threshold_detect': True if index in [3, 5] else False,
+        # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
+        'adapt_threshold_wamsley': True,
+        # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
+        'learn_wamsley': True,
+        # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
+        'use_ss_label': True if index in [2] else False,
+        'use_mask_wamsley': True if index in [1, 2, 3, 4, 5] else False,
+        # Smoothing for the sleep staging (WIP)
+        'use_ss_smoothing': False,
+        'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
+        # Thresholds for the adaptable threshold
+        'min_threshold': 0.0,
+        'max_threshold': 1.0,
+        'starting_threshold': 0.5,
+        # Interval between each run of online wamsley, threshold adaptation and finetuning if required (in minutes)
+        'adaptation_interval': 60,
+        # Weights for the sampling of the different spindle in the finetuning in order: [fn, tp, fp, tn]
+        'sample_weights': [0.25, 0.25, 0.25, 0.25],
+        # Batch size for the finetuning, the bigger the less time it takes to finetune
+        'batch_size': 512,
+        'num_batches_train': 1000,
+        'wamsley_config': {
+            'fixed': False,
+            'squarred': False,
+            'remove_outliers': False,
+            'threshold_multiplier': 4.5,
+            'sampling_rate': 250,
+        },
+        'use_replay': False,
+        # Select ten random subjects on which the model was trained
+        'replay_subjects': np.random.choice(net.config['subjects_train'], 10),
         # 'replay_subjects': net.config['subjects_train'],
         'replay_multiplier': 1,
         'freeze_embeddings': False,
@@ -1266,70 +1239,90 @@ def get_config(index=0, replay_subjects=None):
 
     return config
 
-
-if __name__ == "__main__":
-    # Parse config dict important for the adapatation
-    args = parse_config()
-    if args.seed == -1:
-        seed = random.randint(0, 100000)
+def experiment_subject_portinight(index, dataset_path):
+    # First, we define all 3 experiments for same subject sequences
+    if index == 0:
+        subjects = ['PN_01_HJ_Night1', 'PN_01_HJ_Night3', 'PN_01_HJ_Night4']
+    elif index == 1:
+        subjects = ['PN_02_MS_Night2', 'PN_02_MS_Night3', 'PN_02_MS_Night4']
+    elif index == 2:
+        subjects = ['PN_03_CL_Night3', 'PN_03_CL_Night4', 'PN_03_CL_Night6']
+    elif index == 3:
+        subjects = ['PN_07_CB_NightD', 'PN_07_CB_NightE', 'PN_07_CB_NightF']
     else:
-        seed = args.seed
-    seed = 40
-    set_seeds(seed)
+        with open(os.path.join(dataset_path, 'subjects_portinight.txt'), 'r') as f:
+            all_subjects = f.readlines()
+        all_subjects = [x.strip() for x in subjects]
+        # Choose a random 3 subjects
+        subjects = np.random.choice(all_subjects, 3)
 
-    if args.fold == -1:
-        group_name = 'portinight'
-        # run_id = 'both_cc_olddl_lac_newdropout_32142'
-        run_id = 'both_cc_limited_ss_44055'
-        exp_name_val = 'portinight_train_keeplearned_adathresh'
-        # Each worker only does its subjects
-        worker_id = args.worker_id
-        # run_id_old = "both_cc_smallLR_1706210166"
-        unique_id = f"{int(time.time())}"[5:]
-        net, run = load_model_mass(
-            f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id, group_name='ModelLoaders')
-        subjects = net.config['subjects_test']
-    else:
-        fold_runs = {
-            0: 'both_cc_fold_training_fold0_24332',
-            1: 'both_cc_fold_training_fold1_24366',
-            2: 'both_cc_fold_training_fold2_24397',
-            3: 'both_cc_fold_training_fold3_24361',
-            4: 'both_cc_fold_training_fold4_24368',
-        }
-        run_id = fold_runs[args.fold]
-        group_name = f'cc_all_adapt_adapt_fold{args.fold}'
-        exp_name_val = f'cc_all_adapt_adapt_fold{args.fold}'
-        worker_id = args.worker_id
-        unique_id = f"{int(time.time())}"[5:]
-        net, run = load_model_mass(
-            f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id, group_name='ModelLoaders')
-        subjects = net.config['subjects_test']
+    return subjects
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    dataset_path = args.dataset_path
-    # loader = SubjectLoader(
-    #     os.path.join(dataset_path, 'subject_info.csv'))
-    # subjects = loader.select_random_subjects(config['num_subjects'])
-
-    # Taking only the subjects on which the model wasnt trained to avoid data contamination
-
-    subjects = parse_worker_subject_div(
-        subjects, args.num_workers, worker_id)
-
-    all_configs = [get_config(i) for i in [0, 1, 3, 5]]
-    # all_configs = [get_configs_ola7(i) for i in [0]]
-    # all_configs = [get_config(5)]
-    # subjects = [subjects[0]]
-    # subjects = ['PN_01_HJ_Night1', 'PN_01_HJ_Night3', 'PN_01_HJ_Night4']
-
-    results = {}
-    # subjects = ['01-03-0025']
-
-    run.finish()
+def launch_experiment_portinight(subjects, all_configs, run_id, group_name, exp_name_val, worker_id):
     net_copy = None
+    results = {}
 
+    # print(f"Doing subjects: {subjects}")
+    for config in all_configs:
+        print(f"Running config {config['experiment_name']}")
+        for subject_id in subjects:
+            if subject_id not in list(results.keys()):
+                results[subject_id] = {}
+
+            print(f"Running subject {subject_id}")
+            unique_id = f"{int(time.time())}"[5:]
+            net, run = load_model_mass(
+                f"{exp_name_val}_{config['experiment_name']}_{subject_id}_{unique_id}", run_id=run_id, group_name=group_name)
+
+            if config['freeze_embeddings']:
+                net.freeze_embeddings()
+
+            if config['freeze_classifier']:
+                net.freeze_classifiers()
+
+            config['subject'] = subject_id
+            config['train_all_ss'] = net.config['train_all_ss']
+            config['fold'] = args.fold
+
+            run.config.update(config)
+            dataloader = dataloader_from_subject(
+                [subject_id], dataset_path, config, val=False)
+            val_dataloader = dataloader_from_subject(
+                [subject_id], dataset_path, config, val=True)
+
+            if net_copy is not None and config['keep_net']:
+                net = net_copy
+
+            metrics, net_copy = run_adaptation(
+                dataloader,
+                val_dataloader,
+                net,
+                device,
+                config,
+                config['train'],
+                logger=run)
+
+            results[subject_id][config['experiment_name']] = {
+                'config': config,
+                'metrics': metrics
+            }
+
+            # Save the results to json file with indentation
+            with open(f'results_{exp_name_val}.json', 'w') as f:
+                json.dump(results, f, indent=4, cls=NumpyEncoder)
+
+            # Save the results to wandb as well
+            run.save(f'results_{exp_name_val}.json')
+            run.finish()
+
+    # Save the results to json file with indentation
+    with open(f'experiment_result_worker{worker_id}.json', 'w') as f:
+        json.dump(results, f, indent=4, cls=NumpyEncoder)
+
+
+def launch_experiment_mass(subjects, all_configs, run_id, group_name, exp_name_val, fold, worker_id):
+    net_copy = None
+    results = {}
     # print(f"Doing subjects: {subjects}")
     for subject_id in subjects:
         print(f"Running subject {subject_id}")
@@ -1382,5 +1375,99 @@ if __name__ == "__main__":
             run.finish()
 
     # Save the results to json file with indentation
-    with open(f'experiment_result_fold{args.fold}_worker{worker_id}.json', 'w') as f:
+    with open(f'experiment_result_fold{fold}_worker{worker_id}.json', 'w') as f:
         json.dump(results, f, indent=4, cls=NumpyEncoder)
+
+
+def parse_config():
+    """
+    Parses the config file
+    """
+    parser = argparse.ArgumentParser(description='Argument parser')
+    parser.add_argument('--subject_id', type=str, default='01-01-0001',
+                        help='Subject on which to run the experiment')
+    parser.add_argument('--model_path', type=str, default='larger_and_hidden_on_loss',
+                        help='Model for the starting point of the model')
+    parser.add_argument('--dataset_path', type=str, default='/project/MASS/mass_spindles_dataset/',
+                        help='Path to the dataset')
+    parser.add_argument('--experiment_name', type=str,
+                        default='test', help='Name of the model')
+    parser.add_argument('--seed', type=int, default=-1,
+                        help='Seed for the experiment')
+    parser.add_argument('--worker_id', type=int, default=0,
+                        help='Id of the worker')
+    parser.add_argument('--job_id', type=int, default=0,
+                        help='Id of the job used for the output file naming scheme')
+    parser.add_argument('--num_workers', type=int, default=1,
+                        help='Total number of workers used to compute which subjects to run')
+    parser.add_argument('--fold', type=int, default=0,
+                        help='Fold of the cross validation')
+    parser.add_argument('--mass', type=int, default=0,
+                        help='Choose whether to run the MASS experiments or the Portinight experiments. 1 for MASS, 0 for Portinight')
+    args = parser.parse_args()
+
+    return args
+
+
+if __name__ == "__main__":
+    # Parse config dict important for the adapatation
+    args = parse_config()
+    if args.seed == -1:
+        seed = random.randint(0, 100000)
+    else:
+        seed = args.seed
+
+    set_seeds(seed)
+    worker_id = args.worker_id
+    dataset_path = args.dataset_path
+    fold = args.fold
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    ##########################
+
+    wandb_group_name = f'Portinight_debugging'
+    wandb_experiment_name = f'DEBUGGING'
+
+    ##########################
+
+    # Check which type of experiment we want to run
+    mass = args.mass == 1
+
+    # Load subjects and configs for this worker
+    if mass:
+        if fold == -1:
+            # run_id = 'both_cc_olddl_lac_newdropout_32142'
+            run_id = 'both_cc_limited_ss_44055'
+            exp_name_val = 'portinight_train_keeplearned_adathresh'
+        else:
+            fold_runs = {
+                0: 'both_cc_fold_training_fold0_24332',
+                1: 'both_cc_fold_training_fold1_24366',
+                2: 'both_cc_fold_training_fold2_24397',
+                3: 'both_cc_fold_training_fold3_24361',
+                4: 'both_cc_fold_training_fold4_24368',
+            }
+            run_id = fold_runs[fold]
+
+        unique_id = f"{int(time.time())}"[5:]
+        net, run = load_model_mass(
+            f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id, group_name='ModelLoaders')
+        all_subjects = net.config['subjects_test']
+        run.finish()
+        # Get the subjects from this worker from all the available subjects
+        subjects = parse_worker_subject_div(
+            all_subjects, args.num_workers, worker_id)
+        all_configs = [get_config_mass(i, net) for i in range(6)]
+
+        launch_experiment_mass(subjects, all_configs, run_id, wandb_group_name, wandb_experiment_name, fold, worker_id)
+    else:
+        run_id = 'both_cc_limited_ss_44055'
+        subjects = experiment_subject_portinight(worker_id, args.dataset_path)
+
+        unique_id = f"{int(time.time())}"[5:]
+        net, run = load_model_mass(
+            f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id, group_name='ModelLoaders')
+        run.finish()
+        all_configs = [get_config_portinight(i, net) for i in range(6)]
+
+        launch_experiment_portinight(subjects, all_configs, run_id, wandb_group_name, wandb_experiment_name, worker_id)
