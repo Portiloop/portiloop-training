@@ -15,11 +15,11 @@ from scipy.signal import spectrogram
 # import plotly.figure_factory as ff
 from sklearn.metrics import (ConfusionMatrixDisplay, accuracy_score,
                              classification_report, confusion_matrix)
+
 # from torchinfo import summary
 from torch import optim, utils
 from torchvision.transforms.functional import to_pil_image
 from transformers import ViTImageProcessor, ViTModel
-import wandb
 
 # import wandb
 from portiloopml.portiloop_python.ANN.data.mass_data_new import (
@@ -40,9 +40,11 @@ class MassLightning(pl.LightningModule):
         self.spindle_criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
 
         if config['train_all_ss']:
-            self.staging_criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+            self.staging_criterion = torch.nn.CrossEntropyLoss(
+                reduction='mean')
         else:
-            self.staging_criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
+            self.staging_criterion = torch.nn.BCEWithLogitsLoss(
+                reduction='mean')
 
         self.ss_val_preds = []
         self.ss_val_labels = []
@@ -157,7 +159,6 @@ class MassLightning(pl.LightningModule):
         label_ss = label_ss.cpu().detach()
         label_spindles = label_spindles.cpu().detach()
 
-
         # Get the validation losses
         # remove all columns where the label is 5 (unknown)
         if self.config['train_all_ss']:
@@ -167,7 +168,7 @@ class MassLightning(pl.LightningModule):
         else:
             label_ss_4loss = label_ss
             out_sleep_stages_4loss = out_sleep_stages.squeeze(-1)
-        
+
         ss_loss = self.staging_criterion(
             out_sleep_stages_4loss, label_ss_4loss)
         spindle_loss = self.spindle_criterion(out_spindles, label_spindles)
@@ -245,7 +246,8 @@ class MassLightning(pl.LightningModule):
         )
 
         # Create a matplotlib figure for the confusion matrix
-        display_labels = MassDataset.get_ss_labels()[:-1] if self.config['train_all_ss'] else ["Non-spindle", "N2-N3"]
+        display_labels = MassDataset.get_ss_labels(
+        )[:-1] if self.config['train_all_ss'] else ["Non-spindle", "N2-N3"]
         disp = ConfusionMatrixDisplay(confusion_matrix=cm,
                                       display_labels=display_labels)
         disp.plot()
@@ -708,11 +710,13 @@ if __name__ == "__main__":
 
     subject_loader = SubjectLoader(
         os.path.join(dataset_path, 'subject_info.csv'))
-    
-    assert fold in [-1, 0, 1, 2, 3, 4], "Fold must be between 0 and 4 or -1 for no fold"
+
+    assert fold in [-1, 0, 1, 2, 3,
+                    4], "Fold must be between 0 and 4 or -1 for no fold"
 
     if fold != -1:
-        train_subjects, val_subjects, test_subjects = get_subjects_folds(fold, subject_loader)
+        train_subjects, val_subjects, test_subjects = get_subjects_folds(
+            fold, subject_loader)
         config['num_subjects_train'] = len(train_subjects)
         config['num_subjects_val'] = len(val_subjects)
     else:

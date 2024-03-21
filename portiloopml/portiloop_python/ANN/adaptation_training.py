@@ -1,27 +1,27 @@
 import argparse
-from collections import deque
+import copy
 import json
 import os
 import random
 import time
-from matplotlib import pyplot as plt
-from scipy import signal
-from sklearn.metrics import ConfusionMatrixDisplay, classification_report, confusion_matrix
-import torch
-from torch import nn
-from torch import optim
-import copy
-import numpy as np
-from tqdm import tqdm
-from portiloopml.portiloop_python.ANN.data.mass_data import SingleSubjectDataset, SingleSubjectSampler, SleepStageDataset, read_pretraining_dataset, read_sleep_staging_labels, read_spindle_trains_labels
-from portiloopml.portiloop_python.ANN.data.mass_data_new import MassConsecutiveSampler, MassDataset, SubjectLoader
-from portiloopml.portiloop_python.ANN.lightning_tests import load_model
-from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork, get_trained_model
-from portiloopml.portiloop_python.ANN.utils import get_configs, get_metrics, set_seeds
-from scipy.signal import firwin, remez, kaiser_atten, kaiser_beta, kaiserord, filtfilt
-from portiloopml.portiloop_python.ANN.validation_mass import load_model_mass
+from collections import deque
 
-from portiloopml.portiloop_python.ANN.wamsley_utils import binary_f1_score, detect_lacourse, detect_wamsley, get_spindle_onsets, plot_spindle
+import numpy as np
+import torch
+from matplotlib import pyplot as plt
+from sklearn.metrics import (ConfusionMatrixDisplay, classification_report,
+                             confusion_matrix)
+from torch import nn, optim
+from tqdm import tqdm
+
+from portiloopml.portiloop_python.ANN.data.mass_data import SleepStageDataset
+from portiloopml.portiloop_python.ANN.data.mass_data_new import (
+    MassConsecutiveSampler, MassDataset)
+from portiloopml.portiloop_python.ANN.utils import set_seeds
+from portiloopml.portiloop_python.ANN.validation_mass import load_model_mass
+from portiloopml.portiloop_python.ANN.wamsley_utils import (binary_f1_score,
+                                                            detect_lacourse,
+                                                            get_spindle_onsets)
 
 
 class AdaptationSampler2(torch.utils.data.Sampler):
@@ -1396,7 +1396,7 @@ def parse_config():
     parser.add_argument('--dataset_path', type=str, default='/project/MASS/mass_spindles_dataset/',
                         help='Path to the dataset')
     parser.add_argument('--experiment_name', type=str,
-                        default='test', help='Name of the model')
+                        default=None, help='Name of the model')
     parser.add_argument('--seed', type=int, default=-1,
                         help='Seed for the experiment')
     parser.add_argument('--worker_id', type=int, default=0,
@@ -1430,8 +1430,8 @@ if __name__ == "__main__":
 
     ##########################
 
-    wandb_group_name = f'Portinight_debugging'
-    wandb_experiment_name = f'DEBUGGING'
+    wandb_group_name = f'Portinight_debugging' if args.experiment_name is None else args.experiment_name
+    wandb_experiment_name = f'DEBUGGING' if args.experiment_name is None else args.experiment_name
 
     ##########################
 
