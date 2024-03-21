@@ -1100,8 +1100,8 @@ def dataloader_from_subject(subject, dataset_path, config, val):
         sampler = MassConsecutiveSampler(
             dataset,
             seq_stride=config['seq_stride'],
-            # segment_len=(len(dataset) // config['seq_stride']) - 1,
-            segment_len=1000,
+            segment_len=(len(dataset) // config['seq_stride']) - 1,
+            # segment_len=1000,
             max_batch_size=1,
             random=False,
         )
@@ -1189,7 +1189,7 @@ def get_config_mass(index, net):
     config = {
         'experiment_name': f'config_{index}',
         'num_subjects': 1,
-        'train': True if index in [4, 5] else False,
+        'train': True if index in [5, 6, 7, 8] else False,
         'seq_len': net.config['seq_len'],
         'seq_stride': net.config['seq_stride'],
         'window_size': net.config['window_size'],
@@ -1199,14 +1199,14 @@ def get_config_mass(index, net):
         'hidden_size': net.config['hidden_size'],
         'nb_rnn_layers': net.config['nb_rnn_layers'],
         # Whether to use the adaptable threshold in the detection of spindles with NN Model
-        'adapt_threshold_detect': True if index in [3, 5] else False,
+        'adapt_threshold_detect': True if index in [3, 4, 7, 8] else False,
         # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
         'adapt_threshold_wamsley': True,
         # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
         'learn_wamsley': True,
         # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
         'use_ss_label': True if index in [2] else False,
-        'use_mask_wamsley': True if index in [1, 2, 3, 4, 5] else False,
+        'use_mask_wamsley': True if index in [1, 2, 4, 6, 8] else False,
         # Smoothing for the sleep staging (WIP)
         'use_ss_smoothing': False,
         'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
@@ -1399,7 +1399,7 @@ def parse_config():
                         default='test', help='Name of the model')
     parser.add_argument('--seed', type=int, default=-1,
                         help='Seed for the experiment')
-    parser.add_argument('--worker_id', type=int, default=4,
+    parser.add_argument('--worker_id', type=int, default=0,
                         help='Id of the worker')
     parser.add_argument('--job_id', type=int, default=0,
                         help='Id of the job used for the output file naming scheme')
@@ -1407,7 +1407,7 @@ def parse_config():
                         help='Total number of workers used to compute which subjects to run')
     parser.add_argument('--fold', type=int, default=0,
                         help='Fold of the cross validation')
-    parser.add_argument('--mass', type=int, default=0,
+    parser.add_argument('--mass', type=int, default=1,
                         help='Choose whether to run the MASS experiments or the Portinight experiments. 1 for MASS, 0 for Portinight')
     args = parser.parse_args()
 
@@ -1446,11 +1446,11 @@ if __name__ == "__main__":
             exp_name_val = 'portinight_train_keeplearned_adathresh'
         else:
             fold_runs = {
-                0: 'both_cc_fold_training_fold0_24332',
-                1: 'both_cc_fold_training_fold1_24366',
-                2: 'both_cc_fold_training_fold2_24397',
-                3: 'both_cc_fold_training_fold3_24361',
-                4: 'both_cc_fold_training_fold4_24368',
+                0: 'both_cc_fold_training_fold0_54050',
+                1: 'both_cc_fold_training_fold1_55096',
+                2: 'both_cc_fold_training_fold2_55115',
+                3: 'both_cc_fold_training_fold3_55096',
+                4: 'both_cc_fold_training_fold4_55099',
             }
             run_id = fold_runs[fold]
 
@@ -1462,7 +1462,7 @@ if __name__ == "__main__":
         # Get the subjects from this worker from all the available subjects
         subjects = parse_worker_subject_div(
             all_subjects, args.num_workers, worker_id)
-        all_configs = [get_config_mass(i, net) for i in range(6)]
+        all_configs = [get_config_mass(i, net) for i in range(9)]
 
         launch_experiment_mass(subjects, all_configs, run_id,
                                wandb_group_name, wandb_experiment_name, fold, worker_id)
