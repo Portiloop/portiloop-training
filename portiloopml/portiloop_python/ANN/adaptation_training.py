@@ -437,7 +437,8 @@ class AdaptationDataset(torch.utils.data.Dataset):
 
         usable_labels = self.spindle_labels[-detect_len:]
 
-        if sum(usable_mask) > 0:
+        # At least 10 seconds of usable data to run Lacourse
+        if sum(usable_mask) > 2500:
             wamsley_spindles, _, _, _, _ = self.wamsley_func(
                 np.array(usable_buffer),
                 np.array(usable_mask),
@@ -778,7 +779,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
             if config['adapt_threshold_detect']:
                 used_threshold = new_thresh
 
-        if out_dataset or index == 0 or index == len(dataloader) - 1:
+        if (out_dataset or index == 0 or index == len(dataloader) - 1) and config['val']:
             # Validation loop
             net_inference.eval()
             validation_losses_epoch = []
@@ -1055,7 +1056,6 @@ def staging_metrics(labels, preds):
     return report_ss, cm, ss_preds_all
 
 
-
 def parse_worker_subject_div(subjects, total_workers, worker_id):
     # Calculate the number of subjects per worker
     subjects_per_worker = len(subjects) // total_workers
@@ -1179,6 +1179,7 @@ def get_config_portinight(index, net):
         'freeze_embeddings': False,
         'freeze_classifier': True,
         'keep_net': True if index in [3, 5] else False,
+        'val': False,
     }
 
     return config
@@ -1235,9 +1236,11 @@ def get_config_mass(index, net):
         'freeze_embeddings': False,
         'freeze_classifier': True,
         'keep_net': False,
+        'val': False,
     }
 
     return config
+
 
 def experiment_subject_portinight(index, dataset_path):
     # First, we define all 3 experiments for same subject sequences
@@ -1252,11 +1255,12 @@ def experiment_subject_portinight(index, dataset_path):
     else:
         with open(os.path.join(dataset_path, 'subjects_portinight.txt'), 'r') as f:
             all_subjects = f.readlines()
-        all_subjects = [x.strip() for x in subjects]
+        all_subjects = [x.strip() for x in all_subjects]
         # Choose a random 3 subjects
         subjects = np.random.choice(all_subjects, 3)
 
     return subjects
+
 
 def launch_experiment_portinight(subjects, all_configs, run_id, group_name, exp_name_val, worker_id):
     net_copy = None
@@ -1265,7 +1269,7 @@ def launch_experiment_portinight(subjects, all_configs, run_id, group_name, exp_
     # print(f"Doing subjects: {subjects}")
     for config in all_configs:
         print(f"Running config {config['experiment_name']}")
-        for subject_id in subjects:
+        for index, subject_id in enumerate(subjects):
             if subject_id not in list(results.keys()):
                 results[subject_id] = {}
 
@@ -1283,6 +1287,7 @@ def launch_experiment_portinight(subjects, all_configs, run_id, group_name, exp_
             config['subject'] = subject_id
             config['train_all_ss'] = net.config['train_all_ss']
             config['fold'] = args.fold
+            config['night_num'] = index
 
             run.config.update(config)
             dataloader = dataloader_from_subject(
@@ -1341,7 +1346,7 @@ def launch_experiment_mass(subjects, all_configs, run_id, group_name, exp_name_v
 
             config['subject'] = subject_id
             config['train_all_ss'] = net.config['train_all_ss']
-            config['fold'] = args.fold
+            config['fold'] = fold
 
             run.config.update(config)
             dataloader = dataloader_from_subject(
@@ -1394,7 +1399,7 @@ def parse_config():
                         default='test', help='Name of the model')
     parser.add_argument('--seed', type=int, default=-1,
                         help='Seed for the experiment')
-    parser.add_argument('--worker_id', type=int, default=0,
+    parser.add_argument('--worker_id', type=int, default=4,
                         help='Id of the worker')
     parser.add_argument('--job_id', type=int, default=0,
                         help='Id of the job used for the output file naming scheme')
@@ -1459,7 +1464,8 @@ if __name__ == "__main__":
             all_subjects, args.num_workers, worker_id)
         all_configs = [get_config_mass(i, net) for i in range(6)]
 
-        launch_experiment_mass(subjects, all_configs, run_id, wandb_group_name, wandb_experiment_name, fold, worker_id)
+        launch_experiment_mass(subjects, all_configs, run_id,
+                               wandb_group_name, wandb_experiment_name, fold, worker_id)
     else:
         run_id = 'both_cc_limited_ss_44055'
         subjects = experiment_subject_portinight(worker_id, args.dataset_path)
@@ -1470,4 +1476,5 @@ if __name__ == "__main__":
         run.finish()
         all_configs = [get_config_portinight(i, net) for i in range(6)]
 
-        launch_experiment_portinight(subjects, all_configs, run_id, wandb_group_name, wandb_experiment_name, worker_id)
+        launch_experiment_portinight(
+            subjects, all_configs, run_id, wandb_group_name, wandb_experiment_name, worker_id)
