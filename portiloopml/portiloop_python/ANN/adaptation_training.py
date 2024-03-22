@@ -1111,8 +1111,8 @@ def dataloader_from_subject(subject, dataset_path, config, val):
         sampler = MassConsecutiveSampler(
             dataset,
             seq_stride=config['seq_stride'],
-            # segment_len=(len(dataset) // config['seq_stride']) - 1,
-            segment_len=100,
+            segment_len=(len(dataset) // config['seq_stride']) - 1,
+            # segment_len=100,
             max_batch_size=1,
             random=False,
         )
