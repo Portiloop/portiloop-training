@@ -1255,31 +1255,31 @@ def get_config_mass(index, net):
 
 def experiment_subject_portinight(index, dataset_path):
     # First, we define all 3 experiments for same subject sequences
-    # if index == 0:
-    #     subjects = ['PN_01_HJ_Night1', 'PN_01_HJ_Night3', 'PN_01_HJ_Night4']
-    # elif index == 1:
-    #     subjects = ['PN_02_MS_Night2', 'PN_02_MS_Night3', 'PN_02_MS_Night4']
-    # elif index == 2:
-    #     subjects = ['PN_03_CL_Night3', 'PN_03_CL_Night4', 'PN_03_CL_Night6']
-    # elif index == 3:
-    #     subjects = ['PN_07_CB_NightD', 'PN_07_CB_NightE', 'PN_07_CB_NightF']
-    # else:
-    with open(os.path.join(dataset_path, 'subjects_portinight.txt'), 'r') as f:
-        all_subjects = f.readlines()
-    all_subjects = [x.strip() for x in all_subjects]
-    # Get 100 permutations of 3 subjects
-    permutations = [random.choices(all_subjects, k=3) for _ in range(100)]
-    subjects = permutations[index - 4]
+    if index == 0:
+        subjects = ['PN_01_HJ_Night1', 'PN_01_HJ_Night3', 'PN_01_HJ_Night4']
+    elif index == 1:
+        subjects = ['PN_02_MS_Night2', 'PN_02_MS_Night3', 'PN_02_MS_Night4']
+    elif index == 2:
+        subjects = ['PN_03_CL_Night3', 'PN_03_CL_Night4', 'PN_03_CL_Night6']
+    elif index == 3:
+        subjects = ['PN_07_CB_NightD', 'PN_07_CB_NightE', 'PN_07_CB_NightF']
+    else:
+        with open(os.path.join(dataset_path, 'subjects_portinight.txt'), 'r') as f:
+            all_subjects = f.readlines()
+        all_subjects = [x.strip() for x in all_subjects]
+        # Get 100 permutations of 3 subjects
+        permutations = [random.choices(all_subjects, k=3) for _ in range(100)]
+        subjects = permutations[index]
 
     return subjects
 
 
 def launch_experiment_portinight(subjects, all_configs, run_id, group_name, exp_name_val, worker_id):
-    net_copy = None
     results = {}
 
     # print(f"Doing subjects: {subjects}")
     for config in all_configs:
+        net_copy = None
         print(f"Running config {config['experiment_name']}")
         for index, subject_id in enumerate(subjects):
             if subject_id not in list(results.keys()):
@@ -1419,7 +1419,7 @@ def parse_config():
                         help='Total number of workers used to compute which subjects to run')
     parser.add_argument('--fold', type=int, default=3,
                         help='Fold of the cross validation')
-    parser.add_argument('--mass', type=int, default=1,
+    parser.add_argument('--mass', type=int, default=0,
                         help='Choose whether to run the MASS experiments or the Portinight experiments. 1 for MASS, 0 for Portinight')
     args = parser.parse_args()
 
