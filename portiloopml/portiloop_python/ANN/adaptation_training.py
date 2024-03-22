@@ -887,17 +887,28 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
 
     logger.summary['spindle_metrics_real'] = spindle_metrics_real
 
+    # Compute the real_life metrics for spindle detection compared to online Lacourse
+    spindle_preds_real = torch.tensor(
+        adap_dataset.prediction_buffer).type(torch.LongTensor)
+    spindle_labels = torch.tensor(
+        adap_dataset.get_lacourse_spindle_vector()).type(torch.LongTensor)
+    spindle_metrics_ola7 = spindle_metrics(
+        spindle_labels,
+        spindle_preds_real,
+        ss_labels=adap_dataset.ss_label_buffer if config['use_ss_label'] else adap_dataset.ss_pred_buffer,
+        threshold=0.5,
+        sampling_rate=250,
+        min_label_time=0.5)
+
     all_metrics = {
         # Metrics of the sleep staging
         'ss_metrics': ss_metrics[0],
         'ss_confusion_matrix': ss_metrics[1],
         # Metrics of the spindles using adaptable threshold
         'detect_spindle_metrics': spindle_metrics_real,
+        'detect_spindle_metrics_ola7gt': spindle_metrics_ola7,
         # Metrics of the online wamsley spindle detection
         'online_lacourse_metrics': online_lacourse_metrics,
-        # Metrics of the spindles using different thresholds
-        # 'multi_threshold_metrics': spindle_mets,
-        # All the thresholds used adapted to the data using wamsley
     }
 
     return all_metrics, net_inference
@@ -1100,8 +1111,8 @@ def dataloader_from_subject(subject, dataset_path, config, val):
         sampler = MassConsecutiveSampler(
             dataset,
             seq_stride=config['seq_stride'],
-            segment_len=(len(dataset) // config['seq_stride']) - 1,
-            # segment_len=1000,
+            # segment_len=(len(dataset) // config['seq_stride']) - 1,
+            segment_len=100,
             max_batch_size=1,
             random=False,
         )
@@ -1189,7 +1200,7 @@ def get_config_mass(index, net):
     config = {
         'experiment_name': f'config_{index}',
         'num_subjects': 1,
-        'train': True if index in [5, 6, 7, 8] else False,
+        'train': True if index in [5, 6, 7, 8, 9, 10] else False,
         'seq_len': net.config['seq_len'],
         'seq_stride': net.config['seq_stride'],
         'window_size': net.config['window_size'],
@@ -1199,14 +1210,14 @@ def get_config_mass(index, net):
         'hidden_size': net.config['hidden_size'],
         'nb_rnn_layers': net.config['nb_rnn_layers'],
         # Whether to use the adaptable threshold in the detection of spindles with NN Model
-        'adapt_threshold_detect': True if index in [3, 4, 7, 8] else False,
+        'adapt_threshold_detect': True if index in [3, 4, 8, 9, 10] else False,
         # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
         'adapt_threshold_wamsley': True,
         # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
         'learn_wamsley': True,
         # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
         'use_ss_label': True if index in [2] else False,
-        'use_mask_wamsley': True if index in [1, 2, 4, 6, 8] else False,
+        'use_mask_wamsley': True if index in [1, 2, 4, 6, 9] else False,
         # Smoothing for the sleep staging (WIP)
         'use_ss_smoothing': False,
         'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
@@ -1234,7 +1245,7 @@ def get_config_mass(index, net):
         # 'replay_subjects': net.config['subjects_train'],
         'replay_multiplier': 1,
         'freeze_embeddings': False,
-        'freeze_classifier': True,
+        'freeze_classifier': True if index in [0, 1, 2, 3, 4, 5, 6, 8, 9] else False,
         'keep_net': False,
         'val': False,
     }
@@ -1244,20 +1255,21 @@ def get_config_mass(index, net):
 
 def experiment_subject_portinight(index, dataset_path):
     # First, we define all 3 experiments for same subject sequences
-    if index == 0:
-        subjects = ['PN_01_HJ_Night1', 'PN_01_HJ_Night3', 'PN_01_HJ_Night4']
-    elif index == 1:
-        subjects = ['PN_02_MS_Night2', 'PN_02_MS_Night3', 'PN_02_MS_Night4']
-    elif index == 2:
-        subjects = ['PN_03_CL_Night3', 'PN_03_CL_Night4', 'PN_03_CL_Night6']
-    elif index == 3:
-        subjects = ['PN_07_CB_NightD', 'PN_07_CB_NightE', 'PN_07_CB_NightF']
-    else:
-        with open(os.path.join(dataset_path, 'subjects_portinight.txt'), 'r') as f:
-            all_subjects = f.readlines()
-        all_subjects = [x.strip() for x in all_subjects]
-        # Choose a random 3 subjects
-        subjects = np.random.choice(all_subjects, 3)
+    # if index == 0:
+    #     subjects = ['PN_01_HJ_Night1', 'PN_01_HJ_Night3', 'PN_01_HJ_Night4']
+    # elif index == 1:
+    #     subjects = ['PN_02_MS_Night2', 'PN_02_MS_Night3', 'PN_02_MS_Night4']
+    # elif index == 2:
+    #     subjects = ['PN_03_CL_Night3', 'PN_03_CL_Night4', 'PN_03_CL_Night6']
+    # elif index == 3:
+    #     subjects = ['PN_07_CB_NightD', 'PN_07_CB_NightE', 'PN_07_CB_NightF']
+    # else:
+    with open(os.path.join(dataset_path, 'subjects_portinight.txt'), 'r') as f:
+        all_subjects = f.readlines()
+    all_subjects = [x.strip() for x in all_subjects]
+    # Get 100 permutations of 3 subjects
+    permutations = [random.choices(all_subjects, k=3) for _ in range(100)]
+    subjects = permutations[index - 4]
 
     return subjects
 
@@ -1308,7 +1320,7 @@ def launch_experiment_portinight(subjects, all_configs, run_id, group_name, exp_
                 logger=run)
 
             results[subject_id][config['experiment_name']] = {
-                'config': config,
+                'config': copy.deepcopy(config),
                 'metrics': metrics
             }
 
@@ -1403,9 +1415,9 @@ def parse_config():
                         help='Id of the worker')
     parser.add_argument('--job_id', type=int, default=0,
                         help='Id of the job used for the output file naming scheme')
-    parser.add_argument('--num_workers', type=int, default=1,
+    parser.add_argument('--num_workers', type=int, default=28,
                         help='Total number of workers used to compute which subjects to run')
-    parser.add_argument('--fold', type=int, default=0,
+    parser.add_argument('--fold', type=int, default=3,
                         help='Fold of the cross validation')
     parser.add_argument('--mass', type=int, default=1,
                         help='Choose whether to run the MASS experiments or the Portinight experiments. 1 for MASS, 0 for Portinight')
@@ -1462,7 +1474,8 @@ if __name__ == "__main__":
         # Get the subjects from this worker from all the available subjects
         subjects = parse_worker_subject_div(
             all_subjects, args.num_workers, worker_id)
-        all_configs = [get_config_mass(i, net) for i in range(9)]
+        all_configs = [get_config_mass(i, net)
+                       for i in [0, 3, 4, 5, 6, 7, 8, 9, 10]]
 
         launch_experiment_mass(subjects, all_configs, run_id,
                                wandb_group_name, wandb_experiment_name, fold, worker_id)
