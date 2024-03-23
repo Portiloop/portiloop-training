@@ -404,11 +404,11 @@ class AdaptationDataset(torch.utils.data.Dataset):
             self.wamsley_buffer), "Buffers are not the same length"
 
         if self.last_wamsley_run >= self.wamsley_interval or force_wamsley:
-            self.run_spindle_detection(self.last_wamsley_run)
+            new_samples = self.run_spindle_detection(self.last_wamsley_run)
             self.last_wamsley_run = 0
-            return True
+            return new_samples
 
-        return False
+        return 0
 
     def run_spindle_detection(self, detect_len):
 
@@ -501,7 +501,7 @@ class AdaptationDataset(torch.utils.data.Dataset):
 
     def get_thresholds(self):
         '''
-        Returns the best threshold for the model compared to Wamsley threshold
+        Returns the best threshold for the model compared to Lacourse predictions
         '''
         # Our predictions
         spindle_preds = torch.tensor(self.prediction_buffer_raw)
@@ -515,6 +515,9 @@ class AdaptationDataset(torch.utils.data.Dataset):
                 sampling_rate=250,
                 min_label_time=0.5)['f1']
         )
+
+        if best_f1 == 0:
+            best_thresh = None
 
         return best_thresh, best_f1
 
@@ -627,7 +630,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
             spindle_pred_with_thresh.append(
                 output.cpu().item() > used_threshold)
 
-            out_dataset = adap_dataset.add_window(
+            new_samples = adap_dataset.add_window(
                 window_data,
                 ss_output,
                 ss_labels,
@@ -635,6 +638,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
                 window_labels.cpu().item(),
                 detect_threshold=used_threshold,
             )
+            out_dataset = new_samples > 0
 
         # If we have just added some new data, we log the metrics
         if out_dataset or index == len(dataloader) - 1:
@@ -774,10 +778,13 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
         if out_dataset:
             # Run the adaptation of threshold
             new_thresh, _ = adap_dataset.get_thresholds()
-            logger.log({'best_threshold': new_thresh}, step=index)
 
-            if config['adapt_threshold_detect']:
-                used_threshold = new_thresh
+            # Only update if the value is not 0
+            if new_thresh is not None:
+                logger.log({'best_threshold': new_thresh}, step=index)
+
+                if config['adapt_threshold_detect']:
+                    used_threshold = new_thresh
 
         if (out_dataset or index == 0 or index == len(dataloader) - 1) and config['val']:
             # Validation loop
@@ -1411,15 +1418,15 @@ def parse_config():
                         default=None, help='Name of the model')
     parser.add_argument('--seed', type=int, default=-1,
                         help='Seed for the experiment')
-    parser.add_argument('--worker_id', type=int, default=0,
+    parser.add_argument('--worker_id', type=int, default=16,
                         help='Id of the worker')
     parser.add_argument('--job_id', type=int, default=0,
                         help='Id of the job used for the output file naming scheme')
     parser.add_argument('--num_workers', type=int, default=28,
                         help='Total number of workers used to compute which subjects to run')
-    parser.add_argument('--fold', type=int, default=3,
+    parser.add_argument('--fold', type=int, default=4,
                         help='Fold of the cross validation')
-    parser.add_argument('--mass', type=int, default=0,
+    parser.add_argument('--mass', type=int, default=1,
                         help='Choose whether to run the MASS experiments or the Portinight experiments. 1 for MASS, 0 for Portinight')
     args = parser.parse_args()
 
@@ -1474,8 +1481,9 @@ if __name__ == "__main__":
         # Get the subjects from this worker from all the available subjects
         subjects = parse_worker_subject_div(
             all_subjects, args.num_workers, worker_id)
+
         all_configs = [get_config_mass(i, net)
-                       for i in [0, 3, 4, 5, 6, 7, 8, 9, 10]]
+                       for i in [0, 3, 4, 5, 6, 7, 8, 9, 10]] # , 4, 5, 6, 7, 8, 9, 10
 
         launch_experiment_mass(subjects, all_configs, run_id,
                                wandb_group_name, wandb_experiment_name, fold, worker_id)
