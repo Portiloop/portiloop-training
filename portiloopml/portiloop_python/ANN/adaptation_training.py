@@ -1,3 +1,4 @@
+from torchviz import make_dot
 import argparse
 import copy
 import json
@@ -410,9 +411,14 @@ class AdaptationDataset(torch.utils.data.Dataset):
 
         return 0
 
-    def run_spindle_detection(self, detect_len):
+    def run_spindle_detection(self, detect_len, full_night=False):
 
-        # Run Wamsley on the buffer
+        # Run Wamsley on the entire night
+        if full_night:
+            detect_len = len(self.wamsley_buffer)
+            # Reset the spindle buffer
+            self.sampleable_spindles = []
+
         usable_buffer = self.wamsley_buffer[-detect_len:]
         if not self.use_mask_wamsley:
             if self.train_all_ss:
@@ -564,16 +570,10 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
     # optimizer = optim.SGD(net_copy.parameters(), lr=0.000003, momentum=0.9)
     criterion = nn.BCEWithLogitsLoss(reduction='none')
 
-    training_losses = []
     inference_loss = []
-    train_loss_tp = []
-    train_loss_fn = []
-    n = 0
-
     # Keep the sleep staging labels and predictions
     used_threshold = config['starting_threshold']
     spindle_pred_with_thresh = []
-    used_lr = config['lr']
 
     last_n_ss = deque(maxlen=config['n_ss_smoothing'])
 
@@ -595,7 +595,9 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
             window_labels = labels['spindle_label'].to(device)
 
             # Get the output of the network
-            spindle_output, ss_output, h1, _ = net_inference(window_data, h1)
+            if index == 0:
+                spindle_output, ss_output, h1, _ = net_inference(
+                    window_data, h1)
 
             # Compute the loss
             output = spindle_output.squeeze(-1)
@@ -697,80 +699,17 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
         #     print(metrics)
 
         # If we have just added some new detection data, train is on and we have enough samples, we train
-        if (out_dataset and train and adap_dataset.has_samples()):
-
-            train_indexes, _, train_spindle_indexes, _ = adap_dataset.get_train_val_split(
-                split=1.0)
-
-            # Initialize the dataloaders
-            train_sampler = AdaptationSampler2(
-                train_spindle_indexes,
-                train_indexes,
-                window_size=adap_dataset.window_size,
-                past_signal_len=adap_dataset.past_signal_len,
-                replay_dataset=adap_dataset.replay_dataset,
-                replay_multiplier=config['replay_multiplier'])
-
-            train_dataloader = torch.utils.data.DataLoader(
+        if (out_dataset and train and adap_dataset.has_samples() and not config['end_of_night']):
+            net_inference = train_adaptation(
+                config,
                 adap_dataset,
-                batch_size=batch_size,
-                sampler=train_sampler,
-                num_workers=0)
-
-            net_copy = copy.deepcopy(net_inference)
-            optimizer = optim.Adam(net_copy.parameters(),
-                                   lr=used_lr, weight_decay=config['adam_w'])
-            fns = 0
-            fps = 0
-            # Training loop
-            for batch, label, category in tqdm(train_dataloader):
-                net_copy.train()
-                # Training Loop
-                train_sample = batch.to(device)
-                train_label = label.to(device)
-
-                optimizer.zero_grad()
-
-                # Get the output of the network
-                h_zero = torch.zeros((config['nb_rnn_layers'], train_sample.size(
-                    0), config['hidden_size']), device=device)
-                output, _, _, _ = net_copy(train_sample, h_zero)
-
-                # Compute the loss
-                output = output.squeeze(-1)
-                train_label = train_label.squeeze(-1).float()
-                loss_step = criterion(output, train_label)
-
-                output_sig = torch.sigmoid(output)
-                # Get the number of false positives and false negatives
-                fp = sum((output_sig > used_threshold) & (
-                    train_label == 0)).cpu().detach().numpy()
-                fps += fp
-                fn = sum((output_sig < used_threshold) & (
-                    train_label == 1)).cpu().detach().numpy()
-                fns += fn
-
-                # Split the categories
-                train_loss_fn.append(
-                    loss_step[train_label == 0].mean().cpu().detach().numpy())
-                train_loss_tp.append(
-                    loss_step[train_label == 1].mean().cpu().detach().numpy())
-
-                loss_step = loss_step.mean()
-                loss_step.backward()
-                optimizer.step()
-
-                training_losses.append(loss_step.item())
-
-            print(
-                f"Trained on {fns} false negatives and {fps} false positives")
-
-            # Average the weights of the model
-            net_inference = average_weights(
-                net_init, net_copy, alpha=config['alpha_training'])
-            # net_inference = average_weights(
-            #     net_inference, net_copy, alpha=config['alpha_training'])
-
+                used_threshold,
+                net_inference,
+                net_init,
+                criterion,
+                logger,
+                val_dataloader,
+            )
             # Reset the hidden state of the GRU
             h1 = torch.zeros((config['nb_rnn_layers'], 1,
                               config['hidden_size']), device=device)
@@ -787,85 +726,16 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
                     used_threshold = new_thresh
 
         if (out_dataset or index == 0 or index == len(dataloader) - 1) and config['val']:
-            # Validation loop
-            net_inference.eval()
-            validation_losses_epoch = []
-            val_loss_spindles_epoch = []
-            val_loss_non_spindles_epoch = []
-            val_labels = []
-            val_preds = []
-            with torch.no_grad():
-                h_val = torch.zeros(
-                    (config['nb_rnn_layers'], val_dataloader.batch_size, config['hidden_size']), device=device)
-                for batch, label in tqdm(val_dataloader):
-                    val_sample = batch.to(device)
-                    val_label = label['spindle_label'].to(device)
-
-                    # Get the output of the network
-                    output, _, h_val, _ = net_inference(val_sample, h_val)
-
-                    # Compute the loss
-                    output = output.squeeze(-1)
-                    val_label = val_label.squeeze(-1).float()
-                    loss_step = criterion(output, val_label)
-
-                    # Append to the lists
-                    val_label = val_label.cpu().detach().numpy()
-                    val_preds.append(torch.sigmoid(
-                        output).cpu().detach().numpy())
-                    val_labels.append(val_label)
-
-                    # Split the categories
-                    if sum(val_label == 1) > 0:
-                        val_loss_spindles_epoch.append(
-                            loss_step[val_label == 1].mean().cpu().detach().numpy())
-
-                    if sum(val_label == 0) > 0:
-                        val_loss_non_spindles_epoch.append(
-                            loss_step[val_label == 0].mean().cpu().detach().numpy())
-
-                    validation_losses_epoch.append(loss_step.mean().item())
-
-            # Compute the F1 score for the spindles
-            val_labels = torch.tensor(val_labels)
-            val_preds = torch.tensor(val_preds)
-
-            val_labels_flat = val_labels.T.flatten(start_dim=0, end_dim=1)
-            val_preds_flat = val_preds.T.flatten(start_dim=0, end_dim=1)
-
-            val_labels_flat = val_labels_flat.cpu().detach().numpy()
-            val_preds_flat = val_preds_flat.cpu().detach().numpy()
-
-            metrics = spindle_metrics(
-                val_labels_flat,
-                val_preds_flat,
-                threshold=0.5,
-                sampling_rate=6,
-                min_label_time=0.5)
-
-            logger.log({
-                'val_adap_f1': metrics['f1'],
-                'val_adap_precision': metrics['precision'],
-                'val_adap_recall': metrics['recall'],
-                'val_loss_spindle': np.mean(val_loss_spindles_epoch),
-                'val_loss_non_spindle': np.mean(val_loss_non_spindles_epoch),
-                'val_loss': np.mean(validation_losses_epoch),
-                'used_threshold': used_threshold,
-            }, step=index)
-
+            validate_adaptation(
+                config,
+                net_inference,
+                val_dataloader,
+                criterion,
+                logger,
+                used_threshold,
+                index)
     # Run one last time the online spindle detection
     adap_dataset.run_spindle_detection(adap_dataset.last_wamsley_run)
-
-    # Sleep staging metrics:
-    ss_preds = adap_dataset.ss_pred_buffer
-    ss_labels = adap_dataset.ss_label_buffer
-    ss_preds = torch.tensor(ss_preds)
-    ss_labels = torch.tensor(ss_labels)
-    ss_metrics = staging_metrics(
-        ss_labels,
-        ss_preds)
-
-    logger.summary['ss_metrics'] = ss_metrics[0]
 
     # Compute the metrics for the online Lacourse
     true_labels = torch.tensor(adap_dataset.spindle_labels)
@@ -878,6 +748,49 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
         min_label_time=0.5)
 
     logger.summary['online_lacourse_metrics'] = online_lacourse_metrics
+
+    print(f"Online Lacourse got: {online_lacourse_metrics['f1']}")
+
+    if config['end_of_night']:
+        adap_dataset.run_spindle_detection(-1, full_night=True)
+
+        # Compute the metrics for the online Lacourse
+        true_labels = torch.tensor(adap_dataset.spindle_labels)
+        endofnight_lacourse_preds = adap_dataset.get_lacourse_spindle_vector()
+        endofnight_lacourse_metrics = spindle_metrics(
+            true_labels,
+            endofnight_lacourse_preds,
+            threshold=0.5,
+            sampling_rate=250,
+            min_label_time=0.5)
+
+        print(
+            f"End of night Lacourse got: {endofnight_lacourse_metrics['f1']}")
+
+        logger.summary['endofnight_lacourse_metrics'] = endofnight_lacourse_metrics
+
+        net_inference = train_adaptation(
+            config,
+            adap_dataset,
+            used_threshold,
+            net_inference,
+            net_init,
+            criterion,
+            logger,
+            val_dataloader,
+            epochs=1
+        )
+
+    # Sleep staging metrics:
+    ss_preds = adap_dataset.ss_pred_buffer
+    ss_labels = adap_dataset.ss_label_buffer
+    ss_preds = torch.tensor(ss_preds)
+    ss_labels = torch.tensor(ss_labels)
+    ss_metrics = staging_metrics(
+        ss_labels,
+        ss_preds)
+
+    logger.summary['ss_metrics'] = ss_metrics[0]
 
     # Compute the real_life metrics for spindle detection
     spindle_preds_real = torch.tensor(
@@ -919,6 +832,181 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
     }
 
     return all_metrics, net_inference
+
+
+def train_adaptation(config,
+                     adaptation_dataset,
+                     used_threshold,
+                     net_inference,
+                     net_init,
+                     criterion,
+                     logger,
+                     val_dataloader,
+                     epochs=1,):
+
+    train_indexes, _, train_spindle_indexes, _ = adaptation_dataset.get_train_val_split(
+        split=1.0)
+
+    net_copy = copy.deepcopy(net_inference)
+    optimizer = optim.Adam(net_copy.parameters(),
+                           lr=config['lr'], weight_decay=config['adam_w'])
+    fns = 0
+    fps = 0
+
+    # Validate the model
+    if config['val']:
+        validate_adaptation(
+            config,
+            net_inference,
+            val_dataloader,
+            criterion,
+            logger,
+            0.5,
+            0)
+
+    # Training loop
+    for i in range(epochs):
+        # Initialize the dataloaders
+        train_sampler = AdaptationSampler2(
+            train_spindle_indexes,
+            train_indexes,
+            window_size=adaptation_dataset.window_size,
+            past_signal_len=adaptation_dataset.past_signal_len,
+            replay_dataset=adaptation_dataset.replay_dataset,
+            replay_multiplier=config['replay_multiplier'])
+
+        train_dataloader = torch.utils.data.DataLoader(
+            adaptation_dataset,
+            batch_size=config['batch_size'],
+            sampler=train_sampler,
+            num_workers=0)
+
+        for batch, label, _ in tqdm(train_dataloader):
+            net_copy.train()
+            # Training Loop
+            train_sample = batch.to(device)
+            train_label = label.to(device)
+
+            optimizer.zero_grad()
+
+            # Get the output of the network
+            h_zero = torch.zeros((config['nb_rnn_layers'], train_sample.size(
+                0), config['hidden_size']), device=device)
+            output, _, _, _ = net_copy(train_sample, h_zero)
+
+            # Compute the loss
+            output = output.squeeze(-1)
+            train_label = train_label.squeeze(-1).float()
+            loss_step = criterion(output, train_label)
+
+            output_sig = torch.sigmoid(output)
+            # Get the number of false positives and false negatives
+            fp = sum((output_sig > used_threshold) & (
+                train_label == 0)).cpu().detach().numpy()
+            fps += fp
+            fn = sum((output_sig < used_threshold) & (
+                train_label == 1)).cpu().detach().numpy()
+            fns += fn
+
+            loss_step = loss_step.mean()
+            loss_step.backward()
+            optimizer.step()
+        print(
+            f"Trained on {fns} false negatives and {fps} false positives")
+
+        # Average the weights of the model
+        net_inference = average_weights(
+            net_init, net_copy, alpha=config['alpha_training'])
+
+        # Validate the model
+        if config['val']:
+            validate_adaptation(
+                config,
+                net_inference,
+                val_dataloader,
+                criterion,
+                logger,
+                0.5,
+                i + 1)
+
+    return net_inference
+
+
+def validate_adaptation(
+        config,
+        net_eval,
+        val_dataloader,
+        criterion,
+        logger,
+        used_threshold,
+        index):
+    # Validation loop
+    net_eval.eval()
+    validation_losses_epoch = []
+    val_loss_spindles_epoch = []
+    val_loss_non_spindles_epoch = []
+    val_labels = []
+    val_preds = []
+    with torch.no_grad():
+        h_val = torch.zeros(
+            (config['nb_rnn_layers'], val_dataloader.batch_size, config['hidden_size']), device=device)
+        for batch, label in tqdm(val_dataloader):
+            val_sample = batch.to(device)
+            val_label = label['spindle_label'].to(device)
+
+            # Get the output of the network
+            output, _, h_val, _ = net_eval(val_sample, h_val)
+
+            # Compute the loss
+            output = output.squeeze(-1)
+            val_label = val_label.squeeze(-1).float()
+            loss_step = criterion(output, val_label)
+
+            # Append to the lists
+            val_label = val_label.cpu().detach().numpy()
+            val_preds.append(torch.sigmoid(
+                output).cpu().detach().numpy())
+            val_labels.append(val_label)
+
+            # Split the categories
+            if sum(val_label == 1) > 0:
+                val_loss_spindles_epoch.append(
+                    loss_step[val_label == 1].mean().cpu().detach().numpy())
+
+            if sum(val_label == 0) > 0:
+                val_loss_non_spindles_epoch.append(
+                    loss_step[val_label == 0].mean().cpu().detach().numpy())
+
+            validation_losses_epoch.append(loss_step.mean().item())
+
+    # Compute the F1 score for the spindles
+    val_labels = torch.tensor(val_labels)
+    val_preds = torch.tensor(val_preds)
+
+    val_labels_flat = val_labels.T.flatten(start_dim=0, end_dim=1)
+    val_preds_flat = val_preds.T.flatten(start_dim=0, end_dim=1)
+
+    val_labels_flat = val_labels_flat.cpu().detach().numpy()
+    val_preds_flat = val_preds_flat.cpu().detach().numpy()
+
+    metrics = spindle_metrics(
+        val_labels_flat,
+        val_preds_flat,
+        threshold=0.5,
+        sampling_rate=6,
+        min_label_time=0.5)
+
+    print(f"Got f1_score of {metrics['f1']}")
+
+    logger.log({
+        'val_adap_f1': metrics['f1'],
+        'val_adap_precision': metrics['precision'],
+        'val_adap_recall': metrics['recall'],
+        'val_loss_spindle': np.mean(val_loss_spindles_epoch),
+        'val_loss_non_spindle': np.mean(val_loss_non_spindles_epoch),
+        'val_loss': np.mean(validation_losses_epoch),
+        'used_threshold': used_threshold,
+    }, step=index)
 
 
 def average_weights(modelA, modelB, alpha=0.5):
@@ -1118,8 +1206,8 @@ def dataloader_from_subject(subject, dataset_path, config, val):
         sampler = MassConsecutiveSampler(
             dataset,
             seq_stride=config['seq_stride'],
-            segment_len=(len(dataset) // config['seq_stride']) - 1,
-            # segment_len=100,
+            # segment_len=(len(dataset) // config['seq_stride']) - 1,
+            segment_len=100,
             max_batch_size=1,
             random=False,
         )
@@ -1150,24 +1238,25 @@ def get_config_portinight(index, net):
     config = {
         'experiment_name': f'config_{index}',
         'num_subjects': 1,
-        'train': True if index in [2, 3, 4, 5] else False,
+        'train': False,
         'seq_len': net.config['seq_len'],
         'seq_stride': net.config['seq_stride'],
         'window_size': net.config['window_size'],
-        'lr': 0.00001,
-        'adam_w': 0.000,
-        'alpha_training': 0.5,  # 1.0 -> Do not use learned, 0.0 -> Keep only learned weights
+        'lr': 0.0001,
+        'adam_w': 0.001,
+        # 1.0 -> Do not use learned, 0.0 -> Keep only learned weights
+        'alpha_training': 0.5 if index in [4] else 0.0,
         'hidden_size': net.config['hidden_size'],
         'nb_rnn_layers': net.config['nb_rnn_layers'],
         # Whether to use the adaptable threshold in the detection of spindles with NN Model
-        'adapt_threshold_detect': True if index in [1, 4, 5] else False,
+        'adapt_threshold_detect': True if index in [1, 3] else False,
         # Whether to use the adaptable threshold in the detection of spindles with Wamsley online
         'adapt_threshold_wamsley': True,
         # Decides if we finetune from the ground truth (if false) or from our online Wamsley (if True)
         'learn_wamsley': True,
         # Decides if we use the ground truth labels for sleep scoring (for testing purposes)
         'use_ss_label': False,
-        'use_mask_wamsley': True,
+        'use_mask_wamsley': False,
         # Smoothing for the sleep staging (WIP)
         'use_ss_smoothing': False,
         'n_ss_smoothing': 50,  # 180 * 42 = 7560, which is about 30 seconds of signal
@@ -1180,7 +1269,7 @@ def get_config_portinight(index, net):
         # Weights for the sampling of the different spindle in the finetuning in order: [fn, tp, fp, tn]
         'sample_weights': [0.25, 0.25, 0.25, 0.25],
         # Batch size for the finetuning, the bigger the less time it takes to finetune
-        'batch_size': 512,
+        'batch_size': 64,
         'num_batches_train': 1000,
         'wamsley_config': {
             'fixed': False,
@@ -1194,10 +1283,11 @@ def get_config_portinight(index, net):
         'replay_subjects': np.random.choice(net.config['subjects_train'], 10),
         # 'replay_subjects': net.config['subjects_train'],
         'replay_multiplier': 1,
-        'freeze_embeddings': False,
-        'freeze_classifier': True,
-        'keep_net': True if index in [3, 5] else False,
+        'freeze_embeddings': True if index in [5] else False,
+        'freeze_classifier': False,
+        'keep_net': True if index in [2, 3, 4, 5] else False,
         'val': False,
+        'end_of_night': True if index in [2, 3, 4, 5] else False,
     }
 
     return config
@@ -1212,7 +1302,7 @@ def get_config_mass(index, net):
         'seq_stride': net.config['seq_stride'],
         'window_size': net.config['window_size'],
         'lr': 0.00001,
-        'adam_w': 0.000,
+        'adam_w': 0.001,
         'alpha_training': 0.5,  # 1.0 -> Do not use learned, 0.0 -> Keep only learned weights
         'hidden_size': net.config['hidden_size'],
         'nb_rnn_layers': net.config['nb_rnn_layers'],
@@ -1311,6 +1401,7 @@ def launch_experiment_portinight(subjects, all_configs, run_id, group_name, exp_
             run.config.update(config)
             dataloader = dataloader_from_subject(
                 [subject_id], dataset_path, config, val=False)
+
             val_dataloader = dataloader_from_subject(
                 [subject_id], dataset_path, config, val=True)
 
@@ -1418,7 +1509,7 @@ def parse_config():
                         default=None, help='Name of the model')
     parser.add_argument('--seed', type=int, default=-1,
                         help='Seed for the experiment')
-    parser.add_argument('--worker_id', type=int, default=16,
+    parser.add_argument('--worker_id', type=int, default=0,
                         help='Id of the worker')
     parser.add_argument('--job_id', type=int, default=0,
                         help='Id of the job used for the output file naming scheme')
@@ -1426,7 +1517,7 @@ def parse_config():
                         help='Total number of workers used to compute which subjects to run')
     parser.add_argument('--fold', type=int, default=4,
                         help='Fold of the cross validation')
-    parser.add_argument('--mass', type=int, default=1,
+    parser.add_argument('--mass', type=int, default=0,
                         help='Choose whether to run the MASS experiments or the Portinight experiments. 1 for MASS, 0 for Portinight')
     args = parser.parse_args()
 
@@ -1449,8 +1540,8 @@ if __name__ == "__main__":
 
     ##########################
 
-    wandb_group_name = f'Portinight_debugging' if args.experiment_name is None else args.experiment_name
-    wandb_experiment_name = f'DEBUGGING' if args.experiment_name is None else args.experiment_name
+    wandb_group_name = f'EndOfNight' if args.experiment_name is None else args.experiment_name
+    wandb_experiment_name = f'Debugging' if args.experiment_name is None else args.experiment_name
 
     ##########################
 
@@ -1483,14 +1574,13 @@ if __name__ == "__main__":
             all_subjects, args.num_workers, worker_id)
 
         all_configs = [get_config_mass(i, net)
-                       for i in [0, 3, 4, 5, 6, 7, 8, 9, 10]] # , 4, 5, 6, 7, 8, 9, 10
+                       for i in [0, 3, 4, 5, 6, 7, 8, 9, 10]]  # , 4, 5, 6, 7, 8, 9, 10
 
         launch_experiment_mass(subjects, all_configs, run_id,
                                wandb_group_name, wandb_experiment_name, fold, worker_id)
     else:
         run_id = 'both_cc_limited_ss_44055'
         subjects = experiment_subject_portinight(worker_id, args.dataset_path)
-
         unique_id = f"{int(time.time())}"[5:]
         net, run = load_model_mass(
             f"Loading_subjects_{worker_id}_{unique_id}", run_id=run_id, group_name='ModelLoaders')

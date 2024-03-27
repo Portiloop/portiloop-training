@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import torch
 import wandb
 
 from portiloopml.portiloop_python.ANN.lightning_mass import MassLightning
@@ -46,7 +47,7 @@ def load_model_mass(new_run_name, run_id, group_name=None):
 
 if __name__ == "__main__":
 
-    run_id_new = 'both_cc_olddl_lac_newdropout_32142'
+    run_id_new = 'both_cc_limited_ss_44055'
     run_id_old = "both_cc_smallLR_1706210166"
 
     def count_parameters(model):
