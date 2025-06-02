@@ -34,6 +34,11 @@ batch_size_range_t = [64, 256, 64]
 PROFILE_META = False
 MAXIMIZE_F1_SCORE = True
 
+# dropout_range_t = ["f", 0.5, 0.5]
+# first_layer_dropout_range_t = ["b", False, False]
+# power_features_input_range_t = ["b", False, False]
+# adam_w_range_t = ["f", 0.01, 0.01]
+
 
 def clip(x, min_x, max_x):
     return max(min(x, max_x), min_x)
@@ -112,9 +117,15 @@ def sample_config_dict(name, previous_exp, all_exp):
 
     unrounded = {}
 
+    # constant things:
+
+    # config_dict["RNN"] = True
+    # config_dict["envelope_input"] = True
+    # config_dict["batch_size"] = 256
     config_dict["first_layer_dropout"] = False
     config_dict["power_features_input"] = False
     config_dict["dropout"] = 0.5
+    # config_dict["lr_adam"] = 0.0003
     config_dict["adam_w"] = 0.01
     config_dict["distribution_mode"] = 0
     config_dict["classification"] = True
