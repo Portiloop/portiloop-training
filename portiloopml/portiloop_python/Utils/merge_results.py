@@ -1,9 +1,14 @@
 import json
 import os
 import argparse
+from pathlib import Path
 
-
-def merge_results(directory):
+def merge_results(directory:Path|str):
+    """
+    Aggregates experimental results from distributed runs.
+    Args:
+        directory (Path|str): Path to the directory containing the experimental results.
+    """
     final_dict = {}
     # Go through each file in the given directory
     for filename in os.listdir(directory):
@@ -26,9 +31,12 @@ def merge_results(directory):
 
 
 if __name__ == '__main__':
+    """
+    Calls merge_results() to merge all experimental results in the directory specified as argument.
+    """
     # Get command line parameters for the directory
     parser = argparse.ArgumentParser()
-    parser.add_argument('directory', help='Directory containing the results', \
+    parser.add_argument('directory', help='Directory containing the results',
                         default='/home/ubuntu/portiloop-training/experiment_results')
     args = parser.parse_args()
     merge_results(args.directory)
