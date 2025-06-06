@@ -34,17 +34,31 @@ batch_size_range_t = [64, 256, 64]
 PROFILE_META = False
 MAXIMIZE_F1_SCORE = True
 
-# dropout_range_t = ["f", 0.5, 0.5]
-# first_layer_dropout_range_t = ["b", False, False]
-# power_features_input_range_t = ["b", False, False]
-# adam_w_range_t = ["f", 0.01, 0.01]
 
-
-def clip(x, min_x, max_x):
+def clip(x:float, min_x:float, max_x:float)->float:
+    """
+    Clip a value between min_x and max_x
+    Args:
+        x (float): value to clip
+        min_x (float): minimum value
+        max_x (float): maximum value
+    Returns:
+        float: clipped value
+    """
     return max(min(x, max_x), min_x)
 
 
-def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
+def sample_from_range(range_t:list, gaussian_mean:float=None, gaussian_std_factor:float=0.1)->tuple[float, float]:
+    """Sample one value from a key based on a range
+
+    Args:
+        range_t (list): List of range in the format [min, max, step]
+        gaussian_mean (float, optional): Gaussian center around which to sample. Defaults to None.
+        gaussian_std_factor (float, optional): Standard deviation around which to sample. Defaults to 0.1.
+
+    Returns:
+        (float, float): Rounded and unrounded version of the sample
+    """
     step = range_t[2]
     shift = range_t[0] % step
     min_t = round(range_t[0] / step)
@@ -52,7 +66,7 @@ def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     diff_t = max_t - min_t
     gaussian_std = gaussian_std_factor * diff_t
     if gaussian_mean is None:
-        res = uniform(min_t - 0.5, max_t + 0.5)  # otherwise extremum are less probable
+        res = uniform(min_t - 0.5, max_t + 0.5)  # otherwise extremums are less probable
     else:
         res = gauss(mu=gaussian_mean, sigma=gaussian_std)
         res = clip(res, min_t, max_t)
@@ -65,7 +79,15 @@ def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     return res, res_unrounded
 
 
-def same_config_dict(config1, config2):
+def same_config_dict(config1:dict, config2:dict)->bool:
+    """
+    Check if two configs are equal
+    Args:
+        config1 (dict): Config 1
+        config2 (dict): Config 2
+    Returns:
+        bool: True if configs are equal
+    """
     flag = 0
     if config1["seq_len"] != config2["seq_len"]:
         flag += 1
@@ -104,7 +126,16 @@ def same_config_dict(config1, config2):
     return flag == 0
 
 
-def sample_config_dict(name, previous_exp, all_exp):
+def sample_config_dict(name:str, previous_exp:dict, all_exp:list)->tuple[dict, dict]:
+    """
+    Generates random or Gaussian-sampled neural network configurations
+    Args:
+        name (str): Name of the neural network
+        previous_exp (dict): Previous experiment configuration
+        all_exp (list): All experiments
+    Returns:
+        tuple[float, float]: Random or Gaussian-sampled neural network configuration
+    """
     config_dict = dict(experiment_name=name,
                        device_train="cuda:0",
                        device_val="cuda:0",
@@ -119,13 +150,9 @@ def sample_config_dict(name, previous_exp, all_exp):
 
     # constant things:
 
-    # config_dict["RNN"] = True
-    # config_dict["envelope_input"] = True
-    # config_dict["batch_size"] = 256
     config_dict["first_layer_dropout"] = False
     config_dict["power_features_input"] = False
     config_dict["dropout"] = 0.5
-    # config_dict["lr_adam"] = 0.0003
     config_dict["adam_w"] = 0.01
     config_dict["distribution_mode"] = 0
     config_dict["classification"] = True
@@ -134,6 +161,7 @@ def sample_config_dict(name, previous_exp, all_exp):
     config_dict["validation_divider"] = 10
 
     flag_in_exps = True
+    nb_out = 0
     while flag_in_exps:
         noise = choices(population=[True, False], weights=[EPSILON_NOISE, 1.0 - EPSILON_NOISE])[0]  # if we have already tried a config and lots of its neighbors, we will have a higher chance of getting a random config
         nb_out = 0
@@ -223,5 +251,16 @@ def sample_config_dict(name, previous_exp, all_exp):
     return config_dict, unrounded
 
 
-def out_dim(window_size, padding, dilation, kernel, stride):
+def out_dim(window_size:int, padding:int, dilation:int, kernel:int, stride:int)->int:
+    """
+    Returns the output dimension of a convolutional layer.
+    Args:
+        window_size (int): size of the input window
+        padding (int): padding of the convolutional layer
+        dilation (int): dilation of the convolutional layer
+        kernel (int): kernel size of the convolutional layer
+        stride (int): stride of the convolutional layer
+    Returns:
+        int: output dimension of the convolutional layer.
+    """
     return floor((window_size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)
