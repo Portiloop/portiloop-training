@@ -18,10 +18,10 @@ install_requires = [
     'requests',
     'pyinstrument',
     'einops',
-    'pytorch-lightning==2.0.3',
-    'PyWavelets==1.4.1',
+    'pytorch-lightning',
+    'PyWavelets',
     'torchsummary',
-    'transformers==4.32.1',
+    'transformers',
     'torchvision',
     'wonambi'
 ]
