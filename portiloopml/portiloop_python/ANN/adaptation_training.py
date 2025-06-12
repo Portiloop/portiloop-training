@@ -1192,7 +1192,27 @@ def staging_metrics(labels, preds):
     return report_ss, cm, num_n23_minutes
 
 
-def parse_worker_subject_div(subjects, total_workers, worker_id):
+def parse_worker_subject_div(subjects:list, total_workers:int, worker_id:int)->list:
+    """
+    Divide subjects evenly across workers and return the subset assigned to the specified worker.
+
+    Args:
+        subjects (list): List of subjects to be divided.
+        total_workers (int): Number of workers to divide the subjects into.
+        worker_id (int): The ID of the worker (0-indexed) to get the assigned subjects.
+
+    Returns:
+        list: Sublist of subjects assigned to the given worker_id.
+
+    Raises:
+        ValueError: If worker_id is out of range or total_workers is invalid.
+    """
+
+    if total_workers <= 0:
+        raise ValueError("total_workers must be a positive integer.")
+    if worker_id < 0 or worker_id >= total_workers:
+        raise ValueError("worker_id must be between 0 and total_workers - 1.")
+
     # Calculate the number of subjects per worker
     subjects_per_worker = len(subjects) // total_workers
 
@@ -1540,10 +1560,42 @@ def launch_experiment_portinight(subjects, all_configs, run_id, group_name, exp_
         json.dump(results, f, indent=4, cls=NumpyEncoder)
 
 
-def launch_experiment_mass(subjects, all_configs, run_id, group_name, exp_name_val, fold, worker_id):
+def launch_experiment_mass(subjects:list, all_configs:list[dict], run_id:str, group_name:str, exp_name_val:str, fold:int, worker_id:int):
+    """
+    Run multiple adaptation experiments on a set of subjects with various configurations,
+    track results, and save them both locally and on Weights & Biases (wandb).
+
+    Parameters:
+    -----------
+    subjects : list
+        List of subject IDs to run the experiments on.
+    all_configs : list[dict]
+        List of experiment configurations. Each config is a dictionary containing
+        experiment parameters like 'experiment_name', 'freeze_embeddings', 'freeze_classifier', etc.
+    run_id : str
+        Identifier of the model run to load for adaptation.
+    group_name : str
+        The wandb group name under which the experiments are organized.
+    exp_name_val : str
+        Experiment name used for logging and saving results.
+    fold : int
+        Fold index if doing cross-validation; can affect dataset splitting.
+    worker_id : int
+        The ID of the current worker in a distributed or multi-worker setup.
+
+    Returns:
+    --------
+    None
+        Saves experiment results to JSON files and uploads them to wandb.
+
+    Side Effects:
+    -------------
+    - Loads and optionally freezes parts of the model as specified by each config.
+    - Runs training/validation adaptation for each subject and configuration.
+    - Logs experiment results both locally (JSON) and remotely (wandb).
+    """
     net_copy = None
     results = {}
-    # print(f"Doing subjects: {subjects}")
     for subject_id in subjects:
         print(f"Running subject {subject_id}")
         results[subject_id] = {}
@@ -1602,6 +1654,8 @@ def launch_experiment_mass(subjects, all_configs, run_id, group_name, exp_name_v
 def parse_config()-> argparse.Namespace:
     """
     Parses the config file
+    Returns:
+        argparse.Namespace : Parsed arguments.
     """
     parser = argparse.ArgumentParser(description='Argument parser')
     parser.add_argument('--subject_id', type=str, default='01-01-0001',
@@ -1630,6 +1684,33 @@ def parse_config()-> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    """
+    Main entry point for running various sleep-related experiments using pre-trained models.
+
+    This script:
+    - Parses command-line arguments or configuration to determine experiment parameters.
+    - Sets random seeds for reproducibility.
+    - Determines the computing device (GPU if available).
+    - Initializes WandB experiment names for logging.
+    - Loads pre-trained models and their configurations based on the specified experiment type (`args.mass`).
+    - Divides subjects among multiple workers for parallel processing.
+    - Launches different experiment pipelines depending on the `mass` parameter:
+        - mass == 1: Run mass experiments with adaptive thresholds across folds.
+        - mass == 2: Run baseline Portinight experiments.
+        - mass == 3: Run overfitting experiments on repeated nights for the same subject.
+        - mass == 4: Run overfitting experiments over six nights.
+        - else: Run general Portinight experiments with all configurations.
+    - Uses timestamp-based unique IDs to differentiate runs.
+    - Properly finishes WandB runs after loading models to avoid resource leakage.
+
+    Note:
+    - `worker_id`, `num_workers`, and subject splitting ensure workload is distributed in parallel.
+    - Requires `wandb` API key to be configured for logging and model loading.
+    - Assumes presence of helper functions like `parse_config`, `load_model_mass`, `get_config_mass`, and experiment launching functions.
+
+    Raises:
+    - RuntimeError or wandb errors if model loading or logging fails.
+    """
     # Parse config dict important for the adapatation
     args = parse_config()
     if args.seed == -1:
