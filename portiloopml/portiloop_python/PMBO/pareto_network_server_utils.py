@@ -9,7 +9,7 @@ from threading import Lock, Thread
 import select
 from requests import get
 
-IP_SERVER = "142.117.136.178"  # Yann = "45.74.221.204"; Nicolas = "142.182.5.48"
+IP_SERVER = "192.226.251.51"  # Yann = "45.74.221.204"; Nicolas = "142.182.5.48"; Julien  = "192.226.251.51"
 PORT_META = 6666
 PORT_WORKER = 6667
 

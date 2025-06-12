@@ -453,7 +453,7 @@ def get_configs(exp_name, test_set, seed_exp):
     return config
 
 
-def set_seeds(seed_int):
+def set_seeds(seed_int:int):
     """
     Set seeds for reproducibility (see https://github.com/pranshu28/TAG)
     """

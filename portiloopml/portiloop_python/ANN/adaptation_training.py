@@ -710,7 +710,7 @@ def run_adaptation(dataloader, val_dataloader, net, device, config, train, logge
         #     print(metrics)
 
         # If we have just added some new detection data, train is on and we have enough samples, we train
-        if (out_dataset and train and adap_dataset.has_samples() and not config['end_of_night']):
+        if out_dataset and train and adap_dataset.has_samples() and not config['end_of_night']:
             net_inference = train_adaptation(
                 config,
                 adap_dataset,
@@ -1599,7 +1599,7 @@ def launch_experiment_mass(subjects, all_configs, run_id, group_name, exp_name_v
         json.dump(results, f, indent=4, cls=NumpyEncoder)
 
 
-def parse_config():
+def parse_config()-> argparse.Namespace:
     """
     Parses the config file
     """
@@ -1624,9 +1624,9 @@ def parse_config():
                         help='Fold of the cross validation')
     parser.add_argument('--mass', type=int, default=2,
                         help='Choose whether to run the MASS experiments or the Portinight experiments. 1 for MASS, 0 for Portinight, 2 for baseline, 4 for catastrophic forgetting')
-    args = parser.parse_args()
+    parsed_args = parser.parse_args()
 
-    return args
+    return parsed_args
 
 
 if __name__ == "__main__":
@@ -1653,7 +1653,6 @@ if __name__ == "__main__":
     # Load subjects and configs for this worker
     if args.mass == 1:
         if fold == -1:
-            # run_id = 'both_cc_olddl_lac_newdropout_32142'
             run_id = 'both_cc_limited_ss_44055'
             exp_name_val = 'portinight_train_keeplearned_adathresh'
         else:

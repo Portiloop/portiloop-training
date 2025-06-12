@@ -32,7 +32,7 @@ from portiloopml.portiloop_python.ANN.wamsley_utils import (binary_f1_score,
 
 
 class MassLightning(pl.LightningModule):
-    def __init__(self, config):
+    def __init__(self, config:dict):
         super().__init__()
         self.config = config
         # Define your model architecture here
