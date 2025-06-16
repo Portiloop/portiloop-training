@@ -1436,13 +1436,21 @@ def experiment_subject_portinight(index, dataset_path):
     return subjects
 
 
-def experiments_baseline_portinight(index, dataset_path):
+def experiments_baseline_portinight(index:int, dataset_path:str)->list[str]:
+    """
+    Retrieves a specific subject from the 'subjects_portinight.txt' file based on the given index.
+
+    Args:
+        index (int): The index of the subject to retrieve.
+        dataset_path (str): The path to the directory containing the 'subjects_portinight.txt' file.
+
+    Returns:
+        list of str: A list containing a single subject identifier corresponding to the provided index.
+    """
     with open(os.path.join(dataset_path, 'subjects_portinight.txt'), 'r') as f:
         all_subjects = f.readlines()
-    print(len(all_subjects))
     subject = all_subjects[index].strip()
     subjects = [subject]
-
     return subjects
 
 

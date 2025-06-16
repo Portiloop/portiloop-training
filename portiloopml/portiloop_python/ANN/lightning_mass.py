@@ -1,6 +1,5 @@
 import argparse
 import os
-# from pathlib import Path
 import time
 
 import numpy as np
@@ -12,16 +11,11 @@ from matplotlib import pyplot as plt
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 from scipy.signal import spectrogram
-# import plotly.figure_factory as ff
-from sklearn.metrics import (ConfusionMatrixDisplay, accuracy_score,
-                             classification_report, confusion_matrix)
-
-# from torchinfo import summary
-from torch import optim, utils
+from sklearn.metrics import (ConfusionMatrixDisplay, classification_report, confusion_matrix)
+from torch import optim, utils, Tensor
 from torchvision.transforms.functional import to_pil_image
 from transformers import ViTImageProcessor, ViTModel
 
-# import wandb
 from portiloopml.portiloop_python.ANN.data.mass_data_new import (
     CombinedDataLoader, MassConsecutiveSampler, MassDataset, MassRandomSampler,
     SubjectLoader, get_subjects_folds)
@@ -32,7 +26,19 @@ from portiloopml.portiloop_python.ANN.wamsley_utils import (binary_f1_score,
 
 
 class MassLightning(pl.LightningModule):
+    """
+    PyTorch Lightning module for joint training of sleep spindle detection and sleep stage classification.
+
+    This class encapsulates training, validation, and testing loops, as well as logging and evaluation logic.
+    It supports flexible training setups: spindles-only, staging-only, or both simultaneously.
+    """
     def __init__(self, config:dict):
+        """
+        Initialize the MassLightning module.
+
+        Args:
+            config (dict): Configuration dictionary with model and training parameters.
+        """
         super().__init__()
         self.config = config
         # Define your model architecture here
@@ -65,26 +71,50 @@ class MassLightning(pl.LightningModule):
 
         self.save_hyperparameters()
 
-    def forward(self, x, h):
-        # Define the forward pass of your model here
-        out_spindles, out_sleep_stages, h, embeddings = self.model(x, h)
-        return out_spindles, out_sleep_stages, h, embeddings
+    def forward(self, x:Tensor, h:Tensor)->tuple[Tensor,Tensor,Tensor,Tensor]:
+        """
+        Forward pass through the model.
+
+        Args:
+            x (Tensor): Input data.
+            h (Tensor): Optional hidden state.
+
+        Returns:
+            Tuple of (spindle_output, sleep_stage_output, new_hidden_state, embeddings)
+        """
+        return self.model(x, h)
 
     def freeze_embeddings(self):
+        """
+        Freeze all parameters except the classifier layers.
+        Useful for fine-tuning only the classifier.
+        """
         for name, param in self.model.named_parameters():
             # Freeze if not a classifier
             if 'classifier' not in name.split('.')[0]:
-                # print(f"Freezing layer {name}")
                 param.requires_grad = False
 
     def freeze_classifiers(self):
+        """
+        Freeze only the classifier layers.
+        Useful when training embeddings or backbone.
+        """
         for name, param in self.model.named_parameters():
             # Freeze if not a classifier
             if 'classifier' in name.split('.')[0]:
-                # print(f"Freezing layer {name}")
                 param.requires_grad = False
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch:tuple, batch_idx:int)->Tensor:
+        """
+        Training step that handles both spindle and staging tasks.
+
+        Args:
+            batch: A tuple of two batches (for staging and spindles).
+            batch_idx (int): Index of the batch.
+
+        Returns:
+            torch.Tensor: Combined loss used for backpropagation.
+        """
         # Define the training step here
         batch_ss, batch_spindles = batch
 
@@ -125,6 +155,7 @@ class MassLightning(pl.LightningModule):
         self.log('train_spindle_acc', spindle_acc)
 
         alpha = self.config['alpha']
+        loss = None
         if self.train_choice == 'both':
             loss = alpha * spindle_loss + (1 - alpha) * ss_loss
         elif self.train_choice == 'spindles':
@@ -136,7 +167,17 @@ class MassLightning(pl.LightningModule):
 
         return loss
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch:tuple, batch_idx:int)->Tensor:
+        """
+        Validation step for collecting predictions and computing per-batch metrics.
+
+        Args:
+            batch: Validation batch tuple (input, labels).
+            batch_idx (int): Index of the batch.
+
+        Returns:
+            torch.Tensor: Combined loss for logging.
+        """
 
         start = time.time()
         vector = batch[0].to(self.device)
@@ -201,9 +242,10 @@ class MassLightning(pl.LightningModule):
         return loss
 
     def on_validation_epoch_end(self):
-        '''
-        Compute all the metrics for the validation epoch
-        '''
+        """
+        Called at the end of the validation epoch.
+        Computes and logs validation metrics including confusion matrices and classification reports.
+        """
 
         # Stack all the predictions and labels
         self.ss_val_preds = torch.stack(self.ss_val_preds, dim=0)
@@ -331,7 +373,14 @@ class MassLightning(pl.LightningModule):
         self.spindle_val_preds = []
         self.spindle_val_labels = []
 
-    def test_step(self, batch, batch_idx):
+    def test_step(self, batch:tuple, batch_idx:int):
+        """
+        Test step for inference and metric calculation.
+
+        Args:
+            batch: Test batch tuple (input, labels).
+            batch_idx (int): Index of the batch.
+        """
         # Define the test step here
         vector = batch[0].to(self.device)
         label_ss = batch[1]['sleep_stage'].to(self.device)
@@ -367,6 +416,10 @@ class MassLightning(pl.LightningModule):
         self.testing_h = h
 
     def on_test_epoch_end(self):
+        """
+        Called at the end of the test epoch.
+        Aggregates predictions and computes final test metrics including confusion matrices.
+        """
         # Define what to do at the end of a test epoch
 
         # Stack all the predictions and labels
@@ -511,18 +564,15 @@ class MassLightning(pl.LightningModule):
         self.testing_embeddings = []
 
     def configure_optimizers(self):
+        """
+        Configures the optimizer and learning rate scheduler.
+
+        Returns:
+            torch.optim.Optimizer: Configured optimizer.
+        """
         # Define your optimizer(s) and learning rate scheduler(s) here
         optimizer = optim.AdamW(self.parameters(), betas=(
             0.9, 0.99), lr=self.config['lr'], weight_decay=self.config['adamw_weight_decay'])
-        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        #     optimizer, patience=20, factor=0.5, verbose=True, mode='min')
-        # scheduler_info = {
-        #     'scheduler': scheduler,
-        #     'monitor': 'val_loss',  # Metric to monitor for LR scheduling
-        #     'interval': 'epoch',  # Adjust LR on epoch end
-        #     'frequency': 1  # Check val_loss every epoch
-        # }
-
         return optimizer
 
 
