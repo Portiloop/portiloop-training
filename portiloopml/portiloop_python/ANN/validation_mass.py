@@ -29,6 +29,7 @@ def load_model(checkpoint_ref:str, project:str, group:str, run_id:str)->tuple[Ma
     """
 
     # download checkpoint locally (if not already cached)
+    wandb.login(key=os.getenv('WANDB_API_KEY'))
     run = wandb.init(
         project=project,
         group=group,
@@ -54,12 +55,10 @@ def load_model_mass(new_run_name:str, run_id:str, group_name:str=None)->tuple[Ma
     Returns:
         tuple[MassLightning, Run]: A tuple containing the loaded model and the associated wandb Run object.
     """
-    # Log in with our wandb id
-    os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce" #TODO Add security
 
     # Get checkpoint reference
-    user = "milosobral"
-    project = "dual_model"
+    user = os.getenv('WANDB_USERNAME')
+    project = os.getenv('WANDB_PROJECT')
     artifact_name = "best"
     group = "Adapt_cc_1" if group_name is None else group_name
     run_id_val = new_run_name
@@ -71,7 +70,6 @@ def load_model_mass(new_run_name:str, run_id:str, group_name:str=None)->tuple[Ma
 
 
 if __name__ == "__main__":
-
     run_id_new = 'both_cc_limited_ss_44055'
     run_id_old = "both_cc_smallLR_1706210166"
 

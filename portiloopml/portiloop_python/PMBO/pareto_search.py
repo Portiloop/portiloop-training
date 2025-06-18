@@ -439,7 +439,6 @@ def load_network_files():
 class LoggerWandbPareto:
     def __init__(self, run_name):
         self.run_name = run_name
-        os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
         self.wandb_run = wandb.init(
             project=WANDB_PROJECT_PARETO, entity="portiloop", id=run_name, resume="allow", reinit=True)
 
