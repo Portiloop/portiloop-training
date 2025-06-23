@@ -17,6 +17,7 @@ from tqdm import tqdm
 from portiloopml.portiloop_python.ANN.data.mass_data import SleepStageDataset
 from portiloopml.portiloop_python.ANN.data.mass_data_new import (
     MassConsecutiveSampler, MassDataset)
+from portiloopml.portiloop_python.ANN.lightning_mass import MassLightning
 from portiloopml.portiloop_python.ANN.utils import set_seeds
 from portiloopml.portiloop_python.ANN.validation_mass import load_model_mass
 from portiloopml.portiloop_python.ANN.wamsley_utils import (RMS_score_all, binary_f1_score,
@@ -1289,7 +1290,31 @@ class NumpyEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def get_config_portinight(index, net):
+def get_config_portinight(index:int, net:MassLightning):
+    """
+    Generates a configuration dictionary for a specific experiment setup
+    based on the provided index and neural network configuration.
+
+    This configuration is tailored for sleep spindle detection experiments
+    and includes parameters for training, evaluation, adaptive thresholding,
+    and model fine-tuning.
+
+    Args:
+        index (int): Index specifying the experiment type. Each index maps to
+            a different combination of training strategies and thresholds.
+        net (MassLightning): A neural network model or wrapper with a `config`
+            attribute that contains relevant network hyperparameters
+            (e.g., 'seq_len', 'hidden_size', etc.).
+
+    Returns:
+        dict: A configuration dictionary containing experiment settings such as:
+            - experiment_name: (str) Human-readable name for the experiment
+            - alpha_training: (float) Degree to which learned weights are retained
+            - adapt_threshold_detect: (bool) Use of adaptable thresholding
+            - keep_net: (bool) Whether to preserve learned model weights
+            - freeze_embeddings: (bool) Freeze embedding layers during finetuning
+            - and many others, including Wamsley configuration and replay options
+    """
     experiment_names = [
         "Baseline",
         "AdaThresh",
@@ -1358,7 +1383,35 @@ def get_config_portinight(index, net):
     return config
 
 
-def get_config_mass(index, net):
+def get_config_mass(index:int, net:MassLightning)->dict:
+    """
+    Generates a configuration dictionary for a given experiment index
+    using the MASS dataset and the provided neural network configuration.
+
+    This function prepares model settings related to training behavior,
+    adaptive thresholding, sleep scoring, and Wamsley-based fine-tuning
+    specific to MASS-based experiments.
+
+    Args:
+        index (int): Identifier for the experiment configuration. Different
+            indices control aspects like training flags, threshold adaptation,
+            use of masks, and label types.
+        net (MassLightning): A PyTorch Lightning module or wrapper with a
+            `config` attribute that includes network parameters such as
+            sequence length, stride, and model architecture.
+
+    Returns:
+        dict: A configuration dictionary containing:
+            - experiment_name: (str) Descriptive label for the experiment
+            - train: (bool) Whether the model is set to training mode
+            - alpha_training: (float) Balance between learned and fixed weights
+            - adapt_threshold_detect: (bool) Use NN-based adaptive thresholding
+            - use_ss_label: (bool) Whether to use ground-truth sleep scoring labels
+            - wamsley_config: (dict) Parameters for Wamsley’s online adaptation
+            - replay_subjects: (np.ndarray) Subset of training subjects
+            - freeze_classifier: (bool) Freezes classifier layers for transfer settings
+            - ...and other flags for smoothing, adaptation intervals, and replay
+    """
     config = {
         'experiment_name': f'config_{index}',
         'num_subjects': 1,

@@ -1,16 +1,14 @@
 # Test the RMS scoring function on compute canada
-from scipy.signal import fftconvolve, butter, sosfiltfilt, filtfilt, firwin, kaiserord, kaiser_atten, kaiser_beta
-
-from matplotlib import pyplot as plt
-import numpy as np
-from tqdm import tqdm
-
-from portiloopml.portiloop_python.ANN.data.mass_data_new import MassDataset
 
 # Parse arguments from command line
 import argparse
 
+import numpy as np
+from matplotlib import pyplot as plt
+
+from portiloopml.portiloop_python.ANN.data.mass_data_new import MassDataset
 from portiloopml.portiloop_python.ANN.wamsley_utils import RMS_score_all, filter_signal_for_RMS
+
 parser = argparse.ArgumentParser(
     description='Test the RMS scoring function on compute canada')
 parser.add_argument('--data_path', type=str, help='Path to the data folder',
