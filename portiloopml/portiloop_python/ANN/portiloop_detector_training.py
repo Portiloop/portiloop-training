@@ -6,24 +6,16 @@ Main script for training an ANN.
 
 import copy
 import logging
-import os
 import random
 import time
 from argparse import ArgumentParser
 from pathlib import Path
-from random import randint, seed
 
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.model_selection import train_test_split
-from torch.nn import functional as F
-from torch.utils.data import DataLoader, Dataset
-from torch.utils.data.sampler import Sampler
 
-import wandb
 from portiloopml.portiloop_python.ANN.data.mass_data import get_dataloaders_mass
 from portiloopml.portiloop_python.ANN.data.moda_data import (
     generate_dataloader, generate_dataloader_unlabelled_offline)
@@ -32,14 +24,12 @@ from portiloopml.portiloop_python.ANN.data.reg_balancing import (
 from portiloopml.portiloop_python.ANN.models.lstm import PortiloopNetwork
 from portiloopml.portiloop_python.ANN.utils import LoggerWandb, get_configs, get_metrics, set_seeds
 
-
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
 
 # all classes and functions:
 
-
-def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation, threshold, out_features, recurrent=True):
+def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, batch_size_validation, threshold, out_features, recurrent=True):
     """
     Runs a validation inference over a whole dataset and returns the loss and accuracy.
     Aslo returns fp, fn, tp, tn count for spindles
@@ -283,7 +273,6 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
             device_val,
             hidden_size,
             nb_rnn_layers,
-            classification,
             config_dict['batch_size_validation'],
             config_dict['threshold'],
             config_dict['out_features'],
@@ -585,8 +574,7 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
 
         output_validation, labels_validation, loss_validation = run_inference(validation_loader, criterion, net,
                                                                               device_val, hidden_size,
-                                                                              nb_rnn_layers, classification,
-                                                                              batch_size_validation, config_dict['threshold'], recurrent=recurrent)
+                                                                              nb_rnn_layers, batch_size_validation, config_dict['threshold'], recurrent=recurrent)
         accuracy_validation, f1_validation, precision_validation, recall_validation = get_metrics(
             output_validation, labels_validation)
 
@@ -727,6 +715,50 @@ def run_offline_unlabelled(config_dict, path_experiments, unlabelled_segment):
 
 
 if __name__ == "__main__":
+    """
+    Script entry point for running EEG sequence classification experiments.
+
+    This script handles argument parsing, experiment configuration,
+    random seed initialization, logging setup, and execution of the training pipeline.
+    It supports both command-line usage and module import (e.g., for ablation or internal testing).
+
+    Usage:
+        Run from the command line:
+            python portiloop_detector_training.py --experiment_name my_experiment --seed 42 --output_file log.txt
+
+    Arguments:
+        --experiment_group   (str) : Optional WandB group name for experiment grouping.
+        --experiment_name    (str) : Name of the experiment to select a configuration (default: 'test').
+        --output_file        (str) : Optional path to save logs to a file.
+        --seed               (int) : Seed for reproducibility; use -1 to randomly generate one.
+        --test_set / --no_test_set : Flag to include or exclude a test set (default: included).
+
+    Main Workflow:
+        1. Parses CLI arguments.
+        2. Initializes logging (to console or file).
+        3. Sets random seeds for reproducibility.
+        4. Loads experiment configuration using `get_configs`.
+        5. Manually overrides selected config values (e.g., hidden size, number of layers).
+        6. Launches the experiment using the `run` function.
+
+    Constants (for import context):
+        ABLATION (int) : Flag for ablation setting when imported.
+        PHASE (str)    : Data phase (e.g., 'full').
+        TEST_SET (bool): Whether test set is used.
+        filename_regression_dataset      : Filename for regression dataset list.
+        filename_classification_dataset  : Filename for classification dataset list.
+        subject_list, subject_list_p1/p2 : Lists of subjects used in the experiment.
+
+    Functions used (assumed to be imported):
+        - set_seeds(seed)
+        - get_configs(name, test_set, seed)
+        - run(config_dict, wandb_project, ...)
+
+    Note:
+        - Requires dependencies like `argparse`, `random`, `logging`, and external experiment utilities.
+        - Ensure dataset and config files are correctly located before execution.
+
+    """
     parser = ArgumentParser()
     parser.add_argument('--experiment_group', type=str, default=None)
     parser.add_argument('--experiment_name', type=str, default='test')
@@ -779,10 +811,6 @@ else:
     ABLATION = 0
     PHASE = 'full'
     TEST_SET = True
-
-    # threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
-    # THRESHOLD = threshold_list[PHASE]
-    # WANDB_PROJECT_RUN = f"tests_yann"
 
     filename_regression_dataset = f"dataset_regression_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
     filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"

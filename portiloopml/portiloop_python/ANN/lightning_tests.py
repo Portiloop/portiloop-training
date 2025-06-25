@@ -27,10 +27,10 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 
 class SleepStageDataset(Dataset):
     def __init__(self, subjects, data, labels, seq_len, window_size, freq):
-        '''
-        This class takes in a list of subject, a path to the MASS directory 
+        """
+        This class takes in a list of subject, a path to the MASS directory
         and reads the files associated with the given subjects as well as the sleep stage annotations
-        '''
+        """
         super().__init__()
 
         self.seq_len = seq_len
@@ -188,8 +188,23 @@ def load_model(run_id, user='milosobral', project='sleep_staging_portiloop', ver
 
 
 if __name__ == "__main__":
+    """
+    Main script for training the SleepStagingModel using PyTorch Lightning and logging with Weights & Biases (W&B).
+
+    Workflow:
+    1. Logs in to W&B using the API key from environment variables.
+    2. Sets a global random seed for reproducibility.
+    3. Defines the training configuration including model architecture and training parameters.
+    4. Loads the Sleep-EDF dataset using a data loader function.
+    5. Initializes W&B experiment logging and model checkpointing.
+    6. Trains the model with the specified configuration, logging metrics to W&B.
+
+    Note:
+    - Make sure the WANDB_API_KEY environment variable is set before running.
+    - Modify `get_sleepedf_loaders` and model class `SleepStagingModel` as needed for your setup.
+    """
     # Wandb stuff
-    os.environ['WANDB_API_KEY'] = "a74040bb77f7705257c1c8d5dc482e06b874c5ce"
+    wandb.login(key=os.getenv('WANDB_API_KEY'))
     seed = 42
     set_seeds(seed)
     project_name = "sleep_staging_portiloop"
@@ -198,7 +213,6 @@ if __name__ == "__main__":
     config = {
         'batch_size': 15,
         'freq': 100,
-        # 'inception': [16, 8, 16, 16, 32, 16],
         'lr': 1e-4,
         'num_heads': 8,
         'num_layers': 1,
@@ -215,46 +229,6 @@ if __name__ == "__main__":
     # Load the data
     unfiltered_mass = "/project/portiloop_transformer/transformiloop/dataset/MASS_preds/"
     path_dataset = "/project/portiloop-training/portiloopml/dataset"
-
-    # ss_labels = read_sleep_staging_labels(path_dataset)
-    # # Divide subjects between test and validation
-    # max_subjects = -1
-    # subjects = list(ss_labels.keys()) if max_subjects == \
-    #     -1 else list(ss_labels.keys())[:max_subjects]
-
-    # random.shuffle(subjects)
-    # cutoff = int(len(subjects) * 0.8)
-    # test_subjects = subjects[:cutoff]
-    # val_subjects = subjects[cutoff:]
-
-    # data = read_pretraining_dataset(unfiltered_mass, patients_to_keep=subjects)
-
-    # dataset = SleepStageDataset(
-    #     test_subjects, data, ss_labels, config['seq_len'], config['window_size'], config['freq'])
-    # test_dataset = SleepStageDataset(
-    #     val_subjects, data, ss_labels, config['seq_len'], config['window_size'], config['freq'])
-    # sampler = SSValidationSampler(
-    #     dataset, 1000, config['batch_size'])
-    # test_sampler = SSValidationSampler(
-    #     test_dataset, 1000, config['batch_size'])
-
-    # loader = DataLoader(
-    #     dataset=dataset,
-    #     batch_size=config['batch_size'],
-    #     sampler=sampler,
-    #     num_workers=0,
-    #     pin_memory=True,
-    #     drop_last=True
-    # )
-
-    # test_loader = DataLoader(
-    #     dataset=test_dataset,
-    #     batch_size=config['batch_size'],
-    #     sampler=test_sampler,
-    #     num_workers=0,
-    #     pin_memory=True,
-    #     drop_last=True
-    # )
 
     print("Loading data...")
     train_loader, test_loader, loss_weights = get_sleepedf_loaders(82, config)
@@ -279,6 +253,3 @@ if __name__ == "__main__":
                          logger=wandb_logger, callbacks=[checkpoint_callback])  # , fast_dev_run=10
 
     trainer.fit(model, train_loader, test_loader)
-
-    # model = load_model('Original_params_1692894764.8012033')
-    # model.train()

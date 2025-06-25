@@ -10,6 +10,7 @@ from torch.utils.data import Dataset, DataLoader, Sampler, RandomSampler
 
 class SleepStageSampler(Sampler):
     def __init__(self, dataset, nb_batch_per_epoch, batch_size):
+        super().__init__()
         self.dataset = dataset
         self.max_len = len(dataset)
         self.limit = nb_batch_per_epoch * batch_size
@@ -35,6 +36,7 @@ class SleepStageSampler(Sampler):
 
 class SSValidationSampler(Sampler):
     def __init__(self, dataset, nb_batch_per_epoch, batch_size):
+        super().__init__()
         self.dataset = dataset
         self.max_len = len(dataset)
         self.limit = nb_batch_per_epoch * batch_size
@@ -85,30 +87,6 @@ def get_sleepedf_loaders(num_subjects, config):
 
     path = '/home/ubuntu/portiloop-training/portiloopml/dataset/eeg_fpz_cz'
 
-    # train_dataset = SeqDataset(
-    #     train_subjects, path, config['seq_len'])
-
-    # test_dataset = SeqDataset(
-    #     test_subjects, path, config['seq_len'])
-
-    # train_loader = DataLoader(
-    #     train_dataset,
-    #     batch_size=config['batch_size'],
-    #     sampler=RandomSampler(train_dataset),
-    #     num_workers=0,
-    #     pin_memory=True,
-    #     drop_last=True
-    # )
-
-    # test_loader = DataLoader(
-    #     test_dataset,
-    #     batch_size=config['batch_size'],
-    #     sampler=RandomSampler(test_dataset),
-    #     num_workers=0,
-    #     pin_memory=True,
-    #     drop_last=True
-    # )
-
     train_dataset = SleepEDFDataset(
         train_subjects, path, config['seq_len'], config['window_size'])
 
@@ -150,7 +128,7 @@ def get_sleepedf_loaders_keras(num_subjects, config):
     train_subjects = list(range(num_train_subjects))
     test_subjects = list(range(num_train_subjects, num_subjects))
 
-    path = '/home/ubuntu/portiloop-training/portiloopml/dataset/eeg_fpz_cz'
+    path = os.path.join(os.path.dirname(__file__), '../../../dataset/eeg_fpz_cz')
 
     train_dataset = SeqDataset(
         train_subjects, path, config['seq_len'])
@@ -170,37 +148,10 @@ def get_sleepedf_loaders_keras(num_subjects, config):
     test_loader = DataLoader(
         test_dataset,
         batch_size=1,
-        # sampler=RandomSampler(test_dataset, num_samples=64 * 1000),
         num_workers=0,
         pin_memory=True,
         drop_last=True
     )
-
-    # train_dataset = SleepEDFDataset(
-    #     train_subjects, path, config['seq_len'], config['window_size'])
-
-    # test_dataset = SleepEDFDataset(
-    #     test_subjects, path, config['seq_len'], config['window_size'])
-
-    # train_loader = DataLoader(
-    #     train_dataset,
-    #     batch_size=1,
-    #     sampler=SleepStageSampler(
-    #         train_dataset, 10000000000000, 1),
-    #     num_workers=0,
-    #     pin_memory=True,
-    #     drop_last=True
-    # )
-
-    # test_loader = DataLoader(
-    #     test_dataset,
-    #     batch_size=1,
-    #     sampler=SSValidationSampler(
-    #         test_dataset, 64 * 1000, 1),
-    #     num_workers=0,
-    #     pin_memory=True,
-    #     drop_last=True
-    # )
 
     train_loader = pytorch_generator_to_keras(train_loader)
     test_loader = pytorch_generator_to_keras(test_loader)
@@ -318,10 +269,8 @@ def get_subject_files(dataset, files, sid):
     # Pattern of the subject files from different datasets
     if "mass" in dataset:
         reg_exp = f".*-00{str(sid+1).zfill(2)} PSG.npz"
-        # reg_exp = "SS3_00{}\.npz$".format(str(sid+1).zfill(2))
     elif "sleepedf" in dataset:
-        reg_exp = f"S[C|T][4|7]{str(sid).zfill(2)}[a-zA-Z0-9]+\.npz$"
-        # reg_exp = "[a-zA-Z0-9]*{}[1-9]E0\.npz$".format(str(sid).zfill(2))
+        reg_exp = rf"S[C|T][4|7]{str(sid).zfill(2)}[a-zA-Z0-9]+\.npz$"
     elif "isruc" in dataset:
         reg_exp = f"subject{sid+1}.npz"
     else:
@@ -365,22 +314,53 @@ def load_data(subject_files):
 
 
 if __name__ == "__main__":
-    path = '/project/tinysleepnet/data/sleepedf/sleep-cassette/eeg_fpz_cz'
+    """
+    Main execution block for testing and validating the SeqDataset class
+    and associated data loaders on the Sleep-EDF dataset.
+
+    This script performs the following steps:
+    1. Resolves the dataset path relative to the current file.
+    2. Initializes a SeqDataset instance with a small subset of subjects.
+    3. Verifies the shape of dataset samples against expected dimensions.
+    4. Initializes train and test data loaders using Keras-compatible format.
+    5. Fetches and prints the shape of a sample batch from the train loader.
+
+    Usage:
+        Run this script directly to test data loading and verify dataset integrity.
+
+    Assumptions:
+    - EEG dataset (.npz format) is located at '../../../dataset/eeg_fpz_cz'
+    - Files follow naming conventions matching expected subject IDs.
+    - SeqDataset and get_sleepedf_loaders_keras are defined and imported.
+
+    Expected data shape:
+        Sample tensor: (seq_len, 1, window_size)
+        where:
+            - seq_len: Number of sequential epochs per sample
+            - window_size: Length of each epoch (e.g., 30 seconds × 100Hz)
+
+    Raises:
+        AssertionError: If any sample in the dataset does not match expected shape.
+        FileNotFoundError: If the dataset path is incorrect or missing.
+
+    """
+    path = os.path.join(os.path.dirname(__file__), '../../../dataset/eeg_fpz_cz')
     subjects = [0]
     seq_len = 1
     window_size = 30 * 100
     dataset = SeqDataset(subjects, path, seq_len)
 
     print(len(dataset))
-    # test = dataset[100000]
 
     test = dataset[0]
 
     for i in range(len(dataset)):
         test = dataset[i]
+        print("Assertion " + str(i) + " passed." if test[0].shape == (
+            seq_len, 1, window_size) else "Assertion " + str(i) + " failed.")
         assert test[0].shape == (seq_len, 1, window_size)
 
-    train_loader, test_loader, weights = get_sleepedf_loaders_keras(
+    train_loader, test_loader= get_sleepedf_loaders_keras(
         2, {'batch_size': 32, 'seq_len': 50, 'window_size': 30 * 100})
 
     test = next(iter(train_loader))

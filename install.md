@@ -37,3 +37,7 @@ Restart your env.
 
 > deactivate \
 > source <virtual-environment-name>/bin/activate
+
+Make sure Weight and Biases is in online mode
+
+> wandb online
