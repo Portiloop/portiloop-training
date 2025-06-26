@@ -293,6 +293,6 @@ if __name__ == "__main__":
     h = torch.zeros(config['nb_rnn_layers'], config['batch_size'],
                     config['hidden_size']).to(config['device_train'])
     start = time.time()
-    res_x, res_h, _ = model(x, h)
+    res_x, res_h, _, _ = model(x, h)
     end = time.time()
     print("Time taken: ", end - start)
