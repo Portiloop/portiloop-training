@@ -172,11 +172,34 @@ class PortiloopNetwork(nn.Module):
             fc_sleep_stage,
         )
 
-    def forward(self, x, h, past_x=None, max_value=np.inf, run_classifiers=True):
-        # x: input data (batch_size, sequence_len, features)
-        # h: hidden state of the GRU (nb_rnn_layers, batch_size, hidden_size)
-        # past_x: accumulated past embeddings (batch_size, any_seq_len, features)
-        # max_value (optional) : print the maximal value reach during inference (used to verify if the FPGA implementation precision is enough)
+    def forward(self, x:torch.Tensor, h:torch.Tensor, run_classifiers:bool=True)->tuple[torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor]:
+        """
+        Perform a forward pass through the model.
+
+        This method processes input data through a series of CNN, GRU, and
+        linear layers to generate embeddings and optionally classify sleep
+        spindles and sleep stages.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape
+                (batch_size, sequence_len, in_channels, features), typically
+                representing a sequence of EEG or similar time-series data.
+            h (torch.Tensor): Hidden state for the GRU, of shape
+                (num_layers, batch_size, hidden_size).
+            run_classifiers (bool): Whether to run the classifier heads
+                (for spindles and sleep stage). If False, returns None
+                for classification outputs.
+
+        Returns:
+            out_spindles (torch.Tensor or None): Output from the spindle
+                classifier, or None if `run_classifiers` is False.
+            out_sleep_stage (torch.Tensor or None): Output from the sleep
+                stage classifier, or None if `run_classifiers` is False.
+            h (torch.Tensor): Updated GRU hidden state.
+            embedding (torch.Tensor): Final feature embedding of shape
+                (batch_size, embedding_dim), derived from the GRU output.
+
+        """
         (batch_size, sequence_len, in_channels, features) = x.shape
 
         x = x.view(-1, in_channels, features)
@@ -195,11 +218,6 @@ class PortiloopNetwork(nn.Module):
         out_sleep_stage = self.classifier_sleep_stage(
             embedding) if run_classifiers else None
 
-        # Returns:
-        #   - the spindle classifier output (Shape (batch_size, 1))
-        #   - the sleep stage classifier output (Shape (batch_size, 5))
-        #   - the hidden state(s) of the GRU(s) (Shape (nb_rnn_layers, batch_size, hidden_size))
-        #   - the embedding of the sequence (Shape (batch_size, hidden_size))
         return out_spindles, out_sleep_stage, h, embedding
 
 
