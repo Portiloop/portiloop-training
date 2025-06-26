@@ -360,7 +360,7 @@ def get_final_model_config_dict(index=0, split_i=0):
 
 def get_configs(exp_name, test_set, seed_exp):
     """
-    Get the configuration dictionaries containgin information about:
+    Get the configuration dictionaries containning information about:
         - Paths where data is stored
         - Model info
         - Data info
@@ -402,6 +402,7 @@ def get_configs(exp_name, test_set, seed_exp):
         'RNN': True,
         'envelope_input': False,
         'classification': True,
+        'train_all_ss': False,
 
         # CNN stuff
         'nb_conv_layers': 3,
@@ -447,7 +448,7 @@ def get_configs(exp_name, test_set, seed_exp):
         'seq_stride_s': 0.170,
         'window_size_s': 0.218,
         'len_segment_s': 115,
-        'out_features': 1,  # Number of output features
+        'out_features': 1,  # Number of output feature
     }
 
     return config

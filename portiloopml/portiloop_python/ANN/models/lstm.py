@@ -88,7 +88,6 @@ class PortiloopNetwork(nn.Module):
         self.envelope_input = c_dict["envelope_input"]
         self.power_features_input = c_dict["power_features_input"]
         self.classification = c_dict["classification"]
-        n_heads = c_dict["n_heads"]
         self.after = c_dict['after_rnn']
         train_all_ss = c_dict['train_all_ss']
 
@@ -140,7 +139,6 @@ class PortiloopNetwork(nn.Module):
 
         fc_features = 0
         fc_features += hidden_size
-        out_features = c_dict['out_features']
 
         in_fc = fc_features
         self.embed = nn.Sequential(
