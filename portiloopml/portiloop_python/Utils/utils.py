@@ -159,6 +159,7 @@ def sample_config_dict(name:str, previous_exp:dict, all_exp:list)->tuple[dict, d
     config_dict["reg_balancing"] = 'none'
     config_dict["split_idx"] = 0
     config_dict["validation_divider"] = 10
+    config_dict["train_all_ss"] = False
 
     flag_in_exps = True
     nb_out = 0
@@ -234,6 +235,7 @@ def sample_config_dict(name:str, previous_exp:dict, all_exp:list)->tuple[dict, d
             pool_padding = 0  # int(kernel_pool // 2)
             window_size = int(window_size_s * fe)
             nb_out = window_size
+            config_dict["window_size"] = window_size
 
             for _ in range(nb_conv_layers):
                 nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)

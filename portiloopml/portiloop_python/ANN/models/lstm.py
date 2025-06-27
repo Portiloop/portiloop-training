@@ -68,7 +68,6 @@ class PortiloopNetwork(nn.Module):
         kernel_conv = c_dict["kernel_conv"]
         kernel_pool = c_dict["kernel_pool"]
         nb_channel = c_dict["nb_channel"]
-        in_channels = c_dict["in_channels"]
         hidden_size = c_dict["hidden_size"]
         window_size_s = c_dict["window_size_s"]
         dropout_p = c_dict["dropout"]
@@ -81,7 +80,6 @@ class PortiloopNetwork(nn.Module):
         self.envelope_input = c_dict["envelope_input"]
         self.power_features_input = c_dict["power_features_input"]
         self.classification = c_dict["classification"]
-        self.after = c_dict['after_rnn']
         train_all_ss = c_dict['train_all_ss']
 
         conv_padding = 0  # int(kernel_conv // 2)

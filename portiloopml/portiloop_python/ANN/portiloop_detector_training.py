@@ -370,7 +370,7 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
     return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
 
 
-def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, wandb_group:str)->tuple[float, float, int]:
+def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, wandb_group:str=None)->tuple[float, float, int]:
     """
     Trains and validates a Portiloop neural network model based on the provided configuration.
 

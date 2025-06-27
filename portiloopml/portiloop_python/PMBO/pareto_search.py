@@ -440,7 +440,7 @@ class LoggerWandbPareto:
     def __init__(self, run_name):
         self.run_name = run_name
         self.wandb_run = wandb.init(
-            project=WANDB_PROJECT_PARETO, entity="portiloop", id=run_name, resume="allow", reinit=True)
+            project=WANDB_PROJECT_PARETO, entity=os.getenv("WANDB_USERNAME"), id=run_name, resume="allow", reinit=True)
 
     def log(self,
             surrogate_loss,
