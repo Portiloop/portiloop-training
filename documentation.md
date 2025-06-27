@@ -394,8 +394,8 @@ Results aggregation
 
 ### 1. Single Experiment
 ```python
-from ANN.portiloop_detector_training import run
-from Utils.utils import sample_config_dict
+from portiloopml.portiloop_python.ANN.portiloop_detector_training import run
+from portiloopml.portiloop_python.Utils.utils import sample_config_dict
 
 config = sample_config_dict("experiment_name", {}, [])
 results = run(config, "project_name", save_model=True, unique_name=True)
@@ -410,7 +410,7 @@ python PMBO/pareto_network.py --worker  # Start workers
 
 ### 3. Lightning Training
 ```python
-from ANN.lightning_mass import MassLightning
+from portiloopml.portiloop_python.ANN.lightning_mass import MassLightning
 from pytorch_lightning import Trainer
 
 model = MassLightning(config)

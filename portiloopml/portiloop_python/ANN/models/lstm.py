@@ -269,11 +269,24 @@ class WaveletCNN(nn.Module):
 
 
 if __name__ == "__main__":
+    """
+    Entry point for testing the forward pass of the PortiloopNetwork model.
+
+    This script:
+    - Loads a test configuration using `get_configs`
+    - Initializes a PortiloopNetwork model with specified parameters
+    - Generates a random input tensor representing EEG-like time series data
+    - Runs a forward pass through the model
+    - Measures and prints the time taken for the forward pass
+
+    Purpose:
+        Useful for verifying model initialization, forward pass behavior, and performance.
+
+    Note:
+        Ensure CUDA is available and the device specified in the config is correct.
+    """
 
     config = get_configs("Test", True, 42)
-    # config['nb_conv_layers'] = 4
-    # config['hidden_size'] = 64
-    # config['nb_rnn_layers'] = 4
     config['hidden_size'] = 64
     config['after_rnn'] = 'hidden'
 

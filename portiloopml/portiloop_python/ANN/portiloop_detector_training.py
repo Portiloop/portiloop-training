@@ -425,14 +425,12 @@ def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, 
     logging.debug(f"config_dict: {config_dict}")
     experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}" if unique_name else config_dict['experiment_name']
     nb_epoch_max = config_dict["nb_epoch_max"]
-    nb_batch_per_epoch = config_dict["nb_batch_per_epoch"]
     nb_epoch_early_stopping_stop = config_dict["nb_epoch_early_stopping_stop"]
     early_stopping_smoothing_factor = config_dict["early_stopping_smoothing_factor"]
     batch_size = config_dict["batch_size"]
     seq_len = config_dict["seq_len"]
     window_size_s = config_dict["window_size_s"]
     fe = config_dict["fe"]
-    seq_stride_s = config_dict["seq_stride_s"]
     lr_adam = config_dict["lr_adam"]
     hidden_size = config_dict["hidden_size"]
     device_val = config_dict["device_val"]
@@ -470,7 +468,6 @@ def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, 
 
     criterion = nn.MSELoss(
         reduction='none') if not classification else nn.BCELoss(reduction='none')
-    # criterion = nn.MSELoss() if not classification else nn.BCELoss()
     optimizer = optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)
     best_loss_early_stopping = 1
     best_epoch_early_stopping = 0
@@ -501,7 +498,6 @@ def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, 
         best_model_on_loss_loss_validation = checkpoint['best_model_on_loss_loss_validation']
         best_model_f1_score_validation = checkpoint['best_model_f1_score_validation']
     except (ValueError, FileNotFoundError, RuntimeError):
-        #    net = PortiloopNetwork(config_dict).to(device=device_train)
         logging.debug("Create new model")
     net = net.train()
     nb_weights = 0
