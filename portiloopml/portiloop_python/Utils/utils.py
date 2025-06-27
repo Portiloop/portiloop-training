@@ -1,6 +1,7 @@
 import logging
 from copy import deepcopy
 from math import floor
+from pathlib import Path
 from random import choices, uniform, gauss
 
 MIN_NB_PARAMETERS = 1000  # everything below this number of parameters will be discarded
@@ -249,6 +250,8 @@ def sample_config_dict(name:str, previous_exp:dict, all_exp:list)->tuple[dict, d
 
     config_dict["nb_out"] = nb_out
     config_dict["time_in_past"] = config_dict["seq_len"] * config_dict["seq_stride_s"]
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+    config_dict["dataset_path"] = str(PROJECT_ROOT / "dataset" / "MASS")
 
     return config_dict, unrounded
 
