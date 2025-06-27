@@ -161,6 +161,7 @@ def sample_config_dict(name:str, previous_exp:dict, all_exp:list)->tuple[dict, d
     config_dict["split_idx"] = 0
     config_dict["validation_divider"] = 10
     config_dict["train_all_ss"] = False
+    config_dict["subject_list"] = all_exp
 
     flag_in_exps = True
     nb_out = 0
