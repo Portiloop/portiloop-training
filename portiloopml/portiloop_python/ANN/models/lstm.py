@@ -1,17 +1,10 @@
-# import copy
-# import logging
-from math import floor
-from pathlib import Path
 import time
+from math import floor
 
-import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-# from torchsummary import summary
 
-# from portiloopml.portiloop_python.ANN.models.model_blocks import (
-#     AttentionLayer, FullAttention, TransformerEncoderLayer)
 from portiloopml.portiloop_python.ANN.utils import get_configs
 
 ABLATION = 0

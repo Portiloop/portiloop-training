@@ -370,7 +370,55 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
     return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
 
 
-def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
+def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, wandb_group:str)->tuple[float, float, int]:
+    """
+    Trains and validates a Portiloop neural network model based on the provided configuration.
+
+    This function manages the full training loop, early stopping, optional reweighting strategies
+    for regression/classification, and model checkpointing. It supports continuing from saved models
+    and logs metrics using Weights & Biases (W&B).
+
+    Args:
+        config_dict (dict): Configuration dictionary containing hyperparameters and other settings,
+            such as:
+                - experiment_name (str)
+                - nb_epoch_max (int)
+                - nb_batch_per_epoch (int)
+                - nb_epoch_early_stopping_stop (int)
+                - early_stopping_smoothing_factor (float)
+                - batch_size (int)
+                - seq_len (int)
+                - window_size_s (float)
+                - fe (int): Feature extraction rate (Hz)
+                - seq_stride_s (float)
+                - lr_adam (float)
+                - hidden_size (int)
+                - device_val (str)
+                - device_train (str)
+                - max_duration (int): Maximum duration for training in seconds
+                - nb_rnn_layers (int)
+                - adam_w (float): AdamW weight decay
+                - distribution_mode (int)
+                - classification (bool)
+                - reg_balancing (str): 'none', 'lds', or 'sr'
+                - path_models (Path)
+                - path_dataset (Path)
+                - envelope_input (bool)
+                - threshold (float)
+        wandb_project (str): Name of the W&B project.
+        save_model (bool): Whether to save model checkpoints.
+        unique_name (bool): If True, appends timestamp to the experiment name.
+        wandb_group (str): W&B group name to organize experiments.
+
+    Returns:
+        tuple:
+            - best_model_loss_validation (float): Best validation loss achieved.
+            - best_model_f1_score_validation (float): Best F1 score on validation.
+            - best_epoch_early_stopping (int): Epoch where early stopping was triggered.
+
+    Raises:
+        AssertionError: If reg_balancing is invalid or required CUDA device is unavailable.
+    """
     global precision_validation_factor
     global recall_validation_factor
     _t_start = time.time()
@@ -395,8 +443,6 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
     distribution_mode = config_dict["distribution_mode"]
     classification = config_dict["classification"]
     reg_balancing = config_dict["reg_balancing"]
-    split_idx = config_dict["split_idx"]
-    validation_network_stride = config_dict["validation_network_stride"]
 
     assert reg_balancing in {'none', 'lds',
                              'sr'}, f"wrong key: {reg_balancing}"
@@ -410,7 +456,6 @@ def run(config_dict, wandb_project, save_model, unique_name, wandb_group):
         balancer_type = 2
 
     window_size = int(window_size_s * fe)
-    seq_stride = int(seq_stride_s * fe)
 
     if device_val.startswith("cuda") or device_train.startswith("cuda"):
         assert torch.cuda.is_available(), "CUDA unavailable"
