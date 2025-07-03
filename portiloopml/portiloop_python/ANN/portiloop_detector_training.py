@@ -27,9 +27,11 @@ from portiloopml.portiloop_python.ANN.utils import LoggerWandb, get_configs, get
 recall_validation_factor = 0.5
 precision_validation_factor = 0.5
 
+
 # all classes and functions:
 
-def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, batch_size_validation, threshold, out_features, recurrent=True):
+def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, batch_size_validation, threshold,
+                  out_features, recurrent=True):
     """
     Runs a validation inference over a whole dataset and returns the loss and accuracy.
     Aslo returns fp, fn, tp, tn count for spindles
@@ -102,7 +104,8 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
     return output_total, batch_labels_total, loss
 
 
-def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rnn_layers, classification, batch_size_validation):
+def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rnn_layers, classification,
+                                     batch_size_validation):
     """
     Simply run inference on an unlabelled dataset
     """
@@ -112,9 +115,9 @@ def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rn
     true_idx_total = torch.tensor([], device=device)
     output_total = torch.tensor([], device=device)
     h1 = torch.zeros((nb_rnn_layers, batch_size_validation,
-                     hidden_size), device=device)
+                      hidden_size), device=device)
     h2 = torch.zeros((nb_rnn_layers, batch_size_validation,
-                     hidden_size), device=device)
+                      hidden_size), device=device)
     max_value = np.inf
     with torch.no_grad():
         for batch_data in dataloader:
@@ -140,7 +143,8 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
     global recall_validation_factor
     _t_start = time.time()
     logging.debug(f"config_dict: {config_dict}")
-    experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}" if unique_name else config_dict['experiment_name']
+    experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}" if unique_name else config_dict[
+        'experiment_name']
     nb_epoch_max = config_dict["nb_epoch_max"]
     nb_batch_per_epoch = config_dict["nb_batch_per_epoch"]
     nb_epoch_early_stopping_stop = config_dict["nb_epoch_early_stopping_stop"]
@@ -215,7 +219,7 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
             for batch_data in train_loader:
                 end = time.time()
                 start = time.time()
-                batch_samples_input1, _, _,  batch_labels = batch_data
+                batch_samples_input1, _, _, batch_labels = batch_data
                 batch_samples_input1 = batch_samples_input1.to(
                     device=device_train).float()
 
@@ -329,7 +333,7 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
             best_model_on_loss_accuracy = accuracy_validation
 
         loss_early_stopping = loss_validation if loss_early_stopping is None and early_stopping_smoothing_factor == 1 else loss_validation if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
-            1.0 - early_stopping_smoothing_factor)
+                1.0 - early_stopping_smoothing_factor)
 
         if loss_early_stopping < best_loss_early_stopping:
             best_loss_early_stopping = loss_early_stopping
@@ -370,7 +374,8 @@ def train(train_loader, val_loader, model, recurrent, logger, save_model, unique
     return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
 
 
-def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, wandb_group:str=None)->tuple[float, float, int]:
+def run(config_dict: dict, wandb_project: str, save_model: bool, unique_name: bool, wandb_group: str = None) -> tuple[
+    float, float, int]:
     """
     Trains and validates a Portiloop neural network model based on the provided configuration.
 
@@ -423,7 +428,8 @@ def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, 
     global recall_validation_factor
     _t_start = time.time()
     logging.debug(f"config_dict: {config_dict}")
-    experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}" if unique_name else config_dict['experiment_name']
+    experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}" if unique_name else config_dict[
+        'experiment_name']
     nb_epoch_max = config_dict["nb_epoch_max"]
     nb_epoch_early_stopping_stop = config_dict["nb_epoch_early_stopping_stop"]
     early_stopping_smoothing_factor = config_dict["early_stopping_smoothing_factor"]
@@ -507,7 +513,7 @@ def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, 
     if config_dict["envelope_input"]:
         has_envelope = 2
     config_dict["estimator_size_memory"] = nb_weights * \
-        window_size * seq_len * batch_size * has_envelope
+                                           window_size * seq_len * batch_size * has_envelope
 
     # Choose dataset to use
     train_loader, validation_loader, batch_size_validation, _, _, _ = generate_dataloader(
@@ -523,7 +529,8 @@ def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, 
         # validation_loader = validation_loader_mass
 
     if balancer_type == 1:
-        lds = LabelDistributionSmoothing(c=1.0, dataset=train_loader.dataset, weights=None, kernel_size=5, kernel_std=0.01, nb_bins=100,
+        lds = LabelDistributionSmoothing(c=1.0, dataset=train_loader.dataset, weights=None, kernel_size=5,
+                                         kernel_std=0.01, nb_bins=100,
                                          weighting_mode='inv_sqrt')
     elif balancer_type == 2:
         sr = SurpriseReweighting(weights=None, nb_bins=100, alpha=1e-3)
@@ -615,7 +622,9 @@ def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, 
 
         output_validation, labels_validation, loss_validation = run_inference(validation_loader, criterion, net,
                                                                               device_val, hidden_size,
-                                                                              nb_rnn_layers, batch_size_validation, config_dict['threshold'], recurrent=recurrent)
+                                                                              nb_rnn_layers, batch_size_validation,
+                                                                              config_dict['threshold'],
+                                                                              recurrent=recurrent)
         accuracy_validation, f1_validation, precision_validation, recall_validation = get_metrics(
             output_validation, labels_validation)
 
@@ -667,7 +676,7 @@ def run(config_dict:dict, wandb_project:str, save_model:bool, unique_name:bool, 
             best_model_on_loss_accuracy = accuracy_validation
 
         loss_early_stopping = loss_validation if loss_early_stopping is None and early_stopping_smoothing_factor == 1 else loss_validation if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
-            1.0 - early_stopping_smoothing_factor)
+                1.0 - early_stopping_smoothing_factor)
 
         if loss_early_stopping < best_loss_early_stopping:
             best_loss_early_stopping = loss_early_stopping
