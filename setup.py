@@ -24,6 +24,7 @@ install_requires = [
     'transformers',
     'torchvision',
     'wonambi'
+    'numpy'
 ]
 
 setup(name='portiloopml',
