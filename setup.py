@@ -23,7 +23,7 @@ install_requires = [
     'torchsummary',
     'transformers',
     'torchvision',
-    'wonambi'
+    'wonambi',
     'numpy'
 ]
 
