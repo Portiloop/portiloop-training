@@ -809,6 +809,7 @@ if __name__ == "__main__":
         - Ensure dataset and config files are correctly located before execution.
 
     """
+    print("Starting Portiloop Detector Training")
     parser = ArgumentParser()
     parser.add_argument('--experiment_group', type=str, default=None)
     parser.add_argument('--experiment_name', type=str, default='test')
