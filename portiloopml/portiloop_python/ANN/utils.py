@@ -162,6 +162,7 @@ class LoggerWandb:
             group = "default"
         self.experiment_name = experiment_name
         os.environ['WANDB_API_KEY'] = os.getenv("WANDB_API_KEY")
+        self.wandb_run = None
         self.wandb_run = wandb.init(project=project_name, entity=os.getenv("WANDB_USERNAME"), id=experiment_name, resume="allow",
                                     config=c_dict, reinit=True, group=group)
         self.c_dict = c_dict
@@ -218,7 +219,8 @@ class LoggerWandb:
         #     self.wandb_run.save(os.path.join(path_dataset, self.experiment_name + "_on_loss"), policy="live", base_path=path_dataset)
 
     def __del__(self):
-        self.wandb_run.finish()
+        if(self.wandb_run != None):
+            self.wandb_run.finish()
 
     def restore(self, classif):
         if classif:
