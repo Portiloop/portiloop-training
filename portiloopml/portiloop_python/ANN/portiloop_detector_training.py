@@ -96,7 +96,7 @@ def run_inference(dataloader: torch.utils.data.DataLoader, criterion: torch.nn.M
             # Run the model
             # h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
             if recurrent:
-                output, h1, _ = net_copy(batch_samples_input1, h1)
+                output, _, h1, _ = net_copy(batch_samples_input1, h1)
             else:
                 output = net_copy(batch_samples_input1)
 
