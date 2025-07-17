@@ -30,11 +30,36 @@ precision_validation_factor = 0.5
 
 # all classes and functions:
 
-def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers, batch_size_validation, threshold,
-                  out_features, recurrent=True):
+def run_inference(dataloader: torch.utils.data.DataLoader, criterion: torch.nn.Module, net: torch.nn.Module,
+                  device: str, hidden_size: int,
+                  nb_rnn_layers: int,
+                  batch_size_validation: int,
+                  threshold: float,
+                  out_features: int,
+                  recurrent: bool = True
+                  ) -> tuple[torch.Tensor, torch.Tensor, float]:
     """
-    Runs a validation inference over a whole dataset and returns the loss and accuracy.
-    Aslo returns fp, fn, tp, tn count for spindles
+    Runs inference on a dataset using the provided model and computes the loss and predictions.
+
+    This function handles recurrent or non-recurrent models and supports binary and multi-class output.
+
+    Args:
+        dataloader (torch.utils.data.DataLoader): DataLoader for the validation dataset.
+        criterion (torch.nn.Module): Loss function to use (e.g., BCEWithLogitsLoss or MSELoss).
+        net (torch.nn.Module): Trained PyTorch model to evaluate.
+        device (str): Device to run inference on (e.g., 'cuda' or 'cpu').
+        hidden_size (int): Size of the hidden state in the RNN (if applicable).
+        nb_rnn_layers (int): Number of RNN layers (if using a recurrent model).
+        batch_size_validation (int): Batch size used for validation.
+        threshold (float): Threshold for binarizing output in binary classification.
+        out_features (int): Number of output features of the model (1 = binary, >1 = multi-class).
+        recurrent (bool, optional): Whether the model uses recurrent layers. Defaults to True.
+
+    Returns:
+        tuple[torch.Tensor, torch.Tensor, float]:
+            - output_total (torch.Tensor): Flattened model predictions across all batches.
+            - batch_labels_total (torch.Tensor): Corresponding ground truth labels.
+            - loss (float): Average loss over the validation dataset.
     """
 
     net_copy = copy.deepcopy(net)
@@ -573,7 +598,6 @@ def run(config_dict: dict, wandb_project: str, save_model: bool, unique_name: bo
 
                 output, _, _, _ = net(batch_samples_input1, h1_zero)
 
-
                 output = output.view(-1)
 
                 loss = criterion(torch.sigmoid(output), batch_labels)
@@ -625,6 +649,7 @@ def run(config_dict: dict, wandb_project: str, save_model: bool, unique_name: bo
                                                                               device_val, hidden_size,
                                                                               nb_rnn_layers, batch_size_validation,
                                                                               config_dict['threshold'],
+                                                                              out_features=1,
                                                                               recurrent=recurrent)
         accuracy_validation, f1_validation, precision_validation, recall_validation = get_metrics(
             output_validation, labels_validation)
