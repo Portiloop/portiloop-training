@@ -108,11 +108,47 @@ def binary_f1_score(baseline_index, model_index, sampling_rate=250, min_time_pos
 
 def detect_wamsley(data, mask, sampling_rate=250, thresholds=None, fixed=True, squarred=True, remove_outliers=False, threshold_multiplier=4.5):
     """
-    Detect spindles in the data using the method described in Wamsley et al. 2012
-    :param data: The data to detect spindles in
-    :param mask: The mask to apply to the data to keep only N2, N3 sleep
-    :param sampling_rate: The sampling rate of the data
-    :param thresholds: The past thresholds to use for the moving average
+    Detect sleep spindles using the method inspired by Wamsley et al. (2012).
+
+    This function performs wavelet-based detection of sleep spindles within specified frequency and
+    duration constraints. It allows for dynamic or fixed thresholding based on the moving average
+    of the signal power and supports optional outlier clipping.
+
+    Parameters:
+    ----------
+    data : np.ndarray
+        1D array of EEG signal values.
+    mask : np.ndarray or None
+        Boolean mask array to isolate N2/N3 sleep epochs for detection.
+    sampling_rate : int, optional
+        Sampling rate of the EEG signal in Hz. Default is 250 Hz.
+    thresholds : list of tuples or None, optional
+        Historical list of thresholds and their associated segment lengths. Used for weighted
+        threshold smoothing across multiple segments. Default is None.
+    fixed : bool, optional
+        If True, uses a fixed frequency band (11–16 Hz) and squared power for detection. If False,
+        uses a more restricted band (12–15 Hz) and fourth-power energy. Default is True.
+    squarred : bool, optional
+        If True and `fixed` is True, squares the real part of the transformed signal. Ignored if
+        `fixed` is False. Default is True.
+    remove_outliers : bool, optional
+        If True, clips high-power outliers before computing mean spindle power for thresholding.
+        Default is False.
+    threshold_multiplier : float, optional
+        Multiplier applied to the mean spindle power to define the detection threshold. Default is 4.5.
+
+    Returns:
+    -------
+    events : np.ndarray
+        Array of shape (n_events, 3) with start, peak, and end indices of detected spindles.
+    raw_threshold : float
+        Threshold computed from the mean spindle power for the current segment.
+    smoothed_threshold : float
+        Weighted average threshold used for detection (may equal `raw_threshold` if no history).
+    data_detect : np.ndarray
+        Processed signal used for spindle detection (e.g., wavelet power).
+    thresholds : list of tuples
+        Updated list of thresholds and segment lengths for use in future detections.
     """
     if fixed:
         frequency = (11, 16)
@@ -127,7 +163,6 @@ def detect_wamsley(data, mask, sampling_rate=250, thresholds=None, fixed=True, s
                        }
     smooth_duration = .1
     det_thresh = threshold_multiplier
-    merge_thresh = 0.3
     min_interval = 0.5  # minimum time in seconds between events
 
     thresholds = copy.deepcopy(thresholds)

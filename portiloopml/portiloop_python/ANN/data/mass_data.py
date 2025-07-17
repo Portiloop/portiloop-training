@@ -697,7 +697,7 @@ class SpindleTrainDataset(Dataset):
                 "3")) | (np.array(ss_label) == SleepStageDataset.get_labels().index("2"))
 
             # Use our implementation to find the number of spindles
-            all_wamsley_spindles, all_threshold, _merge_close = detect_wamsley(
+            all_wamsley_spindles, raw_thresh, smooth_thresh, data_detect, thresholds = detect_wamsley(
                 signal, mask)
             print(
                 f"Number of spindles for subject {subject}:\ndataset: {len(spindle_labels[subject]['onsets'])}\nOur Wamsley: {len(all_wamsley_spindles)}")
