@@ -107,7 +107,8 @@ def run_inference(dataloader: torch.utils.data.DataLoader, criterion: torch.nn.M
 
             # Compute the loss
             output = output.view(-1)
-            loss_py = criterion(output, batch_labels).mean()
+            batch_labels = batch_labels.view(-1)
+            loss_py = criterion(torch.sigmoid(output), batch_labels).mean()
             loss += loss_py.item()
 
             # Get the predictions
