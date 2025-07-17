@@ -576,7 +576,7 @@ def run(config_dict: dict, wandb_project: str, save_model: bool, unique_name: bo
 
                 output = output.view(-1)
 
-                loss = criterion(output, batch_labels)
+                loss = criterion(torch.sigmoid(output), batch_labels)
 
                 if balancer_type == 1:
                     batch_weights = lds.lds_weights_batch(batch_labels)
