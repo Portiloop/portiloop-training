@@ -571,7 +571,8 @@ def run(config_dict: dict, wandb_project: str, save_model: bool, unique_name: bo
                     batch_labels = (batch_labels > config_dict['threshold'])
                     batch_labels = batch_labels.float()
 
-                output, _, _ = net(batch_samples_input1, h1_zero)
+                output, _, _, _ = net(batch_samples_input1, h1_zero)
+
 
                 output = output.view(-1)
 
