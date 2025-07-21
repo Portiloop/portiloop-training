@@ -572,8 +572,7 @@ def run(config_dict: dict, wandb_project: str, save_model: bool, unique_name: bo
     loss_early_stopping = None
     h1_zero = torch.zeros(
         (nb_rnn_layers, batch_size, hidden_size), device=device_train)
-    epoch_nb = first_epoch*(nb_epoch_max - 1)
-    logging.debug(f"Number of epochs: {epoch_nb}")
+    logging.debug(f"Number of epochs: {nb_epoch_max}")
     for epoch in range(first_epoch, first_epoch + nb_epoch_max):
 
         logging.debug(f"epoch: {epoch}")
