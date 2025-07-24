@@ -41,3 +41,20 @@ Restart your env.
 Make sure Weight and Biases is in online mode
 
 > wandb online
+
+# How to run
+
+You need to have internet connection to use Weight and Biases and you device needs to be able to use CUDA.
+
+The model will train and adapt with every file in the portiloopml/dataset directory.
+
+To run with sbatch:
+
+> sbatch train_job.sh
+
+You can edit the train_job file to your liking.
+All parameters can be found in the portiloopml/portiloop_python/ANN/portiloop_detector_training.py main function docstring.
+
+If you wish to run with salloc you can use the parameters of the sbatch in the file train_job.sh and then use the command:
+
+> bash train_job.sh
