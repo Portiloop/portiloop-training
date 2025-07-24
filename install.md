@@ -52,6 +52,7 @@ To run with sbatch:
 
 > sbatch train_job.sh
 
+The output will be found in the sbatch_out directory
 You can edit the train_job file to your liking.
 All parameters can be found in the portiloopml/portiloop_python/ANN/portiloop_detector_training.py main function docstring.
 
