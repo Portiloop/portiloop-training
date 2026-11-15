@@ -1137,6 +1137,9 @@ def run(config_dict, wandb_project, save_model, unique_name):
                     'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
                     'best_model_f1_score_validation': best_model_f1_score_validation,
                 }, path_dataset / experiment_name, _use_new_zipfile_serialization=False)
+                if RNN and not envelope_input and not power_features_input:
+                    from portiloop_software.portiloop_python.ANN.onnx_export import export_spindle_model_to_onnx
+                    export_spindle_model_to_onnx(best_model, path_dataset / f"{experiment_name}.onnx", window_size=window_size)
                 updated_model = True
             best_model_f1_score_validation = f1_validation
             best_model_precision_validation = precision_validation
@@ -1157,6 +1160,9 @@ def run(config_dict, wandb_project, save_model, unique_name):
                     'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
                     'best_model_f1_score_validation': best_model_f1_score_validation,
                 }, path_dataset / (experiment_name + "_on_loss"), _use_new_zipfile_serialization=False)
+                if RNN and not envelope_input and not power_features_input:
+                    from portiloop_software.portiloop_python.ANN.onnx_export import export_spindle_model_to_onnx
+                    export_spindle_model_to_onnx(best_model, path_dataset / f"{experiment_name}_on_loss.onnx", window_size=window_size)
                 updated_model = True
             best_model_on_loss_f1_score_validation = f1_validation
             best_model_on_loss_precision_validation = precision_validation
@@ -1216,10 +1222,16 @@ def get_trained_model(config_dict, path_experiments):
     file_exp = experiment_name
     file_exp += "" if classification else "_on_loss"
     path_experiments = Path(path_experiments)
+    ckpt_path = path_experiments / file_exp
+    if not ckpt_path.is_file() and experiment_name.startswith("sanity_check_final_model_"):
+        idx = experiment_name.rsplit("_", 1)[-1]
+        fallback = f"pareto_search_15_35_v4_{idx}" + ("" if classification else "_on_loss")
+        if (path_experiments / fallback).is_file():
+            ckpt_path = path_experiments / fallback
     if not device_inference.startswith("cuda"):
-        checkpoint = torch.load(path_experiments / file_exp, map_location=torch.device('cpu'))
+        checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'), weights_only=False)
     else:
-        checkpoint = torch.load(path_experiments / file_exp)
+        checkpoint = torch.load(ckpt_path, weights_only=False)
     net.load_state_dict(checkpoint['model_state_dict'])
     return net
 
