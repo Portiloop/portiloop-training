@@ -47,14 +47,12 @@
     document.dispatchEvent(new Event("pl-theme-change"));
   }
 
-  const logo = '<svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2" opacity=".35"/>' +
-    '<path d="M3 16h5l2-5 3 11 3-14 3 12 2-6 2 2h6" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   const top = document.createElement("header");
   top.className = "topbar";
   top.innerHTML =
     '<button class="menu-toggle" aria-label="Open navigation">☰</button>' +
-    '<a class="brand" href="' + href("index") + '">' + logo + '<span>Portiloop tutorials</span></a>' +
+    '<a class="brand" href="' + href("index") + '"><span class="logo-word" role="img" aria-label="Portiloop"></span><span class="brand-sub">Tutorials</span></a>' +
     '<span class="spacer"></span>' +
     '<button class="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">◐</button>' +
     '<a class="icon-link" href="' + REPO + '" rel="noopener">GitHub</a>';

@@ -79,7 +79,15 @@ img, svg, canvas, video { max-width: 100%; }
   backdrop-filter: saturate(1.4) blur(8px); border-bottom: 1px solid var(--border);
 }
 .topbar .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; color: var(--fg); text-decoration: none; letter-spacing: -0.01em; }
-.topbar .brand .logo { width: 26px; height: 26px; }
+/* Portiloop logo (assets/img/portiloop-logo.svg) drawn in the text color through a mask, so it follows the light and dark themes */
+.logo-word {
+  display: inline-block; flex: none; aspect-ratio: 1190 / 437; background-color: currentColor;
+  -webkit-mask: url("../img/portiloop-logo.svg") center / contain no-repeat;
+  mask: url("../img/portiloop-logo.svg") center / contain no-repeat;
+}
+.topbar .brand .logo-word { height: 30px; }
+.topbar .brand .brand-sub { font-weight: 550; color: var(--fg-muted); padding-left: 10px; border-left: 1px solid var(--border); line-height: 1.3; }
+.hero .hero-logo { display: block; height: clamp(64px, 13vw, 112px); margin: 4px 0 20px; color: var(--fg); }
 .topbar .spacer { flex: 1; }
 .topbar a.icon-link, .topbar button {
   color: var(--fg-muted); background: none; border: 1px solid transparent; border-radius: 8px;

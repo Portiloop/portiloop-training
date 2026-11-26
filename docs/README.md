@@ -26,6 +26,7 @@ docs/
 ├── assets/js/portiloop.js      shared library: synthetic EEG, Portiloop filters, online standardization,
 │                               the pre-trained network in JavaScript, metrics, plotting
 ├── assets/models/              pre-trained network exported to JSON for the browser
+├── assets/img/                 Portiloop logo, symbol and page icons (see below)
 └── tools/                      scripts that produce and check the assets
 ```
 
@@ -44,3 +45,7 @@ node docs/tools/check_model_js.mjs         # JavaScript vs PyTorch, must print O
 ```
 
 The Portiloop filter constants in `portiloop.js` come from `portiloop_software/matlab/old_matlab/coef30.coe` (identical to the FIR stored in `portiloop_software/matlab/filter_lp.slx`) and from the 60 Hz notch stored in the same Simulink model.
+
+## Logo
+
+`assets/img/portiloop-logo.svg` (the word mark) and `assets/img/portiloop-mark.svg` (the loop symbol) are vector tracings of `figures/portiloop-logo.png` from the [portiloop-hardware](https://github.com/Portiloop/portiloop-hardware) repository. The pages draw the word mark through a CSS mask (`.logo-word` in `style.css`), so it takes the text color of the light or dark theme. The page icons (`favicon.svg`, `favicon-32.png`) use a bolder variant of the symbol so that it stays visible at 16 and 32 pixels; `apple-touch-icon.png` (180 px) uses the original stroke width.
