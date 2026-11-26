@@ -140,3 +140,5 @@ wandb
 *.autosave
 
 *.svg
+# ...except the logo and icons of the tutorials site
+!docs/assets/img/*.svg
