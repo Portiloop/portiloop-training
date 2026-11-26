@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>07 · Hyperparameter search · Portiloop tutorials</title>
+  <meta name="description" content="How the Portiloop's Parallel Model-Based Optimization (PMBO) searches for spindle-detector architectures that are both accurate and small enough for embedded hardware: Pareto fronts, the surrogate model, how to run and read a search.">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <style>
+    .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); margin: 10px 0; }
+    .scroll-x svg { display: block; max-width: none; width: 100%; min-width: 700px; height: auto; }
+    .info { background: var(--bg-sunk); border-radius: 8px; padding: 10px 14px; font-size: 14px; margin-top: 10px; min-height: 3em; }
+    .info table { font-size: 13px; margin: 6px 0 0; }
+    .info td, .info th { padding: 3px 8px; }
+    canvas.square { display: block; width: 100%; height: 230px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 640px) { .two-col { grid-template-columns: 1fr; } canvas.square { height: 190px; } }
+    .const td code, .space td code { white-space: normal; overflow-wrap: normal; word-break: normal; }
+    .const td:first-child { min-width: 180px; }
+    .const td:nth-child(4) code, .space td:nth-child(5) code { overflow-wrap: anywhere; }
+    .const td:nth-child(2) { min-width: 120px; }
+    .const td:nth-child(3) { min-width: 110px; }
+    .const td:nth-child(4), .space td:nth-child(5) { min-width: 250px; }
+    .space td:first-child { min-width: 130px; }
+    .btnrow { display: flex; flex-wrap: wrap; gap: 8px; }
+    .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+    table, .scroll-x { position: relative; } /* keeps KaTeX hidden MathML inside scrolling tables */
+  </style>
+</head>
+<body data-page="07-hyperparameter-search" data-root="..">
+<main>
+<article class="content">
+
+  <div class="eyebrow">Tutorial 07 · Training</div>
+  <h1>Hyperparameter search</h1>
+  <p class="lead">How many filters, how long a window, how much memory? Instead of guessing, the Portiloop authors let an algorithm (PMBO) train hundreds of candidate networks and keep those that offer the best compromise between detection quality and size. This tutorial explains the idea, what the code does line by line, how to run it, and what to edit first.</p>
+
+  <dl class="meta">
+    <div><dt>Time</dt><dd>45 minutes to read; a real search takes days of GPU time</dd></div>
+    <div><dt>Level</dt><dd>Advanced</dd></div>
+    <div><dt>You need</dt><dd><a href="04-network.html">Tutorial 04</a> and <a href="05-training.html">Tutorial 05</a></dd></div>
+    <div><dt>Runs in browser</dt><dd>Widgets yes; the search needs GPUs and the dataset</dd></div>
+  </dl>
+
+  <div class="objectives">
+    <h3>In this tutorial you will</h3>
+    <ul>
+      <li>Understand why the size of a network matters for a closed-loop device, and what a Pareto front is.</li>
+      <li>Follow one iteration of Parallel Model-Based Optimization (PMBO): sampling, filtering by size, prediction by a surrogate model, selection, training.</li>
+      <li>See, on a toy problem, why a surrogate can reach good architectures with fewer trainings than random search, and when it cannot.</li>
+      <li>Know every hard-coded constant you must check, rehearse the search loop on a laptop in two minutes, then run it locally or on several GPU machines.</li>
+      <li>Read the result files and pick a model to retrain.</li>
+    </ul>
+  </div>
+
+  <h2 id="why">Why architecture matters on an embedded device</h2>
+  <p>A detector for closed-loop stimulation is judged on two very different axes. It must detect spindles well, and it must fit and run in real time on small hardware. The paper states the constraint plainly [1]:</p>
+  <blockquote class="callout note"><span class="callout-title">Valenchon et al. (2022), section 4</span>“The Portiloop has a limited amount of available memory, so as to ensure its portability and low price. Therefore, large ANN architectures such as SpindleNet [29] are orders of magnitude too large to be implemented in our device. To produce networks that are suitable to our device, we rely on an automated optimization algorithm named “Parallel Model-Based Optimization” (PMBO) that allows us to trade-off accuracy and use of resources on our device”.</blockquote>
+  <p>Bigger is usually better for accuracy, but every extra parameter costs memory, and every extra multiplication costs time. Time matters twice in closed loop: the forward pass of the published model takes 20 ms on the Portiloop, against 40 ms for the earlier 2-input model [1], and the stimulus can only be sent after the forward pass. The search space is large: tutorial 04 listed about fifteen architecture and training choices, many with dozens of possible values. Training one candidate on the MODA data takes hours on a GPU, so trying everything is impossible.</p>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: a trade-off you already know</span>Choosing an fMRI voxel size is the same kind of problem: smaller voxels give better spatial resolution but lower signal-to-noise and longer acquisitions. Nobody asks for “the best voxel size”; one asks for the best resolution <em>for a given scan time</em>, or the shortest scan <em>for a given resolution</em>. The set of protocols that cannot be improved on one axis without losing on the other is exactly what an engineer calls a Pareto front.</div>
+
+  <h2 id="pareto">Two costs and the Pareto front</h2>
+  <p>PMBO minimizes two costs. In the words of the supplementary material (S1 File, Appendix J) [1]:</p>
+  <ul>
+    <li><strong>Software cost</strong>: “We cast this into a minimization problem by defining our software cost as \(L_s = 1 - f_1\).” Here \(f_1\) is the F1 score of the trained network on the validation set (<a href="06-evaluation.html">tutorial 06</a>).</li>
+    <li><strong>Hardware cost</strong>: “we use the number of trainable weights in the ANN as a proxy for these concerns, and call this number our hardware cost \(L_h\).” (The text explains that true memory use and execution time are only known after the model is synthesized on the board, “a lengthy process”.)</li>
+  </ul>
+  <p>Between two trained candidates \(E\) and \(E'\), the paper defines (Definition 1): “We say that \(E\) Pareto-dominates \(E'\) [...] when \(L_s &lt; L'_s \wedge L_h &lt; L'_h\)”, that is, \(E\) is both more accurate and smaller. The <strong>Pareto front</strong> is the set of candidates that no other candidate dominates; in the paper's words, “all points that are not on the Pareto front have at least one corresponding configuration that is better in terms of both software and hardware cost, and should therefore not be considered.”</p>
+
+  <div class="widget" id="pf">
+    <div class="widget-title">Pareto front explorer</div>
+    <p class="widget-desc">Each dot is a (synthetic, made-up) trained network: its size and its validation F1. The highlighted staircase is the Pareto front. What to try: click any dot to see which networks dominate it and which ones it dominates, and the score PMBO would give it as a candidate. Move the hardware budget to see how the “best model” changes with the device you target. Switch the vertical axis to the software cost \(1 - F_1\) used in the code and in the paper's Fig 4.</p>
+    <div class="controls">
+      <label for="pf-budget">Hardware budget <input type="range" id="pf-budget" min="2000" max="80000" step="1000" value="30000"><output for="pf-budget"></output></label>
+      <label for="pf-axis">Vertical axis <select id="pf-axis"><option value="f1">F1 (higher is better)</option><option value="cost">software cost 1 − F1 (lower is better)</option></select></label>
+      <label for="pf-seed">Cloud <input type="range" id="pf-seed" min="1" max="20" step="1" value="3"><output for="pf-seed"></output></label>
+    </div>
+    <canvas class="plot tall" id="pf-plot" aria-label="Scatter of network size versus F1 with the Pareto front; click a point for details"></canvas>
+    <div class="readout">
+      <div><div class="k">Networks</div><div class="v" id="pf-n">…</div></div>
+      <div><div class="k">On the front</div><div class="v" id="pf-nf">…</div></div>
+      <div><div class="k">Best F1 within budget</div><div class="v" id="pf-best">…</div></div>
+      <div><div class="k">Its size</div><div class="v" id="pf-bests">…</div></div>
+    </div>
+    <div class="info" id="pf-info" aria-live="polite">Click a dot.</div>
+  </div>
+  <p>Two lessons from the widget. First, most of what a search produces is dominated: in the paper's Fig 4 most of the explored architectures are black (non-Pareto-optimal) dots. Second, the front itself does not choose for you; the hardware budget does. Moving the budget shows that “the best model” is a different network for a 10,000-parameter device and for an 80,000-parameter one.</p>
+  <div class="callout note"><span class="callout-title">Strict or weak domination?</span>The paper's definition requires both costs to be strictly lower. The code is slightly different in one place: <code>update_pareto()</code> refuses a new experiment if an existing front member is lower <em>or equal</em> on both costs (<code>&lt;=</code>), and removes front members that are strictly worse on both. <code>pareto_efficiency()</code> uses strict comparisons, as the paper. The difference only matters for ties, which are rare with real F1 values.</div>
+
+  <h2 id="pmbo">How PMBO searches</h2>
+  <p>The supplementary material introduces the algorithm as follows [1]: “PMBO is essentially a parallelized and evolved version of “Probabilistic SMBO” [2]. PMBO is a guided-search approach that finds a suitable set of hyperparameters rapidly. For this matter, it uses one machine (or process) to train a meta network whose role is to predict non-trivially available costs for any given set of hyperparameters.” SMBO stands for sequential model-based optimization: keep a cheap statistical model (the <em>surrogate</em>, or <em>meta network</em>) of “how good would this configuration be”, use it to decide what to train next, and refit it after every real training.</p>
+
+  <figure>
+    <div class="scroll-x">
+      <svg viewBox="0 0 900 250" width="900" height="250" role="img" aria-labelledby="loop-title">
+        <title id="loop-title">One PMBO iteration: sample candidates, filter by size, predict with the surrogate, select, train, update</title>
+        <defs><marker id="ar7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--fg-muted)"/></marker></defs>
+        <g font-family="var(--font-sans)" font-size="12" fill="var(--fg)" text-anchor="middle">
+          <rect x="10" y="30" width="150" height="74" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+          <text x="85" y="52" font-weight="650">1. Sample</text><text x="85" y="70">sample_config_dict()</text><text x="85" y="88" fill="var(--fg-muted)">random or near the last</text>
+          <line x1="160" y1="67" x2="186" y2="67" stroke="var(--fg-muted)" marker-end="url(#ar7)"/>
+          <rect x="188" y="30" width="150" height="74" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+          <text x="263" y="52" font-weight="650">2. Size filter</text><text x="263" y="70">nb_parameters()</text><text x="263" y="88" fill="var(--fg-muted)">keep 1,000 to 80,000</text>
+          <line x1="338" y1="67" x2="364" y2="67" stroke="var(--fg-muted)" marker-end="url(#ar7)"/>
+          <rect x="366" y="30" width="150" height="74" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+          <text x="441" y="52" font-weight="650">3. Predict</text><text x="441" y="70">SurrogateModel</text><text x="441" y="88" fill="var(--fg-muted)">estimated 1 − F1</text>
+          <line x1="516" y1="67" x2="542" y2="67" stroke="var(--fg-muted)" marker-end="url(#ar7)"/>
+          <rect x="544" y="30" width="180" height="74" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+          <text x="634" y="52" font-weight="650">4. Select 1 of 200</text><text x="634" y="70" font-size="11">exp_max_pareto_efficiency()</text><text x="634" y="88" fill="var(--fg-muted)">best score η (10 %: random)</text>
+          <line x1="724" y1="67" x2="744" y2="67" stroke="var(--fg-muted)" marker-end="url(#ar7)"/>
+          <rect x="746" y="30" width="148" height="74" rx="8" fill="var(--tip-bg)" stroke="var(--tip)"/>
+          <text x="820" y="52" font-weight="650">5. Train for real</text><text x="820" y="70">run(), hours on a GPU</text><text x="820" y="88" fill="var(--fg-muted)">cost = 1 − best F1</text>
+          <path d="M820,104 L820,190 L100,190 L100,108" fill="none" stroke="var(--fg-muted)" marker-end="url(#ar7)"/>
+          <rect x="300" y="166" width="300" height="48" rx="8" fill="var(--bg-elev)" stroke="var(--border)"/>
+          <text x="450" y="186" font-weight="650">6. Update</text><text x="450" y="204">update_pareto(), retrain the surrogate, save pickles</text>
+          <text x="99" y="20" font-size="11" fill="var(--fg-muted)">repeated until 200 candidates</text>
+          <path d="M60,104 C40,130 140,130 120,104" fill="none" stroke="var(--fg-muted)" marker-end="url(#ar7)"/>
+        </g>
+      </svg>
+    </div>
+    <figcaption>One iteration of <code>iterative_training_local()</code> in <code>PMBO/pareto_search.py</code>. Steps 1 to 3 are repeated until <code>NB_SAMPLED_MODELS_PER_ITERATION</code> = 200 candidates have been collected; only one of them is trained.</figcaption>
+  </figure>
+
+  <h3 id="space">Step 1: the search space and how candidates are sampled</h3>
+  <p>The space is defined at the top of <code>portiloop_software/portiloop_python/Utils/utils.py</code> as <code>[min, max, step]</code> triples:</p>
+<pre data-file="portiloop_software/portiloop_python/Utils/utils.py (excerpt)"><code class="language-python">seq_len_range_t = [50, 50, 1]  # min, max, step
+kernel_conv_range_t = [3, 11, 2]  # min, max, step
+kernel_pool_range_t = [3, 11, 2]  # min, max, step
+stride_conv_range_t = [1, 1, 1]  # min, max, step
+stride_pool_range_t = [1, 1, 1]  # min, max, step
+dilation_conv_range_t = [1, 1, 1]  # min, max, step
+dilation_pool_range_t = [1, 1, 1]  # min, max, step
+nb_channel_range_t = [1, 100, 5]  # min, max, step
+hidden_size_range_t = [2, 100, 5]  # min, max, step
+window_size_s_range_t = [0.05, 0.5, 0.008]  # min, max, step
+seq_stride_s_range_t = [0.05, 0.2, 0.008]  # min, max, step
+nb_conv_layers_range_t = [1, 5, 1]  # min, max, step
+nb_rnn_layers_range_t = [1, 2, 1]  # min, max, step
+rnn_range_t = [1, 1, 1]
+envelope_input_range_t = [0, 0, 1]
+lr_adam_range_t = [0.0003, 0.0009, 0.0002]
+batch_size_range_t = [64, 256, 64]</code></pre>
+  <p><code>sample_from_range()</code> converts each triple to a grid of allowed values, with a rounding scheme that does not always produce what the triple suggests. For this tutorial, 20,000 samples of each range were drawn with the repository's function; the table lists the values that actually come out.</p>
+  <table class="space">
+    <thead><tr><th>Hyperparameter</th><th>Range triple</th><th>Values actually sampled</th><th>Published</th><th>Comment</th></tr></thead>
+    <tbody>
+      <tr><td><code>nb_<wbr>conv_<wbr>layers</code></td><td>[1, 5, 1]</td><td>1, 2, 3, 4, 5</td><td>3</td><td></td></tr>
+      <tr><td><code>nb_<wbr>channel</code></td><td>[1, 100, 5]</td><td>1, 6, 11, ..., 96, 100 (21 values)</td><td>31</td><td>Grid is offset by 1; 101 is clipped to 100.</td></tr>
+      <tr><td><code>kernel_<wbr>conv</code>, <code>kernel_<wbr>pool</code></td><td>[3, 11, 2]</td><td>5, 7, 9, 11</td><td>7, 7</td><td>3 is never sampled (Python rounds 1.5 to 2, banker's rounding, so the grid starts one step too high).</td></tr>
+      <tr><td><code>window_<wbr>size_<wbr>s</code></td><td>[0.05, 0.5, 0.008]</td><td>0.050, 0.058, ..., 0.498 (57 values)</td><td>0.218</td><td>12 to 124 samples.</td></tr>
+      <tr><td><code>seq_<wbr>stride_<wbr>s</code></td><td>[0.05, 0.2, 0.008]</td><td>0.050, 0.058, ..., 0.194, 0.200 (20 values)</td><td>0.170</td><td>The paper's “time dilation”, 12 to 50 samples.</td></tr>
+      <tr><td><code>hidden_<wbr>size</code></td><td>[2, 100, 5]</td><td>2, 7, 12, ..., 97, 100 (21 values)</td><td>7</td><td></td></tr>
+      <tr><td><code>nb_<wbr>rnn_<wbr>layers</code></td><td>[1, 2, 1]</td><td>1, 2</td><td>1</td><td></td></tr>
+      <tr><td><code>lr_<wbr>adam</code></td><td>[0.0003, 0.0009, 0.0002]</td><td>0.0003, 0.0005, 0.0007, 0.0009</td><td>0.0005</td><td></td></tr>
+      <tr><td><code>batch_<wbr>size</code></td><td>[64, 256, 64]</td><td>64, 128, 192, 256</td><td>256</td><td></td></tr>
+      <tr><td><code>seq_<wbr>len</code></td><td>[50, 50, 1]</td><td>50</td><td>50</td><td>Fixed (set to 1 if <code>RNN</code> were off).</td></tr>
+      <tr><td><code>RNN</code>, <code>envelope_<wbr>input</code></td><td>[1, 1, 1], [0, 0, 1]</td><td>True, False</td><td>True, False</td><td>Fixed: always a GRU, never the envelope branch.</td></tr>
+      <tr><td>strides, dilations</td><td>[1, 1, 1]</td><td>1</td><td>1</td><td>Fixed.</td></tr>
+    </tbody>
+  </table>
+  <p>Every other key is fixed inside <code>sample_config_dict()</code>: <code>dropout = 0.5</code>, <code>adam_w = 0.01</code>, <code>first_layer_dropout = False</code>, <code>power_features_input = False</code>, <code>distribution_mode = 0</code>, <code>classification = True</code>, <code>split_idx = 0</code>, <code>validation_network_stride = 1</code>, <code>fe = 250</code>, devices <code>"cuda:0"</code>, <code>nb_epoch_max = MAX_EPOCHS_PER_EXPERIMENT</code> (150), early-stopping patience <code>NETWORK_EARLY_STOPPING</code> (20), <code>nb_batch_per_epoch = NB_BATCH_PER_EPOCH</code> (1000).</p>
+  <p><strong>How a candidate is drawn.</strong> If there is no previous experiment, or with probability <code>EPSILON_NOISE</code> = 0.25, every value is drawn uniformly on its grid. Otherwise it is drawn from a Gaussian centred on the previous experiment's (unrounded) values, with a standard deviation of 10 % of each range. The architecture part (window, kernels, strides, dilations) is redrawn, with a growing standard deviation, until the network is valid (<code>nb_out ≥ 1</code>, see tutorial 04), and a configuration identical to one already tried (<code>same_config_dict()</code>) is rejected. The paper calls these two kinds of randomness “noise type 1” (0.25) and “noise type 2” (0.1, below) [1].</p>
+  <p>“The previous experiment” is the last network actually trained. In the local loop it is kept in a variable initialized once, before the loop, and updated after every training:</p>
+<pre data-file="portiloop_software/portiloop_python/PMBO/pareto_search.py, iterative_training_local (excerpt)"><code class="language-python">    prev_exp = {}  # last trained experiment, used to sample new configurations around it
+    for meta_iteration in range(MAX_META_ITERATIONS):
+        ...
+            config_dict, unrounded = sample_config_dict(name=RUN_NAME + "_" + str(num_experiment), previous_exp=prev_exp, all_exp=all_experiments)
+        ...
+        prev_exp = exp</code></pre>
+  <div class="callout note"><span class="callout-title">Older clones</span>Before the November 2026 fix, <code>prev_exp = {}</code> sat inside the loop, so the local search drew every candidate uniformly at random and never refined around the last result. If <code>git log</code> shows an older version, run <code>git pull</code>. The distributed meta-learner (<code>pareto_network.py</code>) was not affected: it samples around the last result it received, for the first candidate it selects after each result.</div>
+
+  <h3 id="filter">Step 2: the hardware filter</h3>
+<pre data-file="portiloop_software/portiloop_python/PMBO/pareto_search.py (excerpt)"><code class="language-python">def nb_parameters(config_dict):
+    net = PortiloopNetwork(config_dict)
+    res = sum(p.numel() for p in net.parameters())
+    del net
+    return res</code></pre>
+  <p>Each candidate network is instantiated (not trained) only to count its parameters, exactly as in <a href="04-network.html#calculator">the calculator of tutorial 04</a>. Candidates outside <code>MIN_NB_PARAMETERS</code> = 1,000 and <code>MAX_NB_PARAMETERS</code> = 80,000 (<code>Utils/utils.py</code>) are discarded and resampled. This range is the “range cost hardware 1000-80000” of the paper's supplementary Table I. Change it first if your hardware differs: it is the only place where the device's capacity enters the search.</p>
+
+  <h3 id="surrogate">Step 3: the surrogate model</h3>
+  <p>Training a candidate costs hours; predicting its cost from its configuration costs microseconds. The surrogate is a small fully connected network (three <code>nn.Linear</code> layers, 10 inputs, 200 hidden units, 1 output):</p>
+<pre data-file="portiloop_software/portiloop_python/PMBO/pareto_search.py (excerpt)"><code class="language-python">def transform_config_dict_to_input(config_dict):
+    x = [#float(config_dict["seq_len"]),  # idk why, but needed
+         float(config_dict["nb_channel"]),
+         config_dict["hidden_size"],
+         int(config_dict["seq_stride_s"] * config_dict["fe"]),
+         config_dict["nb_rnn_layers"],
+         int(config_dict["window_size_s"] * config_dict["fe"]),
+         config_dict["nb_conv_layers"],
+         #config_dict["stride_pool"],
+         #config_dict["stride_conv"],
+         config_dict["kernel_conv"],
+         config_dict["kernel_pool"],
+         #config_dict["dilation_conv"],
+         #config_dict["dilation_pool"],
+         #int(config_dict['RNN']),
+         #int(config_dict['envelope_input']),
+         config_dict["lr_adam"],
+         config_dict["batch_size"]]
+    x = torch.tensor(x)
+    return x</code></pre>
+  <p>It is trained by <code>train_surrogate()</code> to predict <code>cost_software</code> (\(1 - F_1\), because <code>MAXIMIZE_F1_SCORE = True</code> in <code>Utils/utils.py</code>) from these 10 numbers, with mean squared error, plain SGD (learning rate 0.05, weight decay 0.01, gradient clipping at 10) and one experiment per batch. With 100 experiments or fewer it trains on all of them for as many epochs as there are experiments; above <code>START_META_TRAIN_VAL_AFTER</code> = 100 it keeps 20 % aside as a validation set and stops after <code>META_EARLY_STOPPING</code> = 30 epochs without improvement (at most <code>MAX_META_EPOCHS</code> = 500). A fresh surrogate is trained from scratch after every completed experiment.</p>
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: a surrogate is a fitted dose-response curve</span>If each experiment were a costly session with a participant, you would not test stimulation intensities at random: you would fit a dose-response curve to the sessions run so far and use it to choose the next intensity. The surrogate plays the role of that curve, in 10 dimensions instead of one. Like any curve fitted to few points, it is unreliable where no data has been collected yet, which is why the algorithm keeps some randomness.</div>
+  <div class="callout warning"><span class="callout-title">The inputs are not normalized</span>The 10 inputs have very different scales (<code>lr_adam</code> around 0.0005, <code>batch_size</code> up to 256, window up to 124 samples) and are fed to the surrogate raw. In the rehearsal run below, the first surrogates predicted costs of 5.5, −29.1 and −1.6 (a cost \(1 - F_1\) must lie between 0 and 1) before settling once about eight experiments were available. If you modify the code, standardizing these inputs is a natural first improvement. The paper also reports that “the predictions of the meta-learner are often near-constant in well-performing areas of the search space” and that the authors “surmise that this is due to the large variance in model performance from one training session to another” [1].</div>
+
+  <h3 id="select">Step 4: choosing one candidate out of 200</h3>
+  <p>With probability <code>EPSILON_EXP_NOISE</code> = 0.1 (and always while the front is empty) a random candidate is chosen. Otherwise each candidate \(\hat E\), with its predicted software cost \(\hat L_s\) and its exact hardware cost \(L_h\), receives the heuristic “Pareto efficiency” of the supplementary Appendix J [1], computed against the set \(\mathcal E\) of experiments already completed:</p>
+  $$\eta(\hat E) = \underbrace{1 - \frac{d_{\mathcal E}(\hat E)}{|\mathcal E|}}_{a:\ \text{not dominated}} + \underbrace{\frac{D_{\mathcal E}(\hat E)}{|\mathcal E|}}_{b:\ \text{dominates others}} + \underbrace{\frac{\min L_s}{\hat L_s}}_{s:\ \text{beats the best F1?}} - \underbrace{h_{\mathcal E}(\hat E)}_{\text{crowding penalty}}$$
+  <p>where \(d\) counts the completed experiments that would dominate the candidate and \(D\) those it would dominate. The crowding penalty \(h\) is the density of completed experiments in the candidate's parameter-count bin (100 bins over 0 to 80,000), multiplied by the range width: it equals 100 times the fraction of past experiments that fall in the same 800-parameter bin. It is large compared with the other terms (a, b and s are of order 1), so in practice candidates in parameter ranges that have not been tried yet win; this spreads the trainings along the size axis. The code:</p>
+<pre data-file="portiloop_software/portiloop_python/PMBO/pareto_search.py (excerpt)"><code class="language-python">    score_not_dominated = 1.0 - float(nb_dominating) / len(all_experiments)
+    score_dominating = nb_dominated / len(all_experiments)
+    score_distance_from_best_loss = abs(best_cost_software / experiment[
+        "cost_software"])  # The lower is the predicted experiment loss, the better. This score is close to 1 when you reach a loss as good as the lowest one of all exp. If yours is better, then the score will be above 1. Otherwise the farest you are, the lower is your score
+    ...
+    return score_dominating + score_not_dominated + score_distance_from_best_loss</code></pre>
+<pre data-file="portiloop_software/portiloop_python/PMBO/pareto_search.py, exp_max_pareto_efficiency (excerpt)"><code class="language-python">        histo = np.histogram([exp["cost_hardware"] for exp in all_experiments], bins=100, density=True, range=(0, MAX_NB_PARAMETERS))
+        ...
+            efficiency = pareto_efficiency(exp, all_experiments)
+            ...
+            nerf = histo[0][min(idx, len(histo[0]) - 1)] * MAX_NB_PARAMETERS
+            efficiency -= nerf</code></pre>
+  <div class="callout danger"><span class="callout-title">Known issue: predicted costs near zero or negative dominate the choice</span>The term \(s = |\min L_s / \hat L_s|\) explodes when the surrogate predicts a cost close to 0, and the absolute value turns a (meaningless) negative prediction into a large positive score. In the rehearsal below, a candidate predicted at −0.00027 received a score of 1,559 (typical scores are 2 to 4). Clipping predictions to the interval 0 to 1 before scoring would avoid this.</div>
+
+  <h3 id="toy">Why bother with a surrogate? A toy experiment</h3>
+  <p>The widget below is a <strong>toy</strong>: two made-up hyperparameters (“width” and “window”), a made-up F1 landscape with a narrow good region and a misleading bump, and a made-up parameter count. A “training” takes no time here: it just reads the landscape and adds noise. It compares random search (train one random configuration per iteration) with a PMBO-like strategy: draw N candidates (25 % uniformly, 75 % around the last trained point), predict their F1 with a kernel regression of the points trained so far (a simple surrogate, not the neural network of the real code), and train the candidate with the best score \(\eta\) computed exactly as above, crowding penalty included, with a 10 % chance of a random pick.</p>
+
+  <div class="widget" id="toy">
+    <div class="widget-title">Surrogate-guided versus random search (toy problem)</div>
+    <p class="widget-desc">Top: the true F1 landscape (brighter is better; the white circle marks the best point for an unlimited budget) and the configurations each strategy trained. Middle: the trained networks in the size versus F1 plane, with the true Pareto front dashed. Bottom: the “gap”, the F1 lost compared with the true front, averaged over hardware budgets from 2,000 to 81,000 parameters (0 means the front has been found). What to try: press Run and compare the two gap curves; then press “Average 30 searches” to remove the luck of a single run. Set N to 2 (the surrogate barely chooses: the advantage disappears) or the noise to 0.08 (very noisy trainings: the advantage shrinks).</p>
+    <div class="controls">
+      <label for="toy-n">Candidates per iteration N <input type="range" id="toy-n" min="2" max="200" step="1" value="50"><output for="toy-n"></output></label>
+      <label for="toy-noise">Training noise (F1 s.d.) <input type="range" id="toy-noise" min="0" max="0.08" step="0.005" value="0.02"><output for="toy-noise"></output></label>
+      <label for="toy-seed">Seed <input type="range" id="toy-seed" min="1" max="50" step="1" value="1"><output for="toy-seed"></output></label>
+    </div>
+    <div class="btnrow">
+      <button class="btn" type="button" id="toy-run">Run</button>
+      <button class="btn secondary" type="button" id="toy-step">One training</button>
+      <button class="btn secondary" type="button" id="toy-reset">Reset</button>
+      <button class="btn secondary" type="button" id="toy-avg">Average 30 searches</button>
+    </div>
+    <canvas class="square" id="toy-space" aria-label="True toy F1 landscape with the configurations trained by random search (left) and surrogate-guided search (right)"></canvas>
+    <canvas class="plot" id="toy-obj" aria-label="Trained toy networks: size versus F1, with the true Pareto front"></canvas>
+    <canvas class="plot" id="toy-gap" aria-label="Gap to the true Pareto front as a function of the number of trainings"></canvas>
+    <div class="readout">
+      <div><div class="k">Trainings</div><div class="v" id="toy-t">0</div></div>
+      <div><div class="k">Gap, random</div><div class="v" id="toy-gr">…</div></div>
+      <div><div class="k">Gap, surrogate</div><div class="v" id="toy-gs">…</div></div>
+      <div><div class="k">Trainings to gap ≤ 0.03 (avg)</div><div class="v" id="toy-reach">…</div></div>
+    </div>
+    <div class="status" id="toy-status">A toy for intuition only: not Portiloop data, not the real surrogate.</div>
+  </div>
+  <p>What the toy shows (averages over 40 seeds with the default settings, measured while building this page): during the first ten trainings the guided search is no better than random, because the surrogate has almost nothing to learn from and the crowding penalty forces exploration. After about 20 trainings it pulls ahead: with N = 50 its gap after 30 trainings (about 0.03) is roughly half that of random search (about 0.06), and random search has still not reached it after 60 trainings. With very noisy trainings the surrogate is misled more often. The real search space has 10 dimensions instead of 2, where blind sampling generally needs many more trainings to stumble on good regions, but the paper's remark about near-constant predictions is a reminder that the surrogate is only as good as the reproducibility of the trainings it learns from.</p>
+
+  <h3 id="train">Step 5 and 6: training and bookkeeping</h3>
+<pre data-file="portiloop_software/portiloop_python/PMBO/pareto_search.py, iterative_training_local (excerpt)"><code class="language-python">        best_loss, best_f1_score, exp["best_epoch"] = run(exp["config_dict"], f"{WANDB_PROJECT_PARETO}_runs_{PARETO_ID}", save_model=False, unique_name=True)
+        exp["cost_software"] = 1 - best_f1_score if MAXIMIZE_F1_SCORE else best_loss
+
+        pareto_front = update_pareto(exp, pareto_front)
+        all_experiments.append(exp)</code></pre>
+  <p>The selected configuration is trained by the same <code>run()</code> function as in <a href="05-training.html">tutorial 05</a>, with <code>save_model=False</code>: <strong>no checkpoint is kept during the search</strong>, only the score. The software cost is \(1 - \) the best validation F1 reached during that training. The experiment is added to the front if no front member is at least as good on both costs, and the surrogate is retrained. After every iteration the two lists are pickled and a W&amp;B plot of the front is logged.</p>
+
+  <h2 id="hardcoded">Before you run: what is hard-coded</h2>
+  <p>Nothing in PMBO is configured from the command line except the log file and, for the distributed version, the role and the server address. Everything else is a constant in the source. Check each line of this table.</p>
+  <table class="const">
+    <thead><tr><th>Constant</th><th>File</th><th>Value</th><th>What it controls</th></tr></thead>
+    <tbody>
+      <tr><td><code>PARETO_<wbr>ID</code>, <code>RUN_<wbr>NAME</code></td><td><code>PMBO/<wbr>pareto_search.py</code></td><td><code>"tests"</code>, <code>"pareto_<wbr>search_<wbr>tests"</code></td><td>Name of the search: pickle file names, W&amp;B run id, experiment names (<code>RUN_NAME + "_" + number</code>). Change it for every new search, or the old pickles are loaded and continued.</td></tr>
+      <tr><td><code>WANDB_<wbr>PROJECT_<wbr>PARETO</code></td><td><code>pareto_search.py</code></td><td><code>"pareto-public"</code></td><td>W&amp;B project of the search log. Each trained candidate is logged in the project <code>pareto-public_runs_tests</code> (<code>f"{WANDB_PROJECT_PARETO}_runs_{PARETO_ID}"</code>).</td></tr>
+      <tr><td><code>MAX_<wbr>META_<wbr>ITERATIONS</code></td><td><code>pareto_search.py</code></td><td>1000</td><td>Number of networks trained by the local search. The distributed meta-learner has no limit.</td></tr>
+      <tr><td><code>NB_<wbr>SAMPLED_<wbr>MODELS_<wbr>PER_<wbr>ITERATION</code></td><td><code>pareto_search.py</code></td><td>200</td><td>Candidates scored per selection (\(m\) in the paper).</td></tr>
+      <tr><td><code>META_<wbr>MODEL_<wbr>DEVICE</code></td><td><code>pareto_search.py</code></td><td><code>"cpu"</code></td><td>Device for the surrogate (small; CPU is fine).</td></tr>
+      <tr><td><code>START_<wbr>META_<wbr>TRAIN_<wbr>VAL_<wbr>AFTER</code>, <code>META_<wbr>TRAIN_<wbr>VAL_<wbr>RATIO</code>, <code>MAX_<wbr>META_<wbr>EPOCHS</code>, <code>META_<wbr>EARLY_<wbr>STOPPING</code></td><td><code>pareto_search.py</code></td><td>100, 0.8, 500, 30</td><td>Surrogate training (see Step 3). <code>DEFAULT_META_EPOCHS</code> and <code>THRESHOLD = 0.2</code> in this file are not used.</td></tr>
+      <tr><td><code>path_<wbr>dataset</code>, <code>path_<wbr>pareto</code></td><td><code>pareto_search.py</code></td><td><code>portiloop_<wbr>software/<wbr>dataset</code>, <code>portiloop_<wbr>software/<wbr>pareto</code></td><td>Derived from the file location. Commented lines show how the authors pointed them to Google Drive in Colab.</td></tr>
+      <tr><td><code>MIN_<wbr>NB_<wbr>PARAMETERS</code>, <code>MAX_<wbr>NB_<wbr>PARAMETERS</code></td><td><code>Utils/<wbr>utils.py</code></td><td>1,000, 80,000</td><td>Hardware range; candidates outside are discarded. Also sets the range of the crowding histogram.</td></tr>
+      <tr><td><code>MAX_<wbr>EPOCHS_<wbr>PER_<wbr>EXPERIMENT</code>, <code>NB_<wbr>BATCH_<wbr>PER_<wbr>EPOCH</code>, <code>NETWORK_<wbr>EARLY_<wbr>STOPPING</code></td><td><code>Utils/<wbr>utils.py</code></td><td>150, 1000, 20</td><td>Training budget of each candidate: the main driver of the total cost.</td></tr>
+      <tr><td><code>EPSILON_<wbr>NOISE</code>, <code>EPSILON_<wbr>EXP_<wbr>NOISE</code></td><td><code>Utils/<wbr>utils.py</code></td><td>0.25, 0.1</td><td>The two exploration probabilities.</td></tr>
+      <tr><td><code>*_<wbr>range_<wbr>t</code></td><td><code>Utils/<wbr>utils.py</code></td><td>see table above</td><td>The search space. To search over the envelope input, for example, set <code>envelope_input_range_t = [0, 1, 1]</code> (and uncomment <code>int(config_dict['envelope_input'])</code> in <code>transform_config_dict_to_input()</code>, then change <code>nb_features = 10</code> in <code>SurrogateModel</code> to 11).</td></tr>
+      <tr><td><code>MAXIMIZE_<wbr>F1_<wbr>SCORE</code>, <code>PROFILE_<wbr>META</code></td><td><code>Utils/<wbr>utils.py</code></td><td>True, False</td><td>Software cost is \(1 - F_1\) (False: validation loss). Profiling of the meta-learner with <code>pyinstrument</code>.</td></tr>
+      <tr><td>fixed keys in <code>sample_<wbr>config_<wbr>dict()</code></td><td><code>Utils/<wbr>utils.py</code></td><td><code>device_<wbr>train = "cuda:0"</code>, ...</td><td>Every candidate trains on <code>cuda:0</code>: a GPU is mandatory (<code>run()</code> asserts it). Use <code>CUDA_VISIBLE_DEVICES</code> to choose the physical GPU.</td></tr>
+      <tr><td><code>PHASE</code>, <code>TEST_<wbr>SET</code>, <code>THRESHOLD</code></td><td><code>ANN/<wbr>portiloop_detector_training.py</code> (import branch)</td><td><code>'full'</code>, True, 0.5</td><td>Because the training module is <em>imported</em>, its <code>else:</code> branch applies: MODA phases 1 and 2, a test set is held out, labels are binarized at 0.5 (0.2 when the training script is run from the command line; identical if your classification labels are strictly 0 or 1). Dataset files as in tutorial 05.</td></tr>
+      <tr><td><code>IP_<wbr>SERVER</code>, <code>PORT_<wbr>META</code>, <code>PORT_<wbr>WORKER</code>, <code>LEN_<wbr>QUEUE_<wbr>TO_<wbr>LAUNCH</code></td><td><code>PMBO/<wbr>pareto_network_server_utils.py</code></td><td>an IP address of the original authors, 6666, 6667, 20</td><td>Distributed mode only: default server address (override it with <code>--ip_server</code>), TCP ports, and size of the queue of selected configurations waiting for a worker.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout note"><span class="callout-title">Older clones: one required key</span><code>run()</code> reads <code>config_dict["validation_network_stride"]</code>. <code>sample_config_dict()</code> now sets it (<code>config_dict["validation_network_stride"] = 1  # required by run()</code>); in clones older than November 2026 it did not, and the search stopped at its first training with <code>KeyError: 'validation_network_stride'</code>. Run <code>git pull</code> if you see that error.</div>
+
+  <h2 id="rehearse">Rehearse the search without a GPU</h2>
+  <p>A real search costs days of GPU time, so make sure the machinery works first. The script below runs the genuine PMBO loop (sampling, size filter, surrogate, selection, pickles) but replaces the training function by a fake one that returns a made-up F1 instantly. It needs neither the dataset nor a GPU, and it writes to a temporary folder.</p>
+  <ol class="steps">
+    <li><strong>Install the requirements</strong> (<a href="02-installation.html">tutorial 02</a>, <code>pip install -e .</code> from the repository root, which also installs <code>wandb</code>).</li>
+    <li><strong>Save this file</strong> at the repository root as <code>rehearse_pareto.py</code>:
+<pre data-file="rehearse_pareto.py"><code class="language-python"># rehearse_pareto.py: exercise the PMBO loop without training any network.
+# Run from the repository root:  WANDB_MODE=disabled python3 rehearse_pareto.py
+import logging
+import random
+import tempfile
+from pathlib import Path
+
+import portiloop_software.portiloop_python.PMBO.pareto_search as ps
+
+logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
+for noisy in ("matplotlib", "PIL"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def fake_run(config_dict, wandb_project, save_model, unique_name):
+    """Stands in for run(): returns (best validation loss, best F1, best epoch) without training."""
+    n = ps.nb_parameters(config_dict)
+    f1 = min(0.75, 0.45 + 0.06 * (n / 10000) ** 0.5) + random.gauss(0, 0.02)
+    return 1 - f1, f1, 0
+
+
+ps.run = fake_run                          # never touches the dataset or the GPU
+ps.MAX_META_ITERATIONS = 15                # 15 fake "trainings"
+ps.path_pareto = Path(tempfile.mkdtemp())  # keep the real pareto/ folder clean
+ps.iterative_training_local()
+print("pickles written to", ps.path_pareto, sorted(p.name for p in ps.path_pareto.iterdir()))</code></pre></li>
+    <li><strong>Run it</strong> with W&amp;B disabled (no account needed; <code>WANDB_MODE=offline</code> also works and keeps the search plot in <code>./wandb/</code>):
+<pre data-file="terminal"><code class="language-bash">WANDB_MODE=disabled python3 rehearse_pareto.py 2&gt;&amp;1 | grep -v "^score" | tee rehearse.log</code></pre>
+    It took two to four minutes on the CPU used to write this tutorial, for 15 iterations (most of the time goes into building 200 candidate networks per iteration to count their parameters). The <code>grep</code> hides the three <code>score ...</code> lines that <code>pareto_efficiency()</code> prints for every candidate. Expected output (numbers differ at every run, configurations shortened here):
+<pre data-file="rehearse.log (beginning)"><code>DEBUG: DEBUG: no meta dataset found, starting new run
+DEBUG: ---
+DEBUG: ITERATION N° 0
+DEBUG: config: {'experiment_name': 'pareto_search_tests_0', 'device_train': 'cuda:0', ...}
+DEBUG: nb parameters: 39227
+DEBUG: predicted cost: 5.542581081390381
+DEBUG: training...
+DEBUG: actual cost: 0.4187577551505618
+DEBUG: surprise: -5.123823326239819
+DEBUG: training new surrogate model...
+DEBUG: surrogate model loss: 36.187721252441406
+DEBUG: ---
+DEBUG: ITERATION N° 1
+DEBUG: DEBUG: selected 36339: efficiency:2.0143841196674344, nerf:0.0
+DEBUG: config: {'experiment_name': 'pareto_search_tests_1', 'device_train': 'cuda:0', ...}
+DEBUG: nb parameters: 36339
+DEBUG: predicted cost: -29.112504959106445
+...
+DEBUG: End of meta-training.
+pickles written to /tmp/tmpqcxttqqx ['pareto_search_tests_finished.pkl', 'pareto_search_tests_pareto.pkl']</code></pre>
+    How to read it: <em>nb parameters</em> is the hardware cost of the selected candidate; <em>predicted cost</em> is the surrogate's \(1 - F_1\) estimate; <em>actual cost</em> is \(1 - F_1\) returned by training; <em>surprise</em> is actual minus predicted; <em>selected ...: efficiency ..., nerf ...</em> gives \(\eta\) before the crowding penalty and the penalty itself (0 means the chosen size bin had never been tried). Iteration 0 has no “selected” line because the front is still empty, so the choice is random. A <code>UserWarning</code> about <code>pin_memory</code> on CPU-only machines is harmless.</li>
+  </ol>
+
+  <h2 id="local">Running a real search on one machine</h2>
+  <ol class="steps">
+    <li><strong>Prepare the data and a GPU.</strong> The MODA dataset files must be in <code>portiloop_software/dataset/</code> (<a href="02-installation.html">tutorial 02</a>), and a single training from <a href="05-training.html">tutorial 05</a> should already work on this machine.</li>
+    <li><strong>Update your clone</strong> (<code>git pull</code>; the fixes described in the “Older clones” notes date from November 2026), and go through the table of hard-coded constants (at least <code>PARETO_ID</code>, the parameter range, the training budget).</li>
+    <li><strong>Choose how to log.</strong> With an account: <code>wandb login</code> (set <code>WANDB_ENTITY</code> to log into a team). Without one: <code>WANDB_MODE=offline</code> keeps the search plot and every candidate's learning curves in <code>./wandb/</code> (upload later with <code>wandb sync</code>), or <code>WANDB_MODE=disabled</code> records nothing (the pickles are still written). In clones older than November 2026, offline mode stopped every training with <code>UsageError: No API key configured</code> (raised by the W&amp;B restore step of <code>run()</code>, which now ignores that error); <code>git pull</code> if you see it.</li>
+    <li><strong>Launch</strong> from the repository root, in a session that survives logout (<code>tmux</code>, <code>screen</code>, or a SLURM job):
+<pre data-file="terminal"><code class="language-bash">python3 -m portiloop_software.portiloop_python.PMBO.pareto_search --output_file pareto_tests.log</code></pre>
+    <code>--output_file</code> sends the log to a file (otherwise it goes to the terminal). Each iteration trains one network for up to 150 epochs of 1,000 batches, so expect hours per iteration on one GPU. The search can be interrupted and restarted: at start-up it reloads the pickles of the same <code>RUN_NAME</code> (log line <code>existing meta dataset loaded</code>), retrains the surrogate and continues.</li>
+  </ol>
+
+  <h2 id="distributed">Distributed search: server, meta-learner, workers</h2>
+  <p>This is the “parallel” in PMBO, the setup the paper used on 20 GPUs. <code>pareto_network.py</code> has three roles, chosen by a flag:</p>
+<pre data-file="portiloop_software/portiloop_python/PMBO/pareto_network.py (excerpt)"><code class="language-python">    parser.add_argument('--server', action='store_true')
+    parser.add_argument('--meta', action='store_true')
+    parser.add_argument('--worker', action='store_true')
+    parser.add_argument('--output_file', type=str, default=None)
+    parser.add_argument('--ip_server', type=str, default=IP_SERVER)</code></pre>
+  <ul>
+    <li>The <strong>server</strong> only relays messages. It listens on TCP port 6666 for the meta-learner and 6667 for workers, keeps a queue of up to <code>LEN_QUEUE_TO_LAUNCH</code> = 20 selected configurations, hands one to each idle worker and forwards finished results to the meta-learner.</li>
+    <li>The <strong>meta-learner</strong> owns the pickles, the surrogate and the W&amp;B log. Whenever the server asks for work or sends results, it updates the front, retrains the surrogate and selects one new configuration (Steps 1 to 4).</li>
+    <li>Each <strong>worker</strong> trains the configuration it receives with <code>run()</code> (Step 5) and sends back the result, including the <code>surprise</code>.</li>
+  </ul>
+  <div class="callout danger" id="distributed-security"><span class="callout-title">Security: run the distributed search only on a network you trust</span>
+    <p>The three roles exchange Python <em>pickles</em> over plain TCP, with no password, no encryption and no check of who is connecting. Every message is decoded with <code>pickle.loads</code>:</p>
+<pre data-file="portiloop_software/portiloop_python/PMBO/pareto_network_server_utils.py (recv_object, excerpt)"><code class="language-python">    send_ack(sock)
+    return pickle.loads(msg)</code></pre>
+    <p>Decoding a pickle can execute arbitrary code. Anyone who can open a connection to the server's ports can therefore run programs on the server, and through the server on the meta-learner and on every worker, which decode the server's messages the same way. The server listens on <strong>all</strong> network interfaces of its machine (it binds to the empty address <code>''</code>), on TCP ports 6666 and 6667.</p>
+    <ul>
+      <li><strong>Use a private network you control</strong> (an isolated cluster network, a lab network or a VPN). Never expose ports 6666 and 6667 to the internet, nor to a shared network with users you do not trust (a campus network, a multi-user login node).</li>
+      <li><strong>Close the ports to everyone else.</strong> For example, with <code>ufw</code> on the server, allow only your own subnet, then deny the rest:
+<pre data-file="terminal (server machine, example)"><code class="language-bash">sudo ufw allow from 10.0.0.0/24 to any port 6666:6667 proto tcp
+sudo ufw deny 6666:6667/tcp</code></pre></li>
+      <li><strong>Machines on different networks: use an SSH tunnel</strong> instead of opening the ports. With the ports closed to the outside as above, run on each meta-learner and worker machine:
+<pre data-file="terminal (meta-learner or worker machine)"><code class="language-bash">ssh -N -L 6666:localhost:6666 -L 6667:localhost:6667 you@server-address</code></pre>
+        then start the role with <code>--ip_server 127.0.0.1</code>. The traffic travels encrypted inside SSH and reaches the server on its loopback interface, so only people with an SSH account on the server can connect.</li>
+      <li><strong>The result files are pickles too.</strong> Only load <code>.pkl</code> files from <code>portiloop_software/pareto/</code> (for example with <code>inspect_pareto.py</code> below) if you produced them yourself.</li>
+    </ul>
+  </div>
+  <ol class="steps">
+    <li><strong>Start the server</strong> on a machine reachable by all others (ports 6666 and 6667 reachable from your own machines only, see the security warning above):
+<pre data-file="terminal (server machine)"><code class="language-bash">cd /path/to/portiloop-training
+python3 portiloop_software/portiloop_python/PMBO/pareto_network.py --server --output_file server.log</code></pre></li>
+    <li><strong>Start the meta-learner</strong> (one, anywhere; CPU is enough), giving the server address:
+<pre data-file="terminal (meta-learner)"><code class="language-bash">python3 portiloop_software/portiloop_python/PMBO/pareto_network.py --meta --ip_server 10.0.0.5 --output_file meta.log</code></pre></li>
+    <li><strong>Start one worker per GPU</strong> on machines that have the dataset:
+<pre data-file="terminal (each GPU)"><code class="language-bash">CUDA_VISIBLE_DEVICES=0 python3 portiloop_software/portiloop_python/PMBO/pareto_network.py --worker --ip_server 10.0.0.5 --output_file worker0.log
+CUDA_VISIBLE_DEVICES=1 python3 portiloop_software/portiloop_python/PMBO/pareto_network.py --worker --ip_server 10.0.0.5 --output_file worker1.log</code></pre>
+    Replace <code>10.0.0.5</code> by your server's address. Workers can join at any time and reconnect automatically after a connection loss; a worker stopped in the middle of a training loses that experiment (the meta-learner does not re-queue it).</li>
+  </ol>
+  <div class="callout warning"><span class="callout-title">Warnings for the distributed mode</span>
+    <ul>
+      <li><strong>Run it as a script, not with <code>python -m</code>.</strong> <code>pareto_network.py</code> imports its neighbours as top-level modules (<code>from pareto_network_server_utils import ...</code>, <code>from pareto_search import ...</code>), which only works when the script's own folder is on the import path. With <code>python3 -m portiloop_software...pareto_network</code> it fails with <code>ModuleNotFoundError: No module named 'pareto_network_server_utils'</code> (checked). The package itself must be installed (<code>pip install -e .</code>).</li>
+      <li><strong>Extra dependencies:</strong> <code>requests</code> and <code>pyinstrument</code> (both in <code>setup.py</code>).</li>
+      <li><strong>Internet access:</strong> every role calls <code>http://api.ipify.org</code> (an external service) at start-up to print its public IP address, which also tells that service the machine is running; on a cluster node without internet access this call fails. Remove the <code>self.public_ip = get(...)</code> lines if needed.</li>
+      <li><strong>Security:</strong> see <a href="#distributed-security">the warning above</a> before starting any role.</li>
+      <li><strong>Pickle and W&amp;B files</strong> are written by the meta-learner only, in its own <code>portiloop_software/pareto/</code>.</li>
+    </ul>
+  </div>
+  <div class="callout note"><span class="callout-title">Duplicate results</span>If the meta-learner receives a result for a configuration it already has (rare, since <code>same_config_dict()</code> rejects duplicates when sampling), it keeps the better of the two software costs and updates the front with that experiment. Clones older than November 2026 crashed on this path (misspelled key <code>"software_cost"</code>); <code>git pull</code> fixes it.</div>
+
+  <h2 id="results">Files, results and W&amp;B</h2>
+  <div class="callout disk"><span class="callout-title">On the hard drive</span>
+    <ul>
+      <li><code>portiloop_software/pareto/pareto_search_&lt;PARETO_ID&gt;_finished.pkl</code>: Python list with one dictionary per trained network, keys <code>config_dict</code> (the full configuration, ready for <code>run()</code>), <code>cost_hardware</code> (parameters), <code>cost_software</code> (\(1 - F_1\) on validation), <code>unrounded</code> (the continuous values behind the sampled grid values, used for Gaussian sampling), <code>best_epoch</code>, plus <code>surprise</code> in distributed mode.</li>
+      <li><code>portiloop_software/pareto/pareto_search_&lt;PARETO_ID&gt;_pareto.pkl</code>: the subset on the Pareto front, sorted by software cost (best F1 first). Both files are rewritten after every training.</li>
+      <li>No network weights: candidates are trained with <code>save_model=False</code>.</li>
+      <li>W&amp;B: project <code>pareto-public</code>, run id <code>pareto_search_&lt;PARETO_ID&gt;</code>, logs <code>surrogate_loss</code>, <code>surprise</code> and <code>pareto_plot</code> (all experiments in blue, front in red, last experiment in green) after every result; project <code>pareto-public_runs_&lt;PARETO_ID&gt;</code> has one run per candidate with its training curves. Local W&amp;B files go to <code>./wandb/</code>.</li>
+      <li><code>pareto_viewer.py</code> writes <code>pareto_plot_&lt;PARETO_ID&gt;.pdf</code>, <code>..._lowest_hardware.pdf</code> and <code>..._lowest_software.pdf</code> into <code>portiloop_software/dataset/</code>.</li>
+    </ul>
+  </div>
+  <ol class="steps">
+    <li><strong>Summarize the front</strong> with this script (tested on the files written by the rehearsal; pass the folder as argument, and change <code>run_name</code> if you changed <code>PARETO_ID</code>):
+<pre data-file="inspect_pareto.py"><code class="language-python"># inspect_pareto.py: summarize a PMBO run (run from the repository root)
+import pickle
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+folder = Path(sys.argv[1]) if len(sys.argv) &gt; 1 else Path("portiloop_software/pareto")
+run_name = "pareto_search_tests"  # RUN_NAME = "pareto_search_" + PARETO_ID
+with open(folder / f"{run_name}_finished.pkl", "rb") as f:
+    finished = pickle.load(f)
+with open(folder / f"{run_name}_pareto.pkl", "rb") as f:
+    front = pickle.load(f)
+
+print(len(finished), "experiments,", len(front), "on the Pareto front")
+print("keys of one experiment:", sorted(finished[0].keys()))
+rows = [dict(n_parameters=e["cost_hardware"], f1=1 - e["cost_software"],
+             **{k: e["config_dict"][k] for k in ("nb_conv_layers", "nb_channel", "kernel_conv", "kernel_pool",
+                                                 "window_size_s", "seq_stride_s", "hidden_size", "nb_rnn_layers",
+                                                 "lr_adam", "batch_size")})
+        for e in front]
+print(pd.DataFrame(rows).sort_values("n_parameters").to_string(index=False))</code></pre>
+    Output on the rehearsal files (fake F1 values; the first lines):
+<pre data-file="output"><code>15 experiments, 5 on the Pareto front
+keys of one experiment: ['best_epoch', 'config_dict', 'cost_hardware', 'cost_software', 'unrounded']
+ n_parameters       f1  nb_conv_layers  nb_channel  kernel_conv  kernel_pool  window_size_s  seq_stride_s  hidden_size  nb_rnn_layers  lr_adam  batch_size
+         1287 0.494525               4           1            9            9          0.458         0.130            7              1   0.0003         192
+         3771 0.526260               5           1            5           11          0.354         0.074           17              2   0.0003          64
+...</code></pre></li>
+    <li><strong>Plot with the authors' viewer</strong> (optional). <code>pareto_viewer.py</code> is a script without arguments; it imports <code>pareto_search</code> as a top-level module, so run it by path: <code>python3 portiloop_software/portiloop_python/PMBO/pareto_viewer.py</code>. It prints the best network, saves the PDFs listed above and opens a window (<code>plt.show()</code>). It needs at least 5 networks on the front (it highlights <code>pareto_front[-5]</code>), and its third figure overwrites the file name of the second one (both are called <code>..._lowest_software.pdf</code>).</li>
+    <li><strong>Check the surrogate</strong> (optional). <code>pareto_trainer.py</code> (also run by path) retrains a surrogate on all finished experiments but four random ones, prints predicted versus real cost for those four, and predictions for three random new configurations. It is a quick sanity check of how well the surrogate generalizes.</li>
+    <li><strong>Pick and retrain.</strong> Choose a configuration on the front that fits your hardware budget, copy its <code>config_dict</code>, give it a new <code>experiment_name</code>, adjust devices and training budget, and train it with checkpoints as in <a href="05-training.html">tutorial 05</a>. Re-evaluate it on the test set (<a href="06-evaluation.html">tutorial 06</a>): the F1 seen during the search is a single training on the validation set, and trainings vary. Then export it (<a href="10-deployment.html">tutorial 10</a>).</li>
+  </ol>
+  <div class="callout warning"><span class="callout-title">Troubleshooting</span>
+    <ul>
+      <li><code>KeyError: 'validation_network_stride'</code> at the first training: your clone predates the fix; <code>git pull</code>.</li>
+      <li><code>AssertionError: CUDA unavailable</code>: no GPU visible; the devices are hard-coded to <code>cuda:0</code>.</li>
+      <li><code>FileNotFoundError</code> on <code>dataset_classification_full_big_250_matlab_standardized_envelope_pf.txt</code> or <code>subject_sequence_full_big.txt</code>: the dataset is not installed (tutorial 02).</li>
+      <li>The log is flooded with <code>score dominating</code> lines: these are <code>print()</code> calls in <code>pareto_efficiency()</code>, 600 lines per iteration; filter them with <code>grep -v</code>.</li>
+      <li>A new search “remembers” old results: the pickles of the same <code>PARETO_ID</code> were found and reloaded. Change <code>PARETO_ID</code> or move the old files.</li>
+    </ul>
+  </div>
+
+  <h2 id="paper">What the search found in the paper</h2>
+  <p>Everything in this section is quoted from Valenchon et al. (2022) [1]; the repository does not contain the search logs.</p>
+  <ul>
+    <li>Scale of the final search: “we run PMBO on 20 Tesla V100 GPU workers over a period of 24h.” The PMBO settings (supplementary Table I) were a hardware range of 1000-80000, noise type 1 of 0.25, noise type 2 of 0.1, \(m = 200\), and a 3-layer MLP meta network of hidden size 200 trained with SGD (learning rate 0.05, weight decay 0.01): the values found in the current code.</li>
+    <li>Choice of the model: “We select the best model in terms of software cost (i.e. the one with the highest classification performance) irrespective of its hardware cost i.e., the model corresponding to the right-hand end of the Pareto front. This model is acceptable because it is anyway rather small, with only 25.6k parameters. We measure the execution time of this architecture to be 20 ms per forward pass on the Portiloop (vs. 40 ms for the 2-input version).”</li>
+    <li>The time between windows of one memory chain was chosen by the search: “the time-dilation (set to 168 ms by PMBO)”. Supplementary Table II marks batch size, learning rate, window size, time dilation and all architecture hyperparameters as chosen by PMBO.</li>
+    <li>A first search (with the envelope as a second input) produced the 2-input model; an ablation then showed that the envelope could be dropped, and PMBO was run “one more time to devise our final Pareto-optimal ANN architecture, now with only the cleaned signal as input.”</li>
+    <li>Limits: “the predictions of the meta-learner are often near-constant in well-performing areas of the search space, suggesting that the meta-model could not further predict the software cost. In other words, we were unable to differentiate between the best-performing configurations of the neural network.” The supplementary Fig 1 caption adds that part of each window is ignored by the model, “Therefore, it is probably possible to shrink our model even more, although PMBO did not find this.”</li>
+  </ul>
+  <p>The names of the shipped checkpoints, <code>pareto_search_15_35_v4_&lt;i&gt;</code>, follow the naming pattern of the search code (<code>RUN_NAME + "_" + number</code>), but the repository does not document what “15”, “35” and “v4” refer to.</p>
+
+  <h2 id="exercises">Exercises</h2>
+  <details class="exercise"><summary>Dominated or not?</summary><p>Three trained networks: A has 12,000 parameters and F1 = 0.66; B has 30,000 parameters and F1 = 0.70; C has 25,000 parameters and F1 = 0.64. Which are on the Pareto front? Which would you deploy on a device that holds at most 20,000 parameters? And at most 40,000?</p></details>
+  <details class="solution"><summary>Answer</summary><p>C is dominated by A (fewer parameters and higher F1). A and B are on the front: neither is both smaller and better than the other. Budget 20,000: only A fits. Budget 40,000: B (best F1 within budget), unless the 4-point F1 difference is within the training-to-training variability, in which case A's lower cost (and faster forward pass) may be the wiser choice.</p></details>
+
+  <details class="exercise"><summary>Compute the crowding penalty</summary><p>After 50 completed experiments, 5 have between 24,000 and 24,799 parameters. A candidate has 24,500 parameters. What penalty \(h\) does <code>exp_max_pareto_efficiency()</code> subtract from its score, and what does that mean for its chances?</p></details>
+  <details class="solution"><summary>Answer</summary><p>The bins are 800 parameters wide (80,000 / 100); this candidate is in the bin 24,000 to 24,799. The density is \(5 / (50 \times 800)\), multiplied by 80,000: \(h = 100 \times 5/50 = 10\). Since the other three terms are of order 1 (unless the predicted cost is near 0), a candidate in an empty bin (\(h = 0\)) will almost always be preferred: the search deliberately spreads its trainings over model sizes.</p></details>
+
+  <details class="exercise"><summary>Plan a search for your hardware</summary><p>Your embedded board can hold at most 15,000 parameters, and you want to know whether the envelope input helps at that size. List the edits you would make before launching.</p></details>
+  <details class="solution"><summary>Answer</summary><p>In <code>Utils/utils.py</code>: <code>MAX_NB_PARAMETERS = 15000</code>; <code>envelope_input_range_t = [0, 1, 1]</code>; possibly reduce <code>MAX_EPOCHS_PER_EXPERIMENT</code> to save time. In <code>pareto_search.py</code>: a new <code>PARETO_ID</code>; uncomment <code>int(config_dict['envelope_input'])</code> in <code>transform_config_dict_to_input()</code> and set <code>nb_features = 11</code> in <code>SurrogateModel</code> so the surrogate can tell the two kinds of networks apart. Note that the 2-input branch doubles the convolutional and GRU parameters (tutorial 04), so under a 15,000 budget the 2-input networks must be much narrower. Then rehearse with the fake trainer before using GPUs.</p></details>
+
+  <h2 id="references">References</h2>
+  <ol class="refs">
+    <li>Valenchon N, Bouteiller Y, Jourde HR, L'Heureux X, Sobral M, Coffey EBJ, Beltrame G (2022). The Portiloop: A deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a>. Quotes from sections 4 to 7 and from the supporting information <a href="https://doi.org/10.1371/journal.pone.0270696.s001">S1 File</a> (Appendices C, D and J).</li>
+    <li>Yin Z, Gross W, Meyer BH (2020). Probabilistic sequential multi-objective optimization of convolutional neural networks. <em>2020 Design, Automation &amp; Test in Europe Conference &amp; Exhibition (DATE)</em>, 1055 to 1060 (as cited in S1 File). <a href="https://past.date-conference.com/proceedings-archive/2020/html/0889.html">DATE 2020 proceedings archive</a>.</li>
+  </ol>
+
+</article>
+</main>
+
+<script src="../assets/js/portiloop.js"></script>
+<script src="../assets/js/nav.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = PL.ui.$;
+  const fmtInt = (n) => Math.round(n).toLocaleString("en-US");
+  const PMAX = 80000, PMIN = 1000;
+
+  /* ================= Pareto front explorer ================= */
+  const pf = { pts: [], sel: -1, tr: null };
+  function pfGenerate(seed) {
+    const R = PL.rng(seed * 7919 + 13);
+    const pts = [];
+    for (let i = 0; i < 120; i++) {
+      const p = Math.round(Math.exp(Math.log(PMIN) + R.uniform() * (Math.log(PMAX) - Math.log(PMIN))));
+      const ceiling = 0.74 - 0.32 * Math.exp(-p / 9000);
+      let f = ceiling - Math.abs(R.gaussian()) * 0.045;
+      if (R.uniform() < 0.15) f -= 0.1 + 0.25 * R.uniform(); // trainings that went badly
+      pts.push({ p, f: Math.max(0.05, Math.min(0.8, f)), id: i });
+    }
+    return pts;
+  }
+  // paper's Definition 1: E dominates E' when both costs are strictly lower
+  const dominates = (a, b) => a.p < b.p && a.f > b.f;
+  function pfFront(pts) { return pts.filter((q) => !pts.some((o) => dominates(o, q))).sort((a, b) => a.p - b.p); }
+  function etaParts(c, others) {
+    const n = others.length;
+    let dom = 0, domd = 0, best = 1;
+    const cc = 1 - c.f;
+    others.forEach((o) => { const oc = 1 - o.f; if (oc < cc && o.p < c.p) dom++; if (oc > cc && o.p > c.p) domd++; if (oc < best) best = oc; });
+    const bin = Math.min(99, Math.floor(c.p / (PMAX / 100)));
+    const inBin = others.filter((o) => Math.min(99, Math.floor(o.p / (PMAX / 100))) === bin).length;
+    const a = 1 - dom / n, b = domd / n, s = Math.abs(best / cc), h = 100 * inBin / n;
+    return { a, b, s, h, eta: a + b + s - h, bin };
+  }
+  function pfDraw() {
+    const cost = $("#pf-axis").value === "cost";
+    const Y = (f) => (cost ? 1 - f : f);
+    const budget = parseFloat($("#pf-budget").value);
+    const pts = pf.pts, front = pfFront(pts);
+    const frontIds = new Set(front.map((q) => q.id));
+    // staircase of the front (in F1 space: best F1 so far as size grows)
+    const sx = [], sy = [];
+    front.forEach((q, i) => { if (i) { sx.push(q.p); sy.push(Y(front[i - 1].f)); } sx.push(q.p); sy.push(Y(q.f)); });
+    sx.push(PMAX); sy.push(Y(front[front.length - 1].f));
+    const within = front.filter((q) => q.p <= budget);
+    const bestIn = within.length ? within[within.length - 1] : null;
+    const tr = PL.plot($("#pf-plot"), {
+      xRange: [0, PMAX], yRange: [0.15, 0.85], margin: { r: 26 },
+      xLabel: "Number of parameters (hardware cost)", yLabel: cost ? "Software cost 1 − F1" : "Validation F1",
+      regions: [{ x0: budget, x1: PMAX, color: "rgba(179, 58, 58, 0.10)" }],
+      series: [{ x: sx, y: sy, color: PL.color("model"), width: 1.6, label: "Pareto front" }],
+      markers: [{ x: budget, color: PL.color("warn") }, { x: 25679, color: PL.color("c4"), width: 1 }],
+    });
+    pf.tr = tr;
+    const ctx = $("#pf-plot").getContext("2d");
+    ctx.font = "11.5px " + (getComputedStyle(document.documentElement).getPropertyValue("--font-sans") || "sans-serif");
+    { const [bx] = tr.toPx(budget, 0), [px, py] = tr.toPx(25679, cost ? 0.8 : 0.2);
+      ctx.textBaseline = "bottom"; ctx.fillStyle = PL.color("c4"); ctx.textAlign = "left"; ctx.fillText("published model size", px + 4, py - 2);
+      ctx.fillStyle = PL.color("warn"); ctx.textAlign = "left"; ctx.fillText("budget", bx + 4, tr.box.t + 30); }
+    const sel = pf.sel >= 0 ? pts[pf.sel] : null;
+    if (sel) { // region where a point would dominate the selected one
+      const [x0, y0] = tr.toPx(0, Y(sel.f)), [, yTop] = tr.toPx(0, cost ? 0.15 : 0.85);
+      const [x1] = tr.toPx(sel.p, 0);
+      ctx.fillStyle = "rgba(47, 133, 90, 0.12)";
+      ctx.fillRect(x0, Math.min(y0, yTop), x1 - x0, Math.abs(yTop - y0));
+    }
+    pts.forEach((q) => {
+      const [x, y] = tr.toPx(q.p, Y(q.f));
+      let col = PL.color("axis"), r = 3;
+      if (frontIds.has(q.id)) { col = PL.color("model"); r = 4.2; }
+      if (sel && dominates(q, sel)) { col = PL.color("c3"); r = 4.5; }
+      if (sel && dominates(sel, q)) { col = PL.color("c1"); }
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.29); ctx.fill();
+    });
+    if (bestIn) { const [x, y] = tr.toPx(bestIn.p, Y(bestIn.f)); ctx.strokeStyle = PL.color("warn"); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 8, 0, 6.29); ctx.stroke(); }
+    if (sel) { const [x, y] = tr.toPx(sel.p, Y(sel.f)); ctx.strokeStyle = PL.color("text"); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 7, 0, 6.29); ctx.stroke(); }
+    $("#pf-n").textContent = String(pts.length);
+    $("#pf-nf").textContent = String(front.length);
+    $("#pf-best").textContent = bestIn ? bestIn.f.toFixed(3) : "none fits";
+    $("#pf-bests").textContent = bestIn ? fmtInt(bestIn.p) : "…";
+    pfInfo(sel, front);
+  }
+  function pfInfo(sel, front) {
+    const box = $("#pf-info");
+    if (!sel) { box.innerHTML = "Click a dot. Orange dots are on the front; the orange ring is the best network within the budget."; return; }
+    const by = pf.pts.filter((o) => dominates(o, sel)).sort((a, b) => b.f - a.f);
+    const over = pf.pts.filter((o) => dominates(sel, o));
+    const others = pf.pts.filter((o) => o.id !== sel.id);
+    const e = etaParts(sel, others);
+    let html = "<strong>Network #" + sel.id + "</strong>: " + fmtInt(sel.p) + " parameters, F1 " + sel.f.toFixed(3) + " (software cost " + (1 - sel.f).toFixed(3) + "). ";
+    if (!by.length) html += "<strong>On the Pareto front</strong>: no other network is both smaller and more accurate. ";
+    else html += "<strong>Dominated</strong> by " + by.length + " network" + (by.length > 1 ? "s" : "") + " (green dots, inside the green rectangle), e.g. #" + by[0].id + " with " + fmtInt(by[0].p) + " parameters and F1 " + by[0].f.toFixed(3) + ": smaller <em>and</em> better. ";
+    html += "It dominates " + over.length + " network" + (over.length === 1 ? "" : "s") + " (blue dots).";
+    html += "<table><thead><tr><th colspan=\"2\">If it were a PMBO candidate scored against the other " + others.length + " (formula of pareto_search.py)</th></tr></thead><tbody>" +
+      "<tr><td>a = 1 − (dominating it) / |E|</td><td>" + e.a.toFixed(3) + "</td></tr>" +
+      "<tr><td>b = (dominated by it) / |E|</td><td>" + e.b.toFixed(3) + "</td></tr>" +
+      "<tr><td>s = best cost / its cost</td><td>" + e.s.toFixed(3) + "</td></tr>" +
+      "<tr><td>h = crowding penalty (bin " + fmtInt(e.bin * 800) + " to " + fmtInt(e.bin * 800 + 799) + ")</td><td>" + e.h.toFixed(3) + "</td></tr>" +
+      "<tr><td><strong>η = a + b + s − h</strong></td><td><strong>" + e.eta.toFixed(3) + "</strong></td></tr></tbody></table>";
+    box.innerHTML = html;
+  }
+  $("#pf-plot").addEventListener("click", (ev) => {
+    if (!pf.tr) return;
+    const cost = $("#pf-axis").value === "cost";
+    const rect = ev.currentTarget.getBoundingClientRect();
+    const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+    let best = -1, bd = 400;
+    pf.pts.forEach((q, i) => { const [x, y] = pf.tr.toPx(q.p, cost ? 1 - q.f : q.f); const d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = i; } });
+    pf.sel = best; pfDraw();
+  });
+  PL.ui.bind("#pf-budget", pfDraw, (v) => fmtInt(v));
+  PL.ui.bind("#pf-axis", pfDraw);
+  PL.ui.bind("#pf-seed", (v) => { pf.pts = pfGenerate(v | 0); pf.sel = -1; pfDraw(); });
+  pf.pts = pfGenerate(3);
+  // preselect a dominated point to show the idea
+  (function () { const fr = new Set(pfFront(pf.pts).map((q) => q.id)); const c = pf.pts.filter((q) => !fr.has(q.id) && q.p > 15000 && q.p < 40000); if (c.length) pf.sel = c[0].id; })();
+
+  /* ================= Toy: surrogate-guided vs random search ================= */
+  const WSIG = 0.08;
+  function toyParams(u, v) { return Math.round(PMIN + (PMAX - PMIN) * Math.pow(u, 1.6) * (0.3 + 0.7 * v)); }
+  function toyF1(u, v) {
+    const cap = 1 - Math.exp(-5 * u);                                         // wider helps, with diminishing returns
+    const win = Math.exp(-Math.pow(v - 0.42, 2) / (2 * WSIG * WSIG));         // a narrow range of good windows
+    const trap = 0.1 * Math.exp(-(Math.pow(u - 0.15, 2) + Math.pow(v - 0.85, 2)) / 0.01); // misleading small bump
+    return 0.25 + 0.47 * cap * (0.25 + 0.75 * win) + trap;
+  }
+  const BUD = []; for (let i = 0; i < 80; i++) BUD.push(2000 + i * 1000);
+  function bestUnder(pts) {
+    const s = pts.slice().sort((a, b) => a.p - b.p); const out = []; let j = 0, best = 0;
+    for (const b of BUD) { while (j < s.length && s[j].p <= b) { best = Math.max(best, s[j].f); j++; } out.push(best); }
+    return out;
+  }
+  const TRUE_PTS = []; (function () { const n = 160; for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++) TRUE_PTS.push({ p: toyParams(i / n, j / n), f: toyF1(i / n, j / n), u: i / n, v: j / n }); })();
+  const TRUEB = bestUnder(TRUE_PTS);
+  const TRUE_BEST = TRUE_PTS.reduce((a, b) => (b.f > a.f ? b : a));
+  function gap(pts) { const b = bestUnder(pts); let s = 0; for (let i = 0; i < BUD.length; i++) s += TRUEB[i] - b[i]; return s / BUD.length; }
+  function kernelPredict(obs, u, v) {
+    const bw = 0.08; let sw = 0, s = 0;
+    for (const o of obs) { const d2 = (o.u - u) ** 2 + (o.v - v) ** 2; const w = Math.exp(-d2 / (2 * bw * bw)); sw += w; s += w * o.fobs; }
+    return (s + 0.05 * 0.4) / (sw + 0.05); // shrinks toward 0.4 where there is no data
+  }
+  function etaScore(c, obs) {
+    const n = obs.length; let dom = 0, domd = 0, best = 1; const cc = 1 - c.fpred;
+    for (const o of obs) { const oc = 1 - o.fobs; if (oc < cc && o.p < c.p) dom++; if (oc > cc && o.p > c.p) domd++; if (oc < best) best = oc; }
+    const bin = Math.min(99, Math.floor(c.p / 800)); let inBin = 0;
+    for (const o of obs) if (Math.min(99, Math.floor(o.p / 800)) === bin) inBin++;
+    return 1 - dom / n + domd / n + Math.abs(best / cc) - 100 * inBin / n;
+  }
+  function makeSearch(o) {
+    const R = PL.rng(o.seed); const obs = []; let last = null;
+    function train(u, v) { const p = toyParams(u, v), ft = toyF1(u, v); const r = { u, v, p, ftrue: ft, fobs: ft + o.noise * R.gaussian() }; obs.push(r); last = r; }
+    function step() {
+      if (o.N <= 1 || !obs.length) return train(R.uniform(), R.uniform());
+      const cands = [];
+      while (cands.length < o.N) {
+        let u, v;
+        if (R.uniform() < 0.25) { u = R.uniform(); v = R.uniform(); }
+        else { u = Math.min(1, Math.max(0, last.u + 0.1 * R.gaussian())); v = Math.min(1, Math.max(0, last.v + 0.1 * R.gaussian())); }
+        cands.push({ u, v, p: toyParams(u, v), fpred: kernelPredict(obs, u, v) });
+      }
+      let pick, bs = -Infinity;
+      if (R.uniform() < 0.1) pick = cands[Math.floor(R.uniform() * cands.length)];
+      else for (const c of cands) { const s = etaScore(c, obs); if (s >= bs) { bs = s; pick = c; } }
+      train(pick.u, pick.v);
+    }
+    return { obs, step, gap: () => gap(obs.map((r) => ({ p: r.p, f: r.ftrue }))) };
+  }
+  const T_MAX = 60;
+  const toy = { rnd: null, sur: null, gr: [], gs: [], avg: null, timer: null, landscape: null };
+  function toyOpts() { return { N: parseInt($("#toy-n").value, 10), noise: parseFloat($("#toy-noise").value), seed: parseInt($("#toy-seed").value, 10) }; }
+  function toyReset() {
+    const o = toyOpts();
+    toy.rnd = makeSearch({ seed: o.seed * 101 + 1, N: 1, noise: o.noise });
+    toy.sur = makeSearch({ seed: o.seed * 101 + 2, N: o.N, noise: o.noise });
+    toy.gr = []; toy.gs = []; toy.avg = null;
+    $("#toy-reach").textContent = "…";
+    toyDraw();
+  }
+  function toyStep() {
+    if (toy.rnd.obs.length >= T_MAX) return false;
+    toy.rnd.step(); toy.sur.step();
+    toy.gr.push(toy.rnd.gap()); toy.gs.push(toy.sur.gap());
+    return true;
+  }
+  function landscapeImage() {
+    if (toy.landscape) return toy.landscape;
+    const n = 90, c = document.createElement("canvas"); c.width = n; c.height = n;
+    const g = c.getContext("2d"), img = g.createImageData(n, n);
+    const VIR = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const f = toyF1(i / (n - 1), 1 - j / (n - 1));
+      const t = Math.max(0, Math.min(1, (f - 0.25) / 0.5)), x = t * (VIR.length - 1), k = Math.min(VIR.length - 2, Math.floor(x)), r = x - k;
+      const o = (j * n + i) * 4;
+      for (let ch = 0; ch < 3; ch++) img.data[o + ch] = Math.round(VIR[k][ch] + (VIR[k + 1][ch] - VIR[k][ch]) * r);
+      img.data[o + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    toy.landscape = c;
+    return c;
+  }
+  function drawSpace() {
+    const cv = $("#toy-space"), dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth || 600, H = cv.clientHeight || 230;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    ctx.font = "12px " + (getComputedStyle(document.documentElement).getPropertyValue("--font-sans") || "sans-serif");
+    const between = 40, side = Math.min((W - 30 - between) / 2, H - 40), top = 18;
+    const start = Math.max(24, (W - 2 * side - between) / 2 + 8);
+    [["Random search", toy.rnd, PL.color("c1")], ["Surrogate-guided (N = " + toyOpts().N + ")", toy.sur, PL.color("c2")]].forEach(([title, s, col], k) => {
+      const x0 = start + k * (side + between);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(landscapeImage(), x0, top, side, side);
+      ctx.fillStyle = PL.color("text"); ctx.textAlign = "left"; ctx.textBaseline = "bottom"; ctx.fillText(title, x0, top - 2);
+      ctx.textBaseline = "top"; ctx.fillText("width →", x0, top + side + 3);
+      ctx.save(); ctx.translate(x0 - 6, top + side); ctx.rotate(-Math.PI / 2); ctx.textBaseline = "bottom"; ctx.fillText("window →", 0, 0); ctx.restore();
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x0 + TRUE_BEST.u * side, top + (1 - TRUE_BEST.v) * side, 6, 0, 6.29); ctx.stroke();
+      s.obs.forEach((o, i) => {
+        const x = x0 + o.u * side, y = top + (1 - o.v) * side;
+        ctx.fillStyle = col; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(x, y, i === s.obs.length - 1 ? 5 : 3.2, 0, 6.29); ctx.fill(); ctx.stroke();
+      });
+    });
+  }
+  function staircase(pts) {
+    const s = pts.slice().sort((a, b) => a.p - b.p); const x = [], y = []; let best = null;
+    s.forEach((q) => { if (best === null || q.f > best) { if (best !== null) { x.push(q.p); y.push(best); } x.push(q.p); y.push(q.f); best = q.f; } });
+    if (best !== null) { x.push(PMAX); y.push(best); }
+    return { x, y };
+  }
+  function toyDraw() {
+    drawSpace();
+    const tf = { x: BUD.slice(), y: TRUEB.slice() };
+    const fr = staircase(toy.rnd.obs.map((o) => ({ p: o.p, f: o.ftrue }))), fs = staircase(toy.sur.obs.map((o) => ({ p: o.p, f: o.ftrue })));
+    PL.plot($("#toy-obj"), {
+      xRange: [0, PMAX], yRange: [0.2, 0.85], margin: { r: 26 }, xLabel: "Parameters (toy)", yLabel: "F1 (toy, noise-free)",
+      series: [
+        { x: tf.x, y: tf.y, color: PL.color("text"), dash: [5, 4], width: 1.2, label: "true front" },
+        { x: fr.x, y: fr.y, color: PL.color("c1"), width: 1.6, label: "random" },
+        { x: fs.x, y: fs.y, color: PL.color("c2"), width: 1.6, label: "surrogate" },
+        { x: toy.rnd.obs.map((o) => o.p), y: toy.rnd.obs.map((o) => o.ftrue), color: PL.color("c1"), points: true, radius: 3 },
+        { x: toy.sur.obs.map((o) => o.p), y: toy.sur.obs.map((o) => o.ftrue), color: PL.color("c2"), points: true, radius: 3 },
+      ],
+    });
+    const xs = toy.gr.map((_, i) => i + 1);
+    const series = [
+      { x: xs, y: toy.gr, color: PL.color("c1"), width: 2, label: "random (this run)" },
+      { x: xs, y: toy.gs, color: PL.color("c2"), width: 2, label: "surrogate (this run)" },
+    ];
+    if (toy.avg) {
+      const xa = toy.avg.r.map((_, i) => i + 1);
+      series.push({ x: xa, y: toy.avg.r, color: PL.color("c1"), width: 1.4, dash: [6, 4], label: "random (avg of 30)" });
+      series.push({ x: xa, y: toy.avg.s, color: PL.color("c2"), width: 1.4, dash: [6, 4], label: "surrogate (avg of 30)" });
+    }
+    PL.plot($("#toy-gap"), { xRange: [0, T_MAX], yRange: [0, 0.35], xLabel: "Number of trainings", yLabel: "Gap to true front", series, hlines: [{ y: 0.03, label: "gap 0.03" }], legend: window.innerWidth > 640 || !toy.avg });
+    $("#toy-t").textContent = String(toy.rnd.obs.length);
+    $("#toy-gr").textContent = toy.gr.length ? toy.gr[toy.gr.length - 1].toFixed(3) : "…";
+    $("#toy-gs").textContent = toy.gs.length ? toy.gs[toy.gs.length - 1].toFixed(3) : "…";
+  }
+  function stopRun() { if (toy.timer) { clearInterval(toy.timer); toy.timer = null; } $("#toy-run").textContent = "Run"; }
+  $("#toy-run").addEventListener("click", () => {
+    if (toy.timer) { stopRun(); return; }
+    if (toy.rnd.obs.length >= T_MAX) toyReset();
+    $("#toy-run").textContent = "Pause";
+    toy.timer = setInterval(() => { if (!toyStep()) stopRun(); toyDraw(); }, 140);
+  });
+  $("#toy-step").addEventListener("click", () => { stopRun(); toyStep(); toyDraw(); });
+  $("#toy-reset").addEventListener("click", () => { stopRun(); toyReset(); });
+  $("#toy-avg").addEventListener("click", () => {
+    stopRun();
+    const o = toyOpts(), S = 30, r = new Array(T_MAX).fill(0), s = new Array(T_MAX).fill(0);
+    for (let k = 1; k <= S; k++) {
+      const a = makeSearch({ seed: 5000 + k * 2, N: 1, noise: o.noise }), b = makeSearch({ seed: 5001 + k * 2, N: o.N, noise: o.noise });
+      for (let t = 0; t < T_MAX; t++) { a.step(); b.step(); r[t] += a.gap() / S; s[t] += b.gap() / S; }
+    }
+    toy.avg = { r, s };
+    const reach = (c) => { const i = c.findIndex((v) => v <= 0.03); return i < 0 ? "> " + T_MAX : String(i + 1); };
+    $("#toy-reach").textContent = reach(r) + " vs " + reach(s);
+    $("#toy-status").textContent = "Averaged over 30 searches (random vs surrogate, trainings needed to reach a gap of 0.03). A toy for intuition only: not Portiloop data, not the real surrogate.";
+    toyDraw();
+  });
+  ["#toy-n", "#toy-noise", "#toy-seed"].forEach((id) => PL.ui.bind(id, () => { stopRun(); toyReset(); }, id === "#toy-noise" ? (v) => v.toFixed(3) : (v) => String(v)));
+  toyReset();
+  for (let i = 0; i < 12; i++) toyStep();
+  toyDraw();
+
+  pfDraw();
+  PL.onRedraw(() => { pfDraw(); toyDraw(); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>03 · Signal preprocessing · Portiloop tutorials</title>
+  <meta name="description" content="How the Portiloop resamples, low-pass filters, notch filters and standardizes EEG before the spindle detector sees it, with interactive filters and the offline MATLAB replica explained line by line.">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <style>
+    .chain { width: 100%; height: auto; display: block; margin: 0.6em 0 0.2em; }
+    .chain text { font: 13px var(--font-sans); fill: var(--fg); }
+    .chain .sub { font-size: 11px; fill: var(--fg-muted); }
+    .controls .check { gap: 6px; }
+    .controls .check input { accent-color: var(--accent); }
+    .eq-table td:first-child { white-space: nowrap; }
+    .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+    .readout .k .lc { text-transform: none; }
+  </style>
+</head>
+<body data-page="03-preprocessing" data-root="..">
+<main>
+<article class="content">
+
+  <div class="eyebrow">Tutorial 03 · Understanding the pipeline</div>
+  <h1>Signal preprocessing</h1>
+  <p class="lead">Before the network sees a single sample, the Portiloop resamples the EEG to 250 Hz, removes fast activity with a short low-pass filter, removes 60 Hz mains noise, and rescales the signal with a running mean and variance. All of this happens causally, one sample at a time. This tutorial explains each stage, lets you manipulate each one in your browser, and walks through the MATLAB script that reproduces the chain offline.</p>
+
+  <dl class="meta">
+    <div><dt>Time</dt><dd>40 minutes</dd></div>
+    <div><dt>Level</dt><dd>Beginner (no signal processing background needed)</dd></div>
+    <div><dt>You need</dt><dd><a href="01-introduction.html">Tutorial 01</a>; MATLAB only for the last section</dd></div>
+    <div><dt>Runs in browser</dt><dd>Yes, all three widgets</dd></div>
+  </dl>
+
+  <div class="objectives">
+    <h3>In this tutorial you will</h3>
+    <ul>
+      <li>Understand why the network must receive <em>exactly</em> the same preprocessing during training and on the device</li>
+      <li>See what the 21-tap FIR low-pass filter and the 60 Hz notch do to EEG, and what a lab on 50 Hz mains should do</li>
+      <li>Explore the online standardization, its two time constants (40 ms and 4 s) and its warm-up transient</li>
+      <li>Measure the 40 ms delay that a real-time filter cannot avoid</li>
+      <li>Read <code>preprocess_unannotated_data.m</code> line by line, so you can preprocess your own recordings (<a href="09-your-data.html">Tutorial 09</a>)</li>
+    </ul>
+  </div>
+
+  <h2 id="why">Why the preprocessing must be identical</h2>
+  <p>The Portiloop network does not know what a microvolt is. It was trained on numbers that had passed through a specific chain of operations, and it learned what a spindle looks like <em>after</em> that chain. If the numbers it receives at inference time went through a different chain (a different low-pass, no standardization, a different sampling rate), the waveforms it sees are distorted in ways it has never encountered, and its output becomes unreliable without any error message.</p>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists</span>Think of a trained sleep scorer who has always scored on a C3-A2 derivation displayed with a 0.3 to 30 Hz bandpass at 7 µV/mm. Show the same scorer an unfiltered, differently scaled trace and their accuracy drops, although the brain activity is identical. The network is a scorer with a single display setting, frozen at training time. Preprocessing <em>is</em> that display setting.</div>
+
+  <p>In this repository the training data and the device share the same building blocks. The original training files were built with a MATLAB script that resamples the MASS recordings, runs them through the Simulink model <code>filter_lp.slx</code> (the FIR low-pass and the notch), then applies the standardization loop:</p>
+
+<pre data-file="portiloop_software/matlab/old_matlab/my_full_dataset_generation.m (excerpt)"><code class="language-matlab">data_256 = load(path+"dataset_"+phase+"_"+size_data+"_at_256_to_resample.txt");
+%% resample
+fe = 250;
+data_250_matlab = resample(data_256, fe, 256);
+...
+%% filter
+out = sim('filter_lp',tot_time);
+sim_filtered_lp = [out.filtered_simulink(10:end); out.filtered_simulink(end-7:end)];
+...
+%% standardize
+lp_standard = sim_filtered_lp;
+moving_average = lp_standard(1);
+moving_variance = 0;
+alpha_av = 0.1;
+alpha_var = 0.001;</code></pre>
+
+  <p>The same <code>filter_lp.slx</code> and the same loop appear in <code>preprocess_unannotated_data.m</code>, the script the README asks you to run on your own data. The complete chain is:</p>
+
+  <figure>
+    <svg class="chain" viewBox="0 0 820 150" role="img" aria-label="Preprocessing chain: raw EEG, resample to 250 Hz, FIR low-pass, 60 Hz notch, online standardization, 54-sample windows, network">
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--fg-muted)"/></marker></defs>
+      <g stroke="var(--border)" stroke-width="1.5">
+        <rect x="4" y="30" width="100" height="62" rx="9" fill="var(--bg-sunk)"/>
+        <rect x="128" y="30" width="118" height="62" rx="9" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <rect x="270" y="30" width="118" height="62" rx="9" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <rect x="412" y="30" width="118" height="62" rx="9" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <rect x="554" y="30" width="128" height="62" rx="9" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <rect x="706" y="30" width="110" height="62" rx="9" fill="var(--bg-sunk)"/>
+      </g>
+      <g stroke="var(--fg-muted)" stroke-width="1.5" marker-end="url(#arr)">
+        <line x1="104" y1="61" x2="126" y2="61"/><line x1="246" y1="61" x2="268" y2="61"/>
+        <line x1="388" y1="61" x2="410" y2="61"/><line x1="530" y1="61" x2="552" y2="61"/><line x1="682" y1="61" x2="704" y2="61"/>
+      </g>
+      <text x="54" y="57" text-anchor="middle">Raw EEG</text><text class="sub" x="54" y="75" text-anchor="middle">any rate, µV</text>
+      <text x="187" y="57" text-anchor="middle">Resample</text><text class="sub" x="187" y="75" text-anchor="middle">to 250 Hz</text>
+      <text x="329" y="57" text-anchor="middle">FIR low-pass</text><text class="sub" x="329" y="75" text-anchor="middle">21 taps, 40 ms delay</text>
+      <text x="471" y="57" text-anchor="middle">Notch</text><text class="sub" x="471" y="75" text-anchor="middle">60 Hz, 1 Hz wide</text>
+      <text x="618" y="57" text-anchor="middle">Standardize</text><text class="sub" x="618" y="75" text-anchor="middle">α = 0.1 and 0.001</text>
+      <text x="761" y="57" text-anchor="middle">Network</text><text class="sub" x="761" y="75" text-anchor="middle">54-sample windows</text>
+      <text class="sub" x="187" y="116" text-anchor="middle">offline only</text>
+      <text class="sub" x="471" y="116" text-anchor="middle">on the device and in training</text>
+      <path d="M270 104 h260" stroke="var(--accent)" stroke-width="1.5" fill="none"/>
+      <path d="M554 104 h128" stroke="var(--accent)" stroke-width="1.5" fill="none"/>
+      <text class="sub" x="618" y="116" text-anchor="middle">same loop everywhere</text>
+    </svg>
+    <figcaption>The preprocessing chain. Blue stages run causally on the Portiloop and were reproduced offline to build the training set.</figcaption>
+  </figure>
+
+  <table>
+    <thead><tr><th>Stage</th><th>Parameters</th><th>Source of truth in the repository</th></tr></thead>
+    <tbody>
+      <tr><td>Resampling</td><td>to 250 Hz (MASS: from 256 Hz)</td><td><code>resample(data_256, fe, 256)</code> in the dataset scripts</td></tr>
+      <tr><td>FIR low-pass</td><td>21 taps, about 30 Hz</td><td><code>filter_lp.slx</code>, identical to <code>old_matlab/coef30.coe</code></td></tr>
+      <tr><td>Notch</td><td>60 Hz, 1 Hz wide at −1 dB</td><td><code>filter_lp.slx</code> (MATLAB <code>iirnotch(60/125, 1/125, 1)</code>)</td></tr>
+      <tr><td>Standardization</td><td>α<sub>av</sub> = 0.1, α<sub>var</sub> = 0.001</td><td><code>preprocess_unannotated_data.m</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="resampling">Step 1: resampling to 250 Hz</h2>
+  <p>The Portiloop runs at 250 samples per second, so every number inside the network is defined in samples at 250 Hz: the input window is <code>int(0.218 × 250) = 54</code> samples (216 ms), the filter coefficients below assume 250 Hz, and the standardization time constants are counted in samples. Feeding the network 500 Hz data would make every spindle look half as fast to it.</p>
+  <p>The MASS recordings used for training were sampled at 256 Hz (the dataset generator checks it with <code>assert edf_file.getSampleFrequency(indices_C3[0]) == fe</code>, where <code>fe = 256</code>). MATLAB's <code>resample(x, 250, 256)</code> converted them. According to the MathWorks documentation, <code>resample</code> "applies an FIR Antialiasing Lowpass Filter to x and compensates for the delay introduced by the filter" [<a href="https://www.mathworks.com/help/signal/ref/resample.html">MathWorks</a>]. This step is <em>offline only</em>: the device digitizes directly at 250 Hz.</p>
+
+  <div class="callout tip"><span class="callout-title">Tip</span>Never resample by simply keeping every k-th sample or by linear interpolation. Both let fast activity fold back into lower frequencies (aliasing) or smear the waveform. Use <code>resample</code> in MATLAB or <code>scipy.signal.resample_poly</code> in Python; <a href="09-your-data.html#preprocess">Tutorial 09</a> gives a tested Python version and quantifies the error of linear interpolation.</div>
+
+  <h2 id="fir">Step 2: the 21-tap FIR low-pass filter</h2>
+  <p>A <strong>finite impulse response (FIR) filter</strong> computes each output sample as a weighted sum of the most recent input samples. The Portiloop's filter uses the current sample and the 20 previous ones (21 "taps"):</p>
+  $$y_n = \sum_{k=0}^{20} h_k \, x_{n-k}$$
+  <p>The 21 weights \(h_k\) are stored in <code>coef30.coe</code>:</p>
+<pre data-file="portiloop_software/matlab/old_matlab/coef30.coe (rounded here to 6 decimals)"><code class="language-none">0.001624, 0.014989, 0.021288, 0.007350, -0.025128, -0.052211, -0.039274, 0.033022, 0.147607, 0.254000,
+0.297331,
+0.254000, 0.147607, 0.033022, -0.039274, -0.052211, -0.025128, 0.007350, 0.021288, 0.014989, 0.001624</code></pre>
+  <p>Three properties matter for EEG:</p>
+  <ul>
+    <li><strong>It is a smoother.</strong> The largest weights are in the middle and they sum to about 1, so slow activity passes unchanged while fast wiggles (muscle, mains) average out. Its gain is within ±0.3 dB from 0 to 25 Hz, −1 dB at 30 Hz, −4 dB at 35 Hz and −36 dB at 50 Hz (values computed from the coefficients; check them in the widget below). The Portiloop paper summarizes it as "An FIR filter of order 20 works reasonably well to remove frequencies above 30 Hz" [1].</li>
+    <li><strong>It is linear phase.</strong> The weights are symmetric (\(h_k = h_{20-k}\)). Mathematically, this means every frequency is delayed by the same amount, so the <em>shape</em> of a spindle is preserved: no frequency-dependent distortion of the waxing and waning envelope.</li>
+    <li><strong>It delays the signal by 10 samples = 40 ms.</strong> A symmetric filter of length 21 is centered on its 11th weight, so its output is aligned with the input sample 10 steps in the past. This is the "group delay", \((21-1)/2 = 10\) samples, or 40 ms at 250 Hz.</li>
+  </ul>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists</span>The FIR filter is like a very short smoothing kernel slid along the trace. The analog filters of a classic EEG amplifier also delay the signal, but by different amounts at different frequencies (non-linear phase), which can distort waveform shape. A linear-phase FIR delays everything equally: the spindle arrives intact, just 40 ms late.</div>
+
+  <h2 id="notch">Step 3: the 60 Hz notch</h2>
+  <p>A <strong>notch filter</strong> removes a narrow band around one frequency, here the North American mains frequency. It is an <strong>infinite impulse response (IIR)</strong> filter: besides the last inputs, it also reuses its own previous outputs (feedback), which lets a filter with only 5 coefficients carve a 1 Hz wide hole:</p>
+  $$y_n = g\,x_n - 2g\cos\omega_0\,x_{n-1} + g\,x_{n-2} + 2g\cos\omega_0\,y_{n-1} - (2g-1)\,y_{n-2}$$
+  <p>with \(\omega_0 = \pi \cdot 60/125\) and \(g = 0.9936459\) (stored in <code>filter_lp.slx</code>). These are the coefficients of MATLAB's <code>iirnotch(60/125, 1/125, 1)</code>: notch at 60 Hz (normalized by the Nyquist frequency, 125 Hz), bandwidth 1 Hz (also normalized), measured at −1 dB because of the third argument. The MathWorks documentation states that with the third argument "the filter's bandwidth, <code>bw</code>, is specified at a level of −ab decibels" [<a href="https://www.mathworks.com/help/dsp/ref/iirnotch.html">MathWorks</a>]. The resulting filter is −1 dB at 59.5 and 60.5 Hz and essentially transparent elsewhere; its delay at spindle frequencies is under 0.01 sample.</p>
+
+  <div class="callout warning"><span class="callout-title">Labs on 50 Hz mains (Europe, most of Asia, Africa, Australia)</span>
+    <p>The published filter notches <strong>60 Hz only</strong>. The training data (MASS, recorded in Montreal) went through this 60 Hz notch, and <code>filter_lp.slx</code> in this repository contains no 50 Hz option. The Portiloop paper says the device applies "a notch filter whose frequency depends on the geographical area (50 Hz in Europe, 60 Hz in North America)" [1], but that choice is not part of the training code documented here; check the configuration of your own device firmware.</p>
+    <p>What this means in practice:</p>
+    <ul>
+      <li>The FIR low-pass alone already attenuates 50 Hz by about 36 dB (a factor of about 60): 20 µV of mains noise becomes about 0.3 µV. Verify it in the widget below by choosing 50 Hz noise.</li>
+      <li>Keep the 60 Hz notch exactly as it is when you preprocess data for this network, so that your data stay identical to the training data in the 0 to 45 Hz range.</li>
+      <li>If your 50 Hz noise is very large (hundreds of µV, typically bad electrode contact), fix the recording first. As a fallback you can add an extra 50 Hz notch <em>before</em> the chain; this changes very little below 45 Hz, but we have not validated detection performance with it.</li>
+    </ul>
+  </div>
+
+  <h3 id="widget-filters">Explore the filter chain</h3>
+  <div class="widget" id="fc">
+    <div class="widget-title">Filter chain: frequency response and effect on EEG</div>
+    <p class="widget-desc">Top: how much each stage lets through at each frequency (0 dB = unchanged, −20 dB = amplitude divided by 10). Bottom: 3 s of synthetic NREM EEG with added mains noise, before and after the FIR and notch. What to try: (1) select 50 Hz noise and read the residual; (2) turn off the notch with 60 Hz noise; (3) show the standardization's high-pass curve and look at what happens below 4 Hz.</p>
+    <div class="controls">
+      <label for="fc-line">Mains noise <select id="fc-line"><option value="0">none</option><option value="50">50 Hz</option><option value="60" selected>60 Hz</option></select></label>
+      <label for="fc-amp">Noise amplitude (µV) <input type="range" id="fc-amp" min="0" max="100" step="1" value="40"><output for="fc-amp"></output></label>
+      <label class="check" for="fc-notch"><input type="checkbox" id="fc-notch" checked> 60 Hz notch on</label>
+      <label class="check" for="fc-hp"><input type="checkbox" id="fc-hp"> show mean-removal high-pass</label>
+    </div>
+    <canvas class="plot" id="fc-resp" aria-label="Magnitude response in decibels of the FIR, the notch and the combined chain"></canvas>
+    <canvas class="plot tall" id="fc-time" aria-label="Synthetic EEG with mains noise before and after filtering"></canvas>
+    <div class="readout">
+      <div><div class="k">Gain at 13 Hz</div><div class="v" id="fc-g13">…</div></div>
+      <div><div class="k">Gain at mains freq.</div><div class="v" id="fc-gline">…</div></div>
+      <div><div class="k">Residual mains (<span class="lc">µV</span>)</div><div class="v" id="fc-res">…</div></div>
+      <div><div class="k">Group delay</div><div class="v">40 ms</div></div>
+    </div>
+    <div class="status" id="fc-status"></div>
+  </div>
+
+  <h2 id="standardization">Step 4: online standardization</h2>
+  <p>The last stage rescales the filtered EEG so that the network always receives numbers of roughly unit size, whatever the amplifier gain, electrode impedance or individual amplitude. A standard z-score would need the mean and standard deviation of the whole recording, which a real-time device does not have. The Portiloop therefore keeps a <strong>running</strong> estimate of both, updated at every sample with an <strong>exponential moving average</strong> (EMA). Here is the loop from <code>preprocess_unannotated_data.m</code>:</p>
+
+<pre data-file="portiloop_software/matlab/preprocess_unannotated_data.m (excerpt)"><code class="language-matlab">lp_standard = sim_filtered_lp;
+moving_average = lp_standard(1);
+moving_variance = 0;
+alpha_av = 0.1;
+alpha_var = 0.001;
+for i=2:size(lp_standard,1)
+    delta = lp_standard(i) - moving_average;
+    moving_average = moving_average + alpha_av*delta;
+    moving_variance = (1-alpha_var)*(moving_variance + alpha_var*delta.^2);
+    moving_std = sqrt(moving_variance);
+    lp_standard(i) = (lp_standard(i) - moving_average)./moving_std;
+end</code></pre>
+
+  <p>In equations, for each new filtered sample \(x_n\):</p>
+  $$\delta_n = x_n - \mu_{n-1}$$
+  $$\mu_n = \mu_{n-1} + \alpha_{av}\,\delta_n$$
+  $$\sigma^2_n = (1-\alpha_{var})\left(\sigma^2_{n-1} + \alpha_{var}\,\delta_n^2\right)$$
+  $$y_n = \frac{x_n - \mu_n}{\sigma_n}$$
+  <p>with \(\alpha_{av} = 0.1\), \(\alpha_{var} = 0.001\), \(\mu_1 = x_1\) and \(\sigma^2_1 = 0\). The first sample is passed through unchanged.</p>
+
+  <h3 id="time-constants">Time constants: 40 ms for the mean, 4 s for the variance</h3>
+  <p>The update \(\mu_n = (1-\alpha)\mu_{n-1} + \alpha x_n\) means that a sample \(k\) steps in the past still contributes with weight \(\alpha(1-\alpha)^k\). The memory fades exponentially, and the number of samples after which it has fallen to \(1/e\) (37%) is the <strong>time constant</strong>:</p>
+  $$\tau = \frac{-1}{\ln(1-\alpha)} \approx \frac{1}{\alpha}\ \text{samples}\quad(\text{for small }\alpha)$$
+  <table class="eq-table">
+    <thead><tr><th>Estimate</th><th>α</th><th>τ (exact)</th><th>τ ≈ 1/α</th><th>In time at 250 Hz</th></tr></thead>
+    <tbody>
+      <tr><td>Running mean μ</td><td>0.1</td><td>9.49 samples</td><td>10 samples</td><td>about 40 ms</td></tr>
+      <tr><td>Running variance σ²</td><td>0.001</td><td>999.5 samples</td><td>1000 samples</td><td>about 4 s</td></tr>
+    </tbody>
+  </table>
+  <p>The widget below measures these two time constants by running the actual update equations (the readouts "measured τ"), so you can check the approximation for any α.</p>
+
+  <p>These two numbers have important, and not obvious, consequences:</p>
+  <ul>
+    <li><strong>The mean tracker is a high-pass filter at about 4.7 Hz.</strong> With a 40 ms memory, μ follows everything slower than a few hertz, so subtracting it removes slow activity. Algebraically, \(x_n - \mu_n\) is a first-order high-pass filter, \(H(z) = (1-\alpha)(1-z^{-1})/(1-(1-\alpha)z^{-1})\), which is −3 dB at 4.7 Hz, −13 dB at 1 Hz and −19 dB at 0.5 Hz (tick "show mean-removal high-pass" in the first widget). The paper notes that this coefficient was chosen so that it "attenuates frequencies under 4 Hz" [1]. Slow oscillations, delta waves and the slow part of K-complexes are strongly attenuated in what the network sees; DC offsets and electrode drifts disappear entirely.</li>
+    <li><strong>The variance tracker is an automatic gain control with a 4 s memory.</strong> The network sees amplitude <em>relative to the last few seconds</em>. A spindle stands out because it is larger than the preceding background, not because it exceeds a fixed number of microvolts.</li>
+    <li><strong>The output is not exactly unit variance.</strong> Because \(\delta_n\) uses the mean <em>before</em> the update, \(x_n - \mu_n = (1-\alpha_{av})\,\delta_n\), so in steady state the output standard deviation is about \(1 - \alpha_{av} = 0.9\). The widget reports it.</li>
+  </ul>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists</span>The variance tracker behaves like sensory adaptation: a sustained change in amplitude (a louder subject, a drop in impedance) is "adapted away" within a few seconds, while transient events of a second or less (spindles) remain salient. An abrupt artifact, conversely, leaves an after-effect: once it ends, the background looks tiny for a few seconds until the variance estimate recovers.</div>
+
+  <h3 id="widget-standardization">Explore the standardization</h3>
+  <div class="widget" id="st">
+    <div class="widget-title">Online standardization explorer</div>
+    <p class="widget-desc">30 s of synthetic NREM EEG (filtered with the Portiloop FIR and notch) with a perturbation at 15 s. Top: the filtered signal, the running mean μ, and the running standard deviation σ drawn as ±σ around zero. Bottom: what the network receives. What to try: (1) with the Portiloop values, look at the first second (warm-up) and at the 15 s perturbation; (2) increase α<sub>var</sub> tenfold and see the adaptation speed up (and spindles shrink); (3) decrease α<sub>av</sub> and watch slow waves leak into the output; (4) compare measured and theoretical τ.</p>
+    <div class="controls">
+      <label for="st-aav">α<sub>av</sub> <input type="range" id="st-aav" min="-3" max="-0.3" step="0.05" value="-1"><output for="st-aav"></output></label>
+      <label for="st-avar">α<sub>var</sub> <input type="range" id="st-avar" min="-4" max="-1.3" step="0.05" value="-3"><output for="st-avar"></output></label>
+      <label for="st-event">At 15 s <select id="st-event">
+        <option value="amp" selected>amplitude triples</option>
+        <option value="step">electrode jump (+300 µV DC)</option>
+        <option value="burst">movement artifact (1 s)</option>
+        <option value="none">nothing</option></select></label>
+      <button class="btn secondary" type="button" id="st-reset">Portiloop values</button>
+    </div>
+    <canvas class="plot" id="st-raw" aria-label="Filtered EEG with running mean and the running standard deviation drawn around zero"></canvas>
+    <canvas class="plot" id="st-out" aria-label="Standardized output as seen by the network"></canvas>
+    <div class="readout">
+      <div><div class="k"><span class="lc">τ</span> mean (theory)</div><div class="v" id="st-tm-th">…</div></div>
+      <div><div class="k"><span class="lc">τ</span> mean (measured)</div><div class="v" id="st-tm-me">…</div></div>
+      <div><div class="k"><span class="lc">τ</span> variance (theory)</div><div class="v" id="st-tv-th">…</div></div>
+      <div><div class="k"><span class="lc">τ</span> variance (measured)</div><div class="v" id="st-tv-me">…</div></div>
+      <div><div class="k">Output SD, 8 to 14 s</div><div class="v" id="st-sd">…</div></div>
+    </div>
+    <div class="status">Theory: τ = −1/ln(1 − α) samples. Measured τ: number of samples for μ to cover 63.2% (1 − 1/e) of a unit step, and for σ² to cover 63.2% of a fourfold step in variance, obtained by running the update equations above.</div>
+  </div>
+
+  <h3 id="warmup">The warm-up transient and the 15 s lead-in of the dataset</h3>
+  <p>At the start, \(\sigma^2\) begins at 0 and grows slowly (4 s time constant), so the first outputs are divided by a tiny number and are huge (bottom plot of the widget, first second). The variance estimate needs several time constants to settle: after 15 s, that is 3750 samples, its initial error has decayed to \(0.999^{3750} \approx 2.3\%\).</p>
+  <p>The training dataset is built accordingly. The generator cuts each 115 s MODA block with 15 s of extra signal before it and after it, and marks those extra samples with negative labels:</p>
+<pre data-file="portiloop_software/portiloop_python/Dataset generation/dataset_generator_classification.py (excerpt)"><code class="language-python">pre_sequence_length_s = 15
+...
+pre_sequence_length = pre_sequence_length_s * new_fe
+post_sequence_length = pre_sequence_length_s * new_fe
+...
+            lenSignal = post_sequence_length+pre_sequence_length + 115*new_fe
+            ...
+            spindle_seq_list[i][index][:pre_sequence_length] = -1
+            spindle_seq_list[i][index][-post_sequence_length:] = -2</code></pre>
+  <p>Each segment in the dataset files is therefore 145 s long: 15 s unlabeled lead-in (label −1), 115 s annotated, 15 s unlabeled tail (label −2). The segments come from different parts of different nights and are concatenated, so every junction is a discontinuity that the filters and the standardization must recover from. The training code never uses a window that ends in the unlabeled zones, and also requires enough past signal to build its input sequence:</p>
+<pre data-file="portiloop_software/portiloop_python/ANN/portiloop_detector_training.py (excerpt, SignalDataset)"><code class="language-python">        self.past_signal_len = self.seq_len * self.idx_stride
+
+        # list of indices that can be sampled:
+        self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
+                        if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
+                                or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here</code></pre>
+  <p>For the published model, <code>seq_len = 50</code> windows spaced <code>seq_stride = 42</code> samples apart, that is 2100 samples (8.4 s) of history per training example (see <a href="04-network.html">Tutorial 04</a>). The 15 s lead-in thus serves two purposes: it lets the standardization settle after a junction, and it provides the 8.4 s of past windows that the recurrent part of the network is trained with. The code does not state the reason in a comment; this is our reading of it.</p>
+  <div class="callout tip"><span class="callout-title">Practical rule</span>When you run the detector on your own data, ignore detections in the first 15 s of a recording and in the 15 s after any gap, discontinuity or large artifact. <a href="09-your-data.html#events">Tutorial 09</a> does this automatically.</div>
+
+  <h2 id="causality">The cost of causality: the 40 ms delay</h2>
+  <p>Offline, you can filter without any delay: run the filter forward, then backward (MATLAB/SciPy <code>filtfilt</code>), or, for a linear-phase FIR, simply shift the output 10 samples earlier. Both use samples from the future. A real-time device cannot: at time \(n\) it only has \(x_n\) and the past. The Portiloop paper lists the filters as a constant 40 ms software delay, part of "a total constant delay of 64 ms" once the 20 ms network computation and the 4 ms stimulus hardware are added; the network's own detection delay (about 250 ms, highly variable) comes on top [1]. Shortening the filter reduces the delay but weakens the attenuation of 50 and 60 Hz noise. The widget lets you explore that trade-off.</p>
+
+  <div class="widget" id="cc">
+    <div class="widget-title">The cost of causality</div>
+    <p class="widget-desc">A single synthetic spindle (gray) filtered causally, as on the device (orange), and with the delay removed offline, as in the MATLAB script (blue, dashed). The vertical line marks the true spindle onset; in the lower plot, the green line marks the spindle frequency. What to try: (1) zoom on the onset and read the lag; (2) choose "windowed-sinc" and change the number of taps: the lag is always (taps − 1)/2 samples, but short filters let 50 Hz through.</p>
+    <div class="controls">
+      <label for="cc-filter">Filter <select id="cc-filter"><option value="pl" selected>Portiloop (21 taps, coef30)</option><option value="sinc">windowed-sinc, 30 Hz</option></select></label>
+      <label for="cc-taps">Taps <input type="range" id="cc-taps" min="3" max="81" step="2" value="21" disabled><output for="cc-taps"></output></label>
+      <label for="cc-freq">Spindle (Hz) <input type="range" id="cc-freq" min="11" max="16" step="0.5" value="13"><output for="cc-freq"></output></label>
+      <label for="cc-zoom">View <select id="cc-zoom"><option value="all">whole spindle</option><option value="onset" selected>onset (250 ms)</option></select></label>
+    </div>
+    <canvas class="plot tall" id="cc-time" aria-label="Raw spindle, causal filter output and delay-compensated output"></canvas>
+    <canvas class="plot short" id="cc-resp" aria-label="Magnitude response of the selected filter"></canvas>
+    <div class="readout">
+      <div><div class="k">Group delay</div><div class="v" id="cc-gd">…</div></div>
+      <div><div class="k">Measured lag</div><div class="v" id="cc-lag">…</div></div>
+      <div><div class="k">Gain at spindle freq.</div><div class="v" id="cc-gsp">…</div></div>
+      <div><div class="k">Gain at 50 Hz</div><div class="v" id="cc-g50">…</div></div>
+    </div>
+  </div>
+
+  <h2 id="matlab">Reproducing the chain offline with MATLAB</h2>
+  <p>The README asks users to preprocess their own recordings with <code>portiloop_software/matlab/preprocess_unannotated_data.m</code>, which simulates the Portiloop filters with the Simulink model <code>filter_lp.slx</code> and then applies the standardization. You need MATLAB with Simulink, the Signal Processing Toolbox (<code>resample</code>) and the DSP System Toolbox (the model uses its "Signal From Workspace" and "Digital Filter Design" blocks). If you do not have MATLAB, <a href="09-your-data.html#preprocess">Tutorial 09</a> provides a Python equivalent validated against this page's JavaScript implementation.</p>
+
+  <ol class="steps">
+    <li><strong>Choose the input file and its sampling rate.</strong>
+<pre data-file="preprocess_unannotated_data.m, lines 1 to 5"><code class="language-matlab">path = "../dataset/";
+dataset_filename = 'potiloop_sleep_age_young11.txt';
+final_dataset_filename = strcat('preprocessed_', dataset_filename);
+data_sampling_rate = 100;
+raw_data = load(path + dataset_filename);</code></pre>
+    <code>path</code> is the folder (relative to the folder MATLAB is running in), <code>dataset_filename</code> a plain text file with one EEG sample per line, and <code>data_sampling_rate</code> the rate at which that file was recorded (100 Hz in this example; set it to your own). The output will be named <code>preprocessed_</code> followed by the input name. <code>load</code> reads a numeric text file into a column vector.</li>
+
+    <li><strong>Resample to 250 Hz.</strong>
+<pre data-file="lines 6 to 10"><code class="language-matlab">%% resample
+fe = 250;
+data_250_matlab = resample(raw_data, fe, data_sampling_rate);
+%% generate vector
+data_250_matlab = [data_250_matlab];</code></pre>
+    <code>resample(x, 250, 100)</code> multiplies the rate by 250/100 with an anti-aliasing filter. The second statement does nothing (it wraps the vector in brackets); it is a leftover of the dataset scripts, where extra columns were concatenated here.</li>
+
+    <li><strong>Prepare the Simulink simulation.</strong>
+<pre data-file="lines 12 to 14"><code class="language-matlab">%% begin standardization
+signal = data_250_matlab;
+tot_time = length(data_250_matlab)/fe;</code></pre>
+    The Simulink model reads a workspace variable that must be called exactly <code>signal</code> (its "Signal From Workspace" block has <code>X = signal</code> and a sample time <code>Ts = 1/250</code>), and the simulation stop time is <code>tot_time</code> seconds. Despite the comment, nothing is standardized yet.</li>
+
+    <li><strong>Run the Portiloop filters.</strong>
+<pre data-file="lines 15 to 18"><code class="language-matlab">%% filter
+out = sim('filter_lp',tot_time);
+sim_filtered_lp = [out.filtered_simulink(10:end); out.filtered_simulink(end-7:end)];
+time_vect = out.tout(2:end);</code></pre>
+    <code>sim</code> runs <code>filter_lp.slx</code> (which must be in the current folder or on the MATLAB path): the 21-tap FIR, then the 60 Hz notch, exactly as on the device. The "To Workspace" block stores the result in <code>out.filtered_simulink</code>. The second line is the important difference with the device: it <strong>drops the first samples of the output</strong> (MATLAB indices start at 1, so <code>10:end</code> skips 9 samples), which moves the filtered signal earlier in time and removes the FIR group delay offline, then appends the last 8 output samples again so that the vector keeps the input length. Simulink also logs a sample at time 0, which affects how many samples must be dropped; we could not run Simulink to confirm whether the net shift is exactly 10 samples, but it is within one sample (4 ms) of the 40 ms group delay either way. <code>time_vect</code> is not used afterwards.</li>
+
+    <li><strong>Standardize.</strong> The loop quoted in <a href="#standardization">Step 4</a>, with <code>alpha_av = 0.1</code> and <code>alpha_var = 0.001</code>.</li>
+
+    <li><strong>Save.</strong>
+<pre data-file="lines 34 to 38"><code class="language-matlab">%% save
+
+datasetupdate = single([lp_standard]);
+
+writematrix(datasetupdate, path + final_dataset_filename);</code></pre>
+    The result is converted to single precision (about 7 significant digits, like the training files) and written as text, one value per line.</li>
+  </ol>
+
+  <div class="callout disk"><span class="callout-title">On the hard drive</span>
+    <ul>
+      <li><strong>Reads:</strong> <code>&lt;path&gt;/&lt;dataset_filename&gt;</code>, one EEG sample per line, at <code>data_sampling_rate</code>; <code>filter_lp.slx</code> (in <code>portiloop_software/matlab/</code>, next to the script).</li>
+      <li><strong>Writes:</strong> <code>&lt;path&gt;/preprocessed_&lt;dataset_filename&gt;</code>, one preprocessed sample per line at 250 Hz, same duration as the input. This is the format of <code>example_data_not_annotated.txt</code> (provided with the practice dataset, see <a href="02-installation.html">Tutorial 02</a>) and the input of <code>notebooks/offline_inference.ipynb</code>.</li>
+      <li><strong>Leaves in the workspace:</strong> <code>out</code> (Simulink output), <code>sim_filtered_lp</code> (filtered, before standardization), <code>lp_standard</code> (standardized, double precision).</li>
+    </ul>
+  </div>
+
+  <div class="callout note"><span class="callout-title">Offline versus device: what differs</span>The MATLAB script and the device apply the same filters and the same standardization. The only systematic difference is the alignment: offline, the 40 ms filter delay is removed; on the device, it is not. The network's input waveforms are the same in both cases (shifted by 40 ms), so its outputs are the same, but timestamps computed from offline-preprocessed files are 40 ms earlier than those of the device. The training data were built with the offline (delay-compensated) version, so spindle labels are aligned with the filtered signal the network saw.</div>
+
+  <h2 id="troubleshooting">Troubleshooting</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>Likely cause</th><th>What to do</th></tr></thead>
+    <tbody>
+      <tr><td>Huge values (tens or hundreds) at the start of the preprocessed file</td><td>Warm-up of the variance estimate (σ² starts at 0)</td><td>Expected. Ignore the first 15 s.</td></tr>
+      <tr><td><code>Undefined function or variable 'signal'</code>, or Simulink cannot find the source</td><td>The workspace variable was renamed, or the script was turned into a function (Simulink reads the base workspace)</td><td>Keep the name <code>signal</code> and run the file as a script.</td></tr>
+      <tr><td><code>sim</code> cannot find <code>filter_lp</code></td><td>Current folder is not <code>portiloop_software/matlab</code></td><td><code>cd</code> into that folder or <code>addpath</code> it, and adapt <code>path</code> accordingly.</td></tr>
+      <tr><td>"Signal From Workspace" or "Digital Filter Design" blocks are unresolved</td><td>DSP System Toolbox not installed</td><td>Use the Python port in <a href="09-your-data.html#preprocess">Tutorial 09</a>.</td></tr>
+      <tr><td>Preprocessed file shorter or longer than expected</td><td>Wrong <code>data_sampling_rate</code></td><td>Duration (samples ÷ 250) must equal the recording duration.</td></tr>
+      <tr><td>Strong 50 Hz noise visible after preprocessing</td><td>Very large mains interference; the chain notches 60 Hz only</td><td>See the <a href="#notch">50 Hz box</a>; improve electrode contact.</td></tr>
+      <tr><td>Values are NaN after a flat segment</td><td>A long run of identical samples (disconnected electrode, zero padding) makes σ² decay toward 0</td><td>Cut flat segments before preprocessing, or treat them as gaps.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="exercises">Exercises</h2>
+  <details class="exercise"><summary>How long is the memory of the variance tracker?</summary>
+    <p>In the standardization widget, choose "amplitude triples" and keep the Portiloop values. Roughly how many seconds after 15 s does the output return to its usual size? Relate your answer to τ<sub>var</sub>. Then set α<sub>var</sub> to 0.01 (slider at −2) and repeat.</p></details>
+  <details class="solution"><summary>Answer</summary>
+    <p>With α<sub>var</sub> = 0.001 (τ ≈ 4 s), the output is visibly too large for several seconds and is close to normal after roughly 3τ, about 12 s. With α<sub>var</sub> = 0.01 (τ ≈ 0.4 s), it adapts within about a second, but then the variance estimate also adapts <em>during</em> a 1 s spindle, so spindles are partially normalized away. The value 0.001 is a compromise: slow enough to keep spindles salient, fast enough to follow changes in amplitude across the night.</p></details>
+
+  <details class="exercise"><summary>A lab with 50 Hz mains</summary>
+    <p>In the filter-chain widget, set 50 Hz noise at 100 µV with the notch on, then off. Does the 60 Hz notch matter for this lab? What residual amplitude remains, and how does it compare with a 30 µV spindle?</p></details>
+  <details class="solution"><summary>Answer</summary>
+    <p>The notch makes no difference at 50 Hz (its gain there is 0 dB). The FIR alone brings 100 µV down to about 1.6 µV (−36 dB), small compared with a 30 µV spindle, and the network then sees a signal very close to what it was trained on. The real risk for such a lab is not the residual 50 Hz, but changing the chain (for instance replacing the 60 Hz notch with a 50 Hz one) without retraining.</p></details>
+
+  <details class="exercise"><summary>Why can the device not use filtfilt?</summary>
+    <p>In the causality widget, select the Portiloop filter and zoom on the onset. The dashed curve starts with the spindle; the orange one starts 40 ms later. Which samples would the device need to produce the dashed curve at the moment the spindle starts?</p></details>
+  <details class="solution"><summary>Answer</summary>
+    <p>The dashed output at time n is the causal output at time n + 10, which depends on inputs up to n + 10, i.e. 40 ms in the future. The device would have to wait 40 ms to compute it, which is exactly the delay we wanted to remove. Delay can be traded for filter quality (fewer taps), but never eliminated by a causal filter.</p></details>
+
+  <h2 id="next">What next</h2>
+  <p>You now know exactly what the network receives. <a href="04-network.html">Tutorial 04</a> opens the network itself: how 54-sample windows go through convolutions and a recurrent unit. To apply this preprocessing to your own recordings, jump to <a href="09-your-data.html">Tutorial 09</a>.</p>
+
+  <h2 id="references">References</h2>
+  <ol class="refs">
+    <li>Valenchon N, Bouteiller Y, Jourde HR, L'Heureux X, Sobral M, Coffey EBJ, Beltrame G (2022). The Portiloop: a deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a>. Quotes are from Sections 5.1 and 6.1 and Table 2 of the <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9394839/">PMC version</a>.</li>
+    <li>Lacourse K, Yetton B, Mednick S, Warby SC (2020). Massive online data annotation, crowdsourcing to generate high quality sleep spindle annotations from EEG data. <em>Scientific Data</em> 7: 190. <a href="https://doi.org/10.1038/s41597-020-0533-4">doi:10.1038/s41597-020-0533-4</a></li>
+    <li>O'Reilly C, Gosselin N, Carrier J, Nielsen T (2014). Montreal Archive of Sleep Studies: an open-access resource for instrument benchmarking and exploratory research. <em>Journal of Sleep Research</em> 23(6): 628 to 635. <a href="https://doi.org/10.1111/jsr.12169">doi:10.1111/jsr.12169</a></li>
+    <li>MathWorks documentation: <a href="https://www.mathworks.com/help/signal/ref/resample.html"><code>resample</code></a> (Signal Processing Toolbox) and <a href="https://www.mathworks.com/help/dsp/ref/iirnotch.html"><code>iirnotch</code></a> (DSP System Toolbox).</li>
+  </ol>
+
+</article>
+</main>
+
+<script src="../assets/js/portiloop.js"></script>
+<script src="../assets/js/nav.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = PL.ui.$;
+  const FS = PL.FS;
+  const fmtDb = (v) => (v < -99 ? "< −99" : (v >= 0 ? "+" : "") + v.toFixed(1).replace("-", "−")) + " dB";
+
+  /* ---------------------------------------------------------------- widget 1: filter chain */
+  (function () {
+    const firBA = { b: PL.filters.PORTILOOP_FIR, a: [1] };
+    const notchBA = PL.filters.PORTILOOP_NOTCH;
+    const hpBA = { b: [0.9, -0.9], a: [1, -0.9] }; // x - mu for alpha_av = 0.1
+    const freqs = []; for (let f = 0.05; f <= 125; f += 0.05) freqs.push(f);
+    const hFir = PL.filters.freqz(firBA, freqs, FS);
+    const hNotch = PL.filters.freqz(notchBA, freqs, FS);
+    const hHp = PL.filters.freqz(hpBA, freqs, FS);
+    const base = PL.synth.nrem({ duration_s: 14, seed: 4, lineNoiseAmp: 0 });
+    let noisy = null, filtered = null;
+
+    function chain(x, notchOn) {
+      const fir = new PL.filters.FIR(PL.filters.PORTILOOP_FIR);
+      const nt = new PL.filters.Biquad(PL.filters.PORTILOOP_NOTCH);
+      const y = new Float64Array(x.length);
+      for (let i = 0; i < x.length; i++) { const v = fir.step(x[i]); y[i] = notchOn ? nt.step(v) : v; }
+      return y;
+    }
+    function compute() {
+      const f0 = parseFloat($("#fc-line").value), A = parseFloat($("#fc-amp").value), notchOn = $("#fc-notch").checked;
+      const n = base.signal.length;
+      const noise = new Float64Array(n);
+      if (f0 > 0) for (let i = 0; i < n; i++) noise[i] = A * Math.sin(2 * Math.PI * f0 * i / FS + 0.3);
+      noisy = new Float64Array(n);
+      for (let i = 0; i < n; i++) noisy[i] = base.signal[i] + noise[i];
+      filtered = chain(noisy, notchOn);
+      // the chain is linear: filtered noise alone gives the residual exactly
+      const fn = chain(noise, notchOn);
+      let ss = 0, c = 0;
+      for (let i = 4 * FS; i < n; i++) { ss += fn[i] * fn[i]; c++; } // skip the notch's settling time
+      const resid = f0 > 0 ? Math.sqrt(2 * ss / c) : 0;
+      $("#fc-res").textContent = f0 > 0 ? resid.toFixed(2) : "n/a";
+      const g13 = PL.filters.freqz(firBA, [13], FS)[0] + (notchOn ? PL.filters.freqz(notchBA, [13], FS)[0] : 0);
+      $("#fc-g13").textContent = fmtDb(g13);
+      if (f0 > 0) {
+        const gl = PL.filters.freqz(firBA, [f0], FS)[0] + (notchOn ? PL.filters.freqz(notchBA, [f0], FS)[0] : 0);
+        $("#fc-gline").textContent = fmtDb(gl);
+      } else $("#fc-gline").textContent = "n/a";
+      $("#fc-status").textContent = f0 > 0
+        ? "Mains amplitude " + A + " µV at " + f0 + " Hz becomes " + resid.toFixed(2) + " µV after the FIR" + (notchOn ? " and the notch." : " (notch off).")
+        : "No mains noise added.";
+    }
+    function draw() {
+      if (!noisy) return;
+      const notchOn = $("#fc-notch").checked, showHp = $("#fc-hp").checked;
+      const comb = hFir.map((v, i) => v + (notchOn ? hNotch[i] : 0));
+      const series = [
+        { x: freqs, y: hFir, color: PL.color("c1"), width: 1.3, dash: [5, 3], label: "FIR low-pass" },
+        { x: freqs, y: hNotch, color: PL.color("c4"), width: 1.3, dash: [2, 3], label: "notch" },
+        { x: freqs, y: comb, color: PL.color("model"), width: 2, label: notchOn ? "FIR + notch" : "FIR only (notch off)" },
+      ];
+      if (showHp) series.push({ x: freqs, y: hHp, color: PL.color("c3"), width: 1.6, label: "mean removal (high-pass)" });
+      const f0 = parseFloat($("#fc-line").value);
+      PL.plot($("#fc-resp"), {
+        xRange: [0, 125], yRange: [-72, 18], xLabel: "Frequency (Hz)", yLabel: "Gain (dB)", series,
+        regions: [{ x0: 11, x1: 16, color: PL.color("label"), label: "spindle band 11 to 16 Hz" }],
+        markers: f0 > 0 ? [{ x: f0, color: PL.color("stim"), label: f0 + " Hz" }] : [],
+      });
+      const t0 = 9, t1 = 12, i0 = t0 * FS, i1 = t1 * FS;
+      const t = [], raw = [], filt = [];
+      let mx = 0;
+      for (let i = i0; i < i1; i++) mx = Math.max(mx, Math.abs(noisy[i] - 0));
+      const off = Math.max(80, mx) * 1.1;
+      for (let i = i0; i < i1; i++) { t.push(i / FS); raw.push(noisy[i] + off); filt.push(filtered[i]); }
+      PL.plot($("#fc-time"), {
+        xRange: [t0, t1], xLabel: "Time (s)", yLabel: "µV (offset)",
+        series: [
+          { x: t, y: raw, color: PL.color("signal"), width: 1, label: "raw + mains noise" },
+          { x: t, y: filt, color: PL.color("model"), width: 1.3, label: "after FIR" + ($("#fc-notch").checked ? " + notch" : "") },
+        ],
+      });
+    }
+    const update = () => { compute(); draw(); };
+    PL.ui.bind("#fc-line", update);
+    PL.ui.bind("#fc-amp", update, (v) => v.toFixed(0));
+    PL.ui.bind("#fc-notch", update);
+    PL.ui.bind("#fc-hp", draw);
+    PL.onRedraw(draw);
+    update();
+  })();
+
+  /* ---------------------------------------------------------------- widget 2: online standardization */
+  (function () {
+    const N = 30 * FS;
+    const base = PL.synth.nrem({ duration_s: 30, seed: 12, spindleRate_per_min: 8 });
+    const filt0 = (function () {
+      const fir = new PL.filters.FIR(PL.filters.PORTILOOP_FIR), nt = new PL.filters.Biquad(PL.filters.PORTILOOP_NOTCH);
+      return (x) => { fir.reset(); nt.reset(); return Float64Array.from(x, (v) => nt.step(fir.step(v))); };
+    })();
+    const cache = {};
+    function signalFor(kind) {
+      if (cache[kind]) return cache[kind];
+      const x = Float64Array.from(base.signal);
+      const i15 = 15 * FS;
+      if (kind === "amp") for (let i = i15; i < N; i++) x[i] *= 3;
+      if (kind === "step") for (let i = i15; i < N; i++) x[i] += 300;
+      if (kind === "burst") for (let i = i15; i < i15 + FS; i++) { const u = (i - i15) / FS; x[i] += 220 * Math.sin(Math.PI * u) * Math.sin(2 * Math.PI * 2.5 * u + 0.4); }
+      cache[kind] = filt0(x);
+      return cache[kind];
+    }
+    const alphaOf = (id) => Math.pow(10, parseFloat($(id).value));
+    const fmtA = (v) => { const a = Math.pow(10, v); return a >= 0.01 ? a.toFixed(3) : a.toPrecision(2); };
+
+    function measureTauMean(a) {
+      const s = new PL.OnlineStandardizer(a, 0.001);
+      s.step(0);
+      let k = 0;
+      while (s.mean < 1 - Math.exp(-1) && k < 1e6) { s.step(1); k++; }
+      return k;
+    }
+    function measureTauVar(a, b) {
+      const s = new PL.OnlineStandardizer(a, b);
+      const settle = Math.ceil(12 / b) + 200;
+      let sign = 1;
+      s.step(0);
+      for (let i = 0; i < settle; i++) { s.step(sign); sign = -sign; }
+      const v1 = s.variance, target = v1 + (1 - Math.exp(-1)) * (4 * v1 - v1); // amplitude x2 -> variance x4
+      let k = 0;
+      while (s.variance < target && k < 1e7) { s.step(2 * sign); sign = -sign; k++; }
+      return k;
+    }
+    let last = null;
+    function compute() {
+      const a = alphaOf("#st-aav"), b = alphaOf("#st-avar");
+      const x = signalFor($("#st-event").value);
+      const s = new PL.OnlineStandardizer(a, b);
+      const y = new Float64Array(N), mu = new Float64Array(N), sd = new Float64Array(N);
+      for (let i = 0; i < N; i++) { y[i] = s.step(x[i]); mu[i] = s.mean; sd[i] = Math.sqrt(s.variance); }
+      let ss = 0, m = 0, c = 0;
+      for (let i = 8 * FS; i < 14 * FS; i++) { m += y[i]; c++; }
+      m /= c; for (let i = 8 * FS; i < 14 * FS; i++) ss += (y[i] - m) ** 2;
+      $("#st-sd").textContent = Math.sqrt(ss / c).toFixed(2);
+      const tmTh = -1 / Math.log(1 - a), tvTh = -1 / Math.log(1 - b);
+      $("#st-tm-th").textContent = (tmTh / FS * 1000).toFixed(0) + " ms";
+      $("#st-tv-th").textContent = (tvTh / FS).toFixed(2) + " s";
+      const km = measureTauMean(a), kv = measureTauVar(a, b);
+      $("#st-tm-me").textContent = (km / FS * 1000).toFixed(0) + " ms";
+      $("#st-tv-me").textContent = (kv / FS).toFixed(2) + " s";
+      last = { x, y, mu, sd };
+    }
+    function draw() {
+      if (!last) return;
+      const t = Array.from({ length: N }, (_, i) => i / FS);
+      const up = Array.from(last.sd), lo = Array.from(last.sd, (v) => -v);
+      let lim = 0; for (let i = 2 * FS; i < N; i++) lim = Math.max(lim, Math.abs(last.x[i]));
+      PL.plot($("#st-raw"), {
+        xRange: [0, 30], yRange: [-lim * 1.05, lim * 1.05], yLabel: "µV",
+        series: [
+          { x: t, y: last.x, color: PL.color("signal"), width: 0.9, label: "filtered EEG" },
+          { x: t, y: last.mu, color: PL.color("model"), width: 1.6, label: "running mean μ" },
+          { x: t, y: up, color: PL.color("c3"), width: 1.8, label: "± running SD σ" },
+          { x: t, y: lo, color: PL.color("c3"), width: 1.8 },
+        ],
+        markers: [{ x: 15, color: PL.color("stim") }],
+      });
+      PL.plot($("#st-out"), {
+        xRange: [0, 30], yRange: [-7, 7], xLabel: "Time (s)", yLabel: "standardized",
+        series: [{ x: t, y: last.y, color: PL.color("signal"), width: 0.9, label: "network input (clipped at ±7)" }],
+        hlines: [{ y: 0.9, color: PL.color("axis"), dash: [2, 3] }, { y: -0.9, color: PL.color("axis"), dash: [2, 3] }],
+        markers: [{ x: 15, color: PL.color("stim"), label: "perturbation" }],
+      });
+    }
+    const update = () => { compute(); draw(); };
+    PL.ui.bind("#st-aav", update, fmtA);
+    PL.ui.bind("#st-avar", update, fmtA);
+    PL.ui.bind("#st-event", update);
+    $("#st-reset").addEventListener("click", () => {
+      $("#st-aav").value = -1; $("#st-avar").value = -3;
+      $("#st-aav").dispatchEvent(new Event("input")); $("#st-avar").dispatchEvent(new Event("input"));
+    });
+    PL.onRedraw(draw);
+    update();
+  })();
+
+  /* ---------------------------------------------------------------- widget 3: cost of causality */
+  (function () {
+    function sincLowpass(N, fc) {
+      const M = (N - 1) / 2, h = [];
+      let s = 0;
+      for (let n = 0; n < N; n++) {
+        const d = n - M, a = 2 * fc / FS;
+        const v = (d === 0 ? a : Math.sin(Math.PI * a * d) / (Math.PI * d)) * (N > 1 ? 0.54 - 0.46 * Math.cos(2 * Math.PI * n / (N - 1)) : 1);
+        h.push(v); s += v;
+      }
+      return h.map((v) => v / s);
+    }
+    const ONSET = 1.0;
+    let st = null;
+    function compute() {
+      const kind = $("#cc-filter").value;
+      $("#cc-taps").disabled = kind === "pl";
+      if (kind === "pl") { $("#cc-taps").value = 21; $('output[for="cc-taps"]').textContent = "21"; }
+      const taps = kind === "pl" ? PL.filters.PORTILOOP_FIR : sincLowpass(parseInt($("#cc-taps").value, 10), 30);
+      const f = parseFloat($("#cc-freq").value);
+      const d = PL.synth.nrem({ duration_s: 3, seed: 2, spindleTimes: [ONSET], spindleDur: [1, 1], spindleFreq: [f, f],
+        spindleAmp: [40, 40], backgroundAmp: 3, slowWaveAmp: 0, kComplexes: false });
+      const D = (taps.length - 1) / 2;
+      const causal = PL.filters.apply(new PL.filters.FIR(taps), d.signal);
+      const comp = new Float64Array(causal.length).fill(NaN);
+      for (let i = 0; i + D < causal.length; i++) comp[i] = causal[i + D];
+      // measured lag: cross-correlation between raw and causal output over the spindle
+      let best = 0, bestC = -Infinity;
+      for (let lag = 0; lag <= 60; lag++) {
+        let c = 0;
+        for (let i = Math.round(0.6 * FS); i < Math.round(2.4 * FS); i++) c += d.signal[i] * causal[i + lag];
+        if (c > bestC) { bestC = c; best = lag; }
+      }
+      const ba = { b: taps, a: [1] };
+      st = { d, causal, comp, D, taps, ba, best, f };
+      $("#cc-gd").textContent = D + " smp = " + (D / FS * 1000).toFixed(0) + " ms";
+      $("#cc-lag").textContent = best + " smp = " + (best / FS * 1000).toFixed(0) + " ms";
+      $("#cc-gsp").textContent = fmtDb(PL.filters.freqz(ba, [f], FS)[0]);
+      $("#cc-g50").textContent = fmtDb(PL.filters.freqz(ba, [50], FS)[0]);
+    }
+    function draw() {
+      if (!st) return;
+      const zoom = $("#cc-zoom").value;
+      const xr = zoom === "all" ? [0.6, 2.3] : [0.95, 1.2];
+      const t = Array.from(st.d.t);
+      PL.plot($("#cc-time"), {
+        xRange: xr, xLabel: "Time (s)", yLabel: "µV",
+        yRange: zoom === "all" ? [-50, 50] : [-25, 25],
+        series: [
+          { x: t, y: Array.from(st.d.signal), color: PL.color("axis"), width: 1, label: "raw spindle" },
+          { x: t, y: Array.from(st.causal), color: PL.color("model"), width: 2, label: "causal (device)" },
+          { x: t, y: Array.from(st.comp), color: PL.color("signal"), width: 1.6, dash: [5, 3], label: "delay removed (offline)" },
+        ],
+        markers: [{ x: ONSET, color: PL.color("stim"), label: "true onset" }],
+      });
+      const freqs = []; for (let f = 0.25; f <= 125; f += 0.25) freqs.push(f);
+      PL.plot($("#cc-resp"), {
+        xRange: [0, 125], yRange: [-72, 18], xLabel: "Frequency (Hz)", yLabel: "dB",
+        series: [{ x: freqs, y: PL.filters.freqz(st.ba, freqs, FS), color: PL.color("model"), width: 1.6, label: st.taps.length + "-tap filter" }],
+        markers: [{ x: st.f, color: PL.color("c3") }, { x: 50, color: PL.color("stim"), label: "50 Hz" }],
+      });
+    }
+    const update = () => { compute(); draw(); };
+    PL.ui.bind("#cc-filter", update);
+    PL.ui.bind("#cc-taps", update, (v) => v.toFixed(0));
+    PL.ui.bind("#cc-freq", update, (v) => v.toFixed(1));
+    PL.ui.bind("#cc-zoom", draw);
+    PL.onRedraw(draw);
+    update();
+  })();
+})();
+</script>
+</body>
+</html>

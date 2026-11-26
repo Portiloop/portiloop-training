@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>02 · Installation and data · Portiloop tutorials</title>
+  <meta name="description" content="Install the Portiloop training code, get the synthetic practice dataset and the pre-trained models, find real annotated EEG databases, understand the file formats and the subject-wise train/validation/test split, and run a first sanity check.">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <!-- KaTeX (only if the page has equations) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <!-- Prism syntax highlighting (colors come from style.css) -->
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <style>
+    blockquote.quote { margin: 1.1em 0; padding: 6px 16px; border-left: 3px solid var(--accent); background: var(--bg-elev); border-radius: 0 8px 8px 0; }
+    blockquote.quote p { margin: 0.3em 0; }
+    blockquote.quote cite { display: block; font-style: normal; font-size: 0.86em; color: var(--fg-muted); margin-top: 4px; }
+    .tabs { display: flex; gap: 6px; margin: 0.6em 0 -0.4em; flex-wrap: wrap; }
+    .tabs button { font: inherit; font-size: 13.5px; padding: 4px 12px; border-radius: 7px 7px 0 0; border: 1px solid var(--border); border-bottom: none; background: var(--bg-sunk); color: var(--fg-muted); cursor: pointer; }
+    .tabs button[aria-selected="true"] { background: var(--bg-elev); color: var(--accent); font-weight: 650; }
+    .tabpanel[hidden] { display: none; }
+    .widget .panel-label { font-size: 13px; font-weight: 650; color: var(--fg-muted); margin: 10px 0 2px; }
+    /* dataset explorer */
+    .fx-table { font-family: var(--font-mono); font-size: 13px; margin: 8px 0; }
+    .fx-table th button { font: inherit; font-weight: 650; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elev); color: var(--fg); padding: 2px 8px; cursor: pointer; white-space: nowrap; }
+    .fx-table th button:hover { border-color: var(--accent); }
+    .fx-table th.sel button { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+    .fx-table td.sel { background: var(--accent-soft); }
+    .fx-table tr.cur td { font-weight: 700; }
+    .fx-table td { white-space: nowrap; }
+    .fx-explain { background: var(--bg-sunk); border-radius: 8px; padding: 10px 14px; font-size: 0.93em; margin-top: 8px; }
+    .fx-explain h4 { margin: 0 0 4px; font-size: 1em; }
+    .fx-explain p { margin: 0.35em 0; }
+    /* subject split */
+    .sx-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--fg-muted); margin: 6px 0; }
+    .sx-legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+    .sx-group { margin: 8px 0; }
+    .sx-group h5 { margin: 0 0 4px; font-size: 12.5px; color: var(--fg-muted); font-weight: 650; }
+    .sx-grid { display: flex; flex-wrap: wrap; gap: 3px; }
+    .sx-grid button { height: 16px; border: 0; border-radius: 3px; padding: 0; cursor: pointer; background: var(--plot-c1); outline-offset: 1px; }
+    .sx-grid button.val { background: var(--plot-c3); }
+    .sx-grid button.test { background: var(--plot-c2); }
+    .sx-grid button.leak { background: linear-gradient(90deg, var(--plot-c1) 0 80%, var(--plot-c3) 80% 90%, var(--plot-c2) 90% 100%); }
+    .sx-grid button.picked { outline: 2px solid var(--fg); }
+    .sx-counts td, .sx-counts th { text-align: right; font-variant-numeric: tabular-nums; }
+    .sx-counts td:first-child, .sx-counts th:first-child { text-align: left; }
+    .tree { line-height: 1.45; }
+  </style>
+</head>
+<body data-page="02-installation" data-root="..">
+<main>
+<article class="content">
+
+  <div class="eyebrow">Tutorial 02 · Getting started</div>
+  <h1>Installation and data</h1>
+  <p class="lead">Install the training code in an isolated Python environment, download the dataset and the pre-trained models, learn what every file and column contains, see how subjects are divided into training, validation and test sets, and check that everything works by running the pre-trained detector.</p>
+
+  <dl class="meta">
+    <div><dt>Time</dt><dd>45 minutes (plus download time)</dd></div>
+    <div><dt>Level</dt><dd>Beginner</dd></div>
+    <div><dt>You need</dt><dd>A terminal, Python 3, git, about 1 GB of free disk</dd></div>
+    <div><dt>Runs in browser</dt><dd>The widgets yes; the installation runs on your computer</dd></div>
+  </dl>
+
+  <div class="objectives">
+    <h3>In this tutorial you will</h3>
+    <ul>
+      <li>Create a virtual environment and install the <code>portiloop_software</code> package in editable mode.</li>
+      <li>Download (or generate) the synthetic practice dataset and put it in the right folder.</li>
+      <li>Understand what the synthetic data imitate (MODA consensus labels on MASS recordings), where the pre-trained model's data came from, and which real databases you can request.</li>
+      <li>Read the dataset files: columns, 145 s segments, labels, subject lists.</li>
+      <li>Understand the subject-wise train/validation/test split, and why splitting by samples would cheat.</li>
+      <li>Run the offline inference notebook as a sanity check, and fix the most common errors.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================================== -->
+  <h2 id="prerequisites">Prerequisites</h2>
+  <table>
+    <thead><tr><th>What</th><th>Needed for</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Python 3 and <code>pip</code></td><td>Everything</td><td>Use a Python version for which <a href="https://pytorch.org/get-started/locally/">PyTorch publishes packages</a>. The code examples on this page were tested with Python 3.14, PyTorch 2.9 and pandas 2.3 (CPU only).</td></tr>
+      <tr><td><code>git</code></td><td>Getting the code</td><td>Or download the repository as a ZIP from GitHub.</td></tr>
+      <tr><td>Disk space</td><td>Dataset</td><td><code>dataset.zip</code> is 185 MB and unzips to about 450 MB; keep about 1 GB free.</td></tr>
+      <tr><td>RAM</td><td>Training</td><td>The training code loads a whole dataset text file into memory, once for the training set and once for the validation set. We did not measure the peak; the example SLURM job in <code>scripts.zip</code> requests <code>--mem=32000M</code>.</td></tr>
+      <tr><td>NVIDIA GPU with CUDA</td><td>Training only</td><td>The training configuration uses <code>'device_train': 'cuda'</code> and stops with <code>CUDA unavailable</code> without a GPU. Inference uses <code>'device_inference': 'cpu'</code>: a laptop is enough.</td></tr>
+      <tr><td>MATLAB with Simulink</td><td>Only to preprocess real recordings with the original MATLAB scripts (a Python alternative exists)</td><td>See Tutorials <a href="03-preprocessing.html">03</a> and <a href="09-your-data.html">09</a>.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: why a virtual environment?</span>A <strong>virtual environment</strong> is a private copy of Python with its own set of installed packages, stored in one folder. It is the software equivalent of a dedicated, labelled reagent shelf for one protocol: installing PyTorch or an old pandas for this project will not break the toolboxes you use for other analyses, and deleting the folder removes everything.</div>
+
+  <!-- ===================================================================== -->
+  <h2 id="install">Installing the code</h2>
+  <ol class="steps">
+    <li><strong>Open a terminal and check the tools.</strong> On Windows, use "Anaconda Prompt" or PowerShell.
+<pre data-file="terminal"><code class="language-bash">python3 --version
+git --version</code></pre>
+      Expected output (your versions will differ):
+<pre><code class="language-none">Python 3.11.9
+git version 2.43.0</code></pre></li>
+
+    <li><strong>Clone the repository</strong> and move into it. All later commands assume you are in this folder (the one containing <code>setup.py</code>).
+<pre data-file="terminal"><code class="language-bash">git clone https://github.com/Portiloop/portiloop-training.git
+cd portiloop-training</code></pre>
+      If you cloned it before, update it with <code>git pull</code>: recent fixes (saving the best model during training, the <code>onnx</code> dependency in <code>setup.py</code>, loading the pre-trained model for offline inference, compatibility with pandas 3) are needed by these tutorials.</li>
+
+    <li><strong>Create and activate a virtual environment.</strong> Choose one of the two variants.
+      <div class="tabs" role="tablist" aria-label="Environment manager">
+        <button type="button" role="tab" id="tab-venv" aria-selected="true" aria-controls="panel-venv">venv (built into Python)</button>
+        <button type="button" role="tab" id="tab-conda" aria-selected="false" aria-controls="panel-conda">conda</button>
+      </div>
+      <div class="tabpanel" role="tabpanel" id="panel-venv" aria-labelledby="tab-venv">
+<pre data-file="terminal (venv)"><code class="language-bash">python3 -m venv .venv
+source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip</code></pre>
+      </div>
+      <div class="tabpanel" role="tabpanel" id="panel-conda" aria-labelledby="tab-conda" hidden>
+<pre data-file="terminal (conda)"><code class="language-bash">conda create -n portiloop python=3.11
+conda activate portiloop
+python -m pip install --upgrade pip</code></pre>
+      </div>
+      Your prompt now starts with <code>(.venv)</code> or <code>(portiloop)</code>. Activate the environment again in every new terminal before working on the project.</li>
+
+    <li><strong>(GPU machines only) install PyTorch with CUDA first.</strong> Open the selector at <a href="https://pytorch.org/get-started/locally/">pytorch.org/get-started/locally</a>, choose your OS, "Pip" and your CUDA version, and run the command it gives you. If you skip this step, the next step installs the default PyTorch build from PyPI, which is fine for inference on a CPU.</li>
+
+    <li><strong>Install the package in editable mode.</strong>
+<pre data-file="terminal"><code class="language-bash">pip install -e .</code></pre>
+      <code>-e</code> ("editable") tells Python to use the files of your clone directly instead of copying them. This matters here: the code finds the dataset and saves trained models relative to its own location, so the package must live in your clone. The command installs the dependencies listed in <code>setup.py</code>:
+<pre data-file="setup.py (excerpt)"><code class="language-python">install_requires = [
+    'numpy',
+    'pandas',
+    'scikit-learn',
+    'torch',
+    'wandb',
+    'pyedflib',
+    'scipy',
+    'matplotlib',
+    'requests',
+    'pyinstrument',
+    'onnx',  # used to export the best model to ONNX during training
+]</code></pre>
+      In short: <code>numpy</code>, <code>pandas</code>, <code>scipy</code> (arrays, tables, signal processing), <code>torch</code> (the neural network library), <code>scikit-learn</code> (only for the train/validation/test split), <code>wandb</code> (training dashboards, Tutorial <a href="05-training.html">05</a>), <code>pyedflib</code> (reading EDF files when rebuilding the dataset), <code>matplotlib</code> (plots), <code>onnx</code> (model export, Tutorial <a href="10-deployment.html">10</a>), <code>requests</code> and <code>pyinstrument</code> (utilities).</li>
+
+
+    <li><strong>Install Jupyter</strong> to run the notebooks (it is not in <code>setup.py</code>):
+<pre data-file="terminal"><code class="language-bash">pip install notebook</code></pre></li>
+
+    <li><strong>Check the installation.</strong>
+<pre data-file="terminal"><code class="language-bash">python -c "import torch, portiloop_software; print('torch', torch.__version__, '| CUDA available:', torch.cuda.is_available())"</code></pre>
+      Expected output on a machine without GPU (on a GPU machine with a CUDA build of PyTorch, the last word is <code>True</code>):
+<pre><code class="language-none">torch 2.9.1 | CUDA available: False</code></pre>
+      If you see <code>ModuleNotFoundError</code>, the environment is not activated or step 5 failed; see <a href="#troubleshooting">Troubleshooting</a>.</li>
+
+    <li><strong>(Training only) Weights &amp; Biases.</strong> The training script logs its curves to <a href="https://wandb.ai">Weights &amp; Biases</a> (W&amp;B). Three options: log in once with your own account (<code>wandb login</code>); train without an account with <code>WANDB_MODE=offline</code> (the curves are saved locally in a <code>./wandb</code> folder and can be uploaded later with <code>wandb sync</code>); or switch W&amp;B off completely with <code>WANDB_MODE=disabled</code> (nothing is recorded). Details in Tutorial <a href="05-training.html">05</a>. Never paste an API key into code you share.</li>
+  </ol>
+
+  <!-- ===================================================================== -->
+  <h2 id="download">Getting the practice dataset and the pre-trained models</h2>
+  <div class="callout warning"><span class="callout-title">The practice dataset is synthetic</span>The dataset used in these tutorials is <strong>synthetic EEG</strong>, generated by a script of this repository; it was not recorded from any person. It has exactly the format of the files the Portiloop authors trained on, so every command, notebook and tutorial works with it, and its spindles look like spindles to the pre-trained network (see <a href="#synthetic">below</a>). A network trained on it, however, learns <em>synthetic</em> spindles: it is not a detector for real EEG. To train a real detector, request one of the <a href="#real-data">annotated databases listed below</a> and convert it to the same format (Tutorials <a href="03-preprocessing.html">03</a> and <a href="09-your-data.html">09</a>).</div>
+  <p>There are two equivalent ways to get the dataset. The archive was made with the generator (seed 2022, numpy 2.3 and scipy 1.16); generating it yourself with the same versions gives identical files (we checked the checksums). Other versions of numpy or scipy may give slightly different files, which does not matter for the tutorials, but then the numbers quoted in them will not match exactly.</p>
+  <table>
+    <thead><tr><th>Archive</th><th>Size</th><th>Contains</th><th>Needed?</th></tr></thead>
+    <tbody>
+      <tr><td><a href="https://github.com/Portiloop/portiloop-training/releases/download/synthetic-dataset-v1/dataset.zip"><code>dataset.zip</code></a></td><td>185 MB</td><td>The synthetic practice dataset and an example signal</td><td>Yes, for training and for the notebooks (or generate it, option B)</td></tr>
+      <tr><td><a href="https://github.com/nicolasvalenchon/Portiloop/releases/download/v0.0.2/experiments.zip"><code>experiments.zip</code></a></td><td>2.7 MB</td><td>10 pre-trained checkpoints</td><td>No: identical copies are already in <code>portiloop_software/experiments/</code> (we compared their checksums)</td></tr>
+      <tr><td><a href="https://github.com/nicolasvalenchon/Portiloop/releases/download/v0.0.2/scripts.zip"><code>scripts.zip</code></a></td><td>1.9 KB</td><td>Example SLURM job scripts for computing clusters</td><td>Only if you train on a SLURM cluster (Tutorial <a href="05-training.html">05</a>)</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="option-download">Option A: download <code>dataset.zip</code></h3>
+  <ol class="steps">
+    <li><strong>Download <code>dataset.zip</code> into <code>portiloop_software/</code>.</strong>
+<pre data-file="terminal (from the repository root)"><code class="language-bash">cd portiloop_software
+curl -L -O https://github.com/Portiloop/portiloop-training/releases/download/synthetic-dataset-v1/dataset.zip</code></pre>
+      On Windows PowerShell: <code>Invoke-WebRequest -Uri &lt;the URL above&gt; -OutFile dataset.zip</code>, or download it with your browser and move it there.</li>
+    <li><strong>Unzip it in place.</strong> The archive contains a top-level <code>dataset/</code> folder, so unzipping inside <code>portiloop_software/</code> puts the files exactly where the code looks for them.
+<pre data-file="terminal (inside portiloop_software/)"><code class="language-bash">unzip -n dataset.zip     # -n: never overwrite, keeps the repository's dataset/.gitignore
+rm dataset.zip           # optional
+cd ..</code></pre>
+      On Windows: <code>Expand-Archive dataset.zip -DestinationPath .</code></li>
+  </ol>
+
+  <h3 id="option-generate">Option B: generate the dataset yourself</h3>
+  <p>The archive is the output of <code>synthetic_dataset_generator.py</code>, which only needs numpy and scipy. Generating the files takes about two minutes and writes them directly into <code>portiloop_software/dataset/</code>:</p>
+<pre data-file="terminal (from the repository root)"><code class="language-bash">python "portiloop_software/portiloop_python/Dataset generation/synthetic_dataset_generator.py"</code></pre>
+  <p>Options: <code>--p1</code> and <code>--p2</code> set the number of younger and older subjects (default 20 and 14, at least 6 each), <code>--long</code> the number of subjects per group with 10 segments instead of 3 (default 2), <code>--seed</code> the random seed (default 2022: the same seed gives the same subjects), <code>--out</code> another folder. A larger dataset gives larger validation and test sets (more reliable scores) at the cost of longer training: <code>--p1 100 --p2 80</code> approaches the size of the original files.</p>
+
+  <p>Check the result:</p>
+<pre data-file="terminal (from the repository root)"><code class="language-bash">ls -l portiloop_software/dataset portiloop_software/experiments</code></pre>
+
+  <p>You should now have this layout:</p>
+<pre class="tree"><code class="language-none">portiloop-training/
+├── setup.py
+├── notebooks/
+│   ├── offline_inference.ipynb
+│   ├── simulate_Portiloop_1_input_classification.ipynb
+│   └── model_extraction.ipynb
+└── portiloop_software/
+    ├── dataset/
+    │   ├── dataset_classification_full_big_250_matlab_standardized_envelope_pf.txt   150 MB
+    │   ├── dataset_classification_p1_big_250_matlab_standardized_envelope_pf.txt      85 MB
+    │   ├── dataset_classification_p2_big_250_matlab_standardized_envelope_pf.txt      64 MB
+    │   ├── dataset_regression_full_big_250_matlab_standardized_envelope_pf.txt       150 MB
+    │   ├── example_data_not_annotated.txt                                            1.0 MB
+    │   ├── subject_sequence_full_big.txt
+    │   ├── subject_sequence_p1_big.txt
+    │   ├── subject_sequence_p2_big.txt
+    │   └── synthetic_dataset_info.json   (generator settings and per-subject parameters)
+    ├── experiments/
+    │   ├── pareto_search_15_35_v4_0      (the model of the paper, used by default)
+    │   ├── pareto_search_15_35_v4_3, _7, _9, _11, _12, _14, _15, _16, _18
+    ├── matlab/          (online filter model and preprocessing script)
+    └── portiloop_python/
+        ├── ANN/                    (network, training, inference, ONNX export)
+        ├── Dataset generation/     (synthetic dataset generator; original MASS + MODA generators)
+        ├── PMBO/                   (hyperparameter search)
+        └── Utils/</code></pre>
+
+  <div class="callout disk"><span class="callout-title">On the hard drive</span>
+    <p><code>portiloop_software/dataset/</code> is hard-coded in the training module: <code>path_dataset = Path(__file__).absolute().parent.parent.parent / 'dataset'</code>. The code reads the dataset files from there <strong>and also writes the checkpoints of the models you train there</strong> (Tutorial <a href="05-training.html">05</a>). The repository ignores the content of this folder in git (its <code>.gitignore</code> says "Ignore everything in this directory").</p>
+    <p><code>portiloop_software/experiments/</code> holds the pre-trained checkpoints (PyTorch files without extension, about 314 KB each). The notebooks load models from there.</p>
+  </div>
+
+  <!-- ===================================================================== -->
+  <h2 id="datasets">Where the data come from</h2>
+
+  <h3 id="synthetic">The synthetic practice dataset</h3>
+  <p>The generator (<code>portiloop_software/portiloop_python/Dataset generation/synthetic_dataset_generator.py</code>) imitates the structure of the data the Portiloop was trained on, described in the next sections: 115 s blocks of N2 sleep scored by a group of experts, from a younger and an older group of adults. By default it creates <strong>34 subjects</strong> (20 "phase 1", younger; 14 "phase 2", older), 3 blocks each except 2 subjects per group with 10 blocks: 130 segments, 4.2 hours of labelled signal. For each subject it draws a background EEG level and a typical spindle frequency, amplitude, duration and density, so that subjects differ from each other as real people do; older subjects have fewer, smaller and shorter spindles.</p>
+  <ul>
+    <li><strong>Background:</strong> about 1/f noise (a sum of autoregressive processes), slow oscillations between 0.5 and 2 Hz, and K-complexes (about 1.5 per minute).</li>
+    <li><strong>Spindles:</strong> waxing and waning bursts between 10.5 and 16 Hz, 0.4 to 2.2 s long, with log-normally distributed amplitudes: most are clear, some are small enough to be missed.</li>
+    <li><strong>Distractors:</strong> alpha bursts (8 to 10.5 Hz), short muscle bursts, and 60 Hz line noise in some subjects (removed by the Portiloop notch filter).</li>
+    <li><strong>Labels:</strong> 4 to 8 simulated scorers per block mark each spindle with a probability and a confidence (1, 0.75 or 0.5) that grow with its amplitude, with onsets and offsets that vary between scorers; alpha bursts are occasionally marked with low confidence. As in MODA (below), the scores are averaged sample by sample (the regression labels) and thresholded at 0.2 for phase 1 and 0.35 for phase 2, adjacent events are merged and events shorter than 0.3 s or longer than 2.5 s are removed (the classification labels).</li>
+    <li><strong>Processing:</strong> the same chain as the original MATLAB script (<a href="#build">below</a>): Portiloop low-pass and notch filters, online standardization, sigma envelope and power ratio. Each segment is simulated with 30 s of extra signal before it so that the filters have settled.</li>
+  </ul>
+  <p>About 6.1% of the labelled samples are spindles (8.5% in phase 1, 3.0% in phase 2); for comparison, the Portiloop paper reports that "only about 5% of the signal is labeled as sleep spindles" in MODA [3]. As a check that the synthetic spindles resemble real ones, we ran the pre-trained network (trained on real EEG) on all synthetic segments, sample by sample with a 0.5 threshold:</p>
+  <table>
+    <thead><tr><th>Synthetic subjects</th><th>Precision</th><th>Recall</th><th>F1</th></tr></thead>
+    <tbody>
+      <tr><td>Phase 1 (younger)</td><td>0.81</td><td>0.58</td><td>0.68</td></tr>
+      <tr><td>Phase 2 (older)</td><td>0.67</td><td>0.44</td><td>0.54</td></tr>
+    </tbody>
+  </table>
+  <p>The network recognizes most labelled synthetic spindles without ever having seen synthetic data; it misses mostly the small ones, which the simulated scorers sometimes still marked. These scores are of the same order as those the paper reports on real test subjects (F1 0.64 for phase 1 and 0.55 for phase 2, mean over ten splits [3]; Tutorial <a href="06-evaluation.html#paper">06</a>), so the synthetic task is neither trivial nor impossible for this network. The two evaluations are not strictly comparable (different subjects, and the paper's numbers come from test sets only).</p>
+  <div class="callout note"><span class="callout-title">What the synthetic data do not contain</span>No sleep stages other than N2, no arousals, movement or electrode artifacts, no eye movements or ECG contamination, no differences between amplifiers and montages, and no real inter-individual variability beyond a few parameters. Results obtained on them (F1 scores, best hyperparameters, training curves) teach you how the pipeline behaves; they say nothing about performance on real EEG. Every number you report in a paper must come from real data.</div>
+
+  <h3 id="mass">MASS: the recordings behind the pre-trained model</h3>
+  <p>The Montreal Archive of Sleep Studies [1] is a database of laboratory polysomnography: "whole-night recordings from 200 participants [...] were pooled from eight different research protocols performed in three different hospital-based sleep laboratories. All recordings feature a sampling frequency of 256 Hz" [1]. Its first cohort is split into five subsets, SS1 to SS5. MASS file names follow this structure: <code>01-02-0017</code> is cohort 01, subset SS2, subject 0017, which you will see in the subject lists below.</p>
+
+  <h3 id="moda">MODA: the spindle labels behind the pre-trained model</h3>
+  <p>The Massive Online Data Annotation project [2] crowd-sourced spindle annotations on part of MASS:</p>
+  <blockquote class="quote">
+    <p>"180 subjects were sampled from the SS1-SS5 subsets. The dataset was split into “phase 1” and “phase 2”; 100 younger subjects (mean age of 24.1 years old) and 80 older subjects (mean age of 62.0 years old) respectively. “Blocks” of 115 s were randomly extracted from artifact free Stage N2 sleep. Three blocks (~6 mins) were extracted in 85 subjects in phase 1 and 65 subjects in phase 2; and 10 blocks (~20 mins) were extracted in the remaining 15 subjects of each phase."</p>
+    <cite>Lacourse et al. (2020), Scientific Data, Methods [2]</cite>
+  </blockquote>
+  <p>Each scorer marked spindles on the C3 channel and rated their confidence; scores were averaged across scorers, sample by sample, and thresholded:</p>
+  <blockquote class="quote">
+    <p>"each sample of the EEG time series had a score weighted by the confidence rate given by the scorer; 1 for high, 0.75 for medium, 0.5 for low confidence and 0 for no spindle at all. Then, sample by sample, the scores were averaged across scorers, and if they exceed the chosen Group Consensus Threshold (GCt) then these samples were identified to be part of the GC spindle dataset."</p>
+    <cite>Lacourse et al. (2020), Scientific Data, Methods [2]</cite>
+  </blockquote>
+  <p>The thresholds of the expert "gold standard" are 0.2 for phase 1 and 0.35 for phase 2 [2], and "Too short (&lt;0.3 s) adjacent (&lt;0.1 s apart) spindles were merged, and spindle longer than 2.5 s or shorter than 0.3 s were filtered out of the GC" [2]. The Portiloop training code still contains these two thresholds: <code>threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.2}</code>.</p>
+
+  <h3 id="access">How to obtain the original data</h3>
+  <ul>
+    <li><strong>MODA annotations are public.</strong> They are on the Open Science Framework (<a href="https://osf.io/8bma7/">osf.io/8bma7</a>, doi:10.17605/OSF.IO/8BMA7) and in the GitHub repository <a href="https://github.com/klacourse/MODA_GC">klacourse/MODA_GC</a> (release 3.0 at the time of writing). That repository contains the files the Portiloop dataset generator reads: <code>input/6_segListSrcDataLoc_p1.txt</code>, <code>input/7_segListSrcDataLoc_p2.txt</code>, <code>input/8_MODA_primChan_180sjt.txt</code> and one <code>output/exp/annotFiles/&lt;subject&gt;_MODA_GS.txt</code> per subject (columns <code>startSec</code>, <code>durationSec</code>, <code>eventName</code>).</li>
+    <li><strong>MASS recordings are available on request.</strong> As of November 2026, the <a href="https://ceams-carsm.ca/en/mass/">MASS web page</a> states that access to the biosignals "requires that the investigators submit a copy of their project (as approved by their local ethics board) and a proof of ethical approval", that requests are made by e-mail to the address given on that page, and that the data are then shared through the Borealis (Canadian Dataverse) repository; "PSG biosignals will never be available for direct download." The MODA README adds that the MODA subjects come from "the complete PSG MASS data V2.0 (SS1 to SS5)". Check the MASS page for the current procedure before you apply.</li>
+  </ul>
+  <div class="callout note"><span class="callout-title">The pre-trained models</span>The checkpoints in <code>portiloop_software/experiments/</code> were trained by the Portiloop authors on MASS recordings with MODA labels (the paper states that "Ethical approval for use of the dataset was obtained from the database’s scientific committee and Concordia University’s Research Ethics Unit" [3]). The MASS-derived training files are not distributed with these tutorials. If you use the pre-trained models, cite the Portiloop paper [3], MASS [1] and MODA [2].</div>
+
+  <h3 id="real-data">Real EEG databases you can use</h3>
+  <p>To train a detector for real EEG you need recordings with spindle annotations, ideally on a central channel (C3, C4 or Cz). Few public databases have them. The list below was checked on the official pages in November 2026; licences and procedures change, so read the current terms before you download, and ask your ethics board whether your use needs approval.</p>
+  <div class="scroll-x"><table>
+    <thead><tr><th>Database</th><th>Access</th><th>Central EEG</th><th>Spindle labels</th></tr></thead>
+    <tbody>
+      <tr><td><strong>MASS + MODA</strong> (the data of the pre-trained model)<br><a href="https://ceams-carsm.ca/en/mass/">MASS</a>; MODA on <a href="https://osf.io/8bma7/">OSF</a> and <a href="https://github.com/klacourse/MODA_GC">GitHub</a></td><td>MASS: on request with your approved project and proof of ethics approval, then a licence. MODA annotations: open ("not subject to licencing requirements")</td><td>C3, 256 Hz</td><td>Yes: group consensus of experts on 180 subjects (5,342 gold-standard spindles)</td></tr>
+      <tr><td><strong>MASS SS2 annotations</strong><br><a href="https://doi.org/10.5683/SP3/Y889CS">doi:10.5683/SP3/Y889CS</a></td><td>Annotations open on Borealis; signals as MASS above</td><td>19 EEG electrodes, 256 Hz</td><td>Yes: "Expert 1 scored the sleep spindles and k-complexes for all the subjects. Expert 2 scored the sleep spindle for 15 out of 19 subjects."</td></tr>
+      <tr><td><strong>DREAMS Sleep Spindles</strong><br><a href="https://zenodo.org/records/2650142">doi:10.5281/zenodo.2650142</a></td><td>Open download; CC BY-NC-ND 3.0 (no commercial use, do not share modified copies)</td><td>C3-A1 or Cz-A1; 50, 100 or 200 Hz depending on the excerpt</td><td>Yes: "8 excerpts of 30 minutes [...] annotated independently by two experts"; the second expert scored only 6 excerpts</td></tr>
+      <tr><td><strong>Nap EEG</strong> (Mei et al.)<br><a href="https://osf.io/chav7/">osf.io/chav7</a></td><td>Open (OSF)</td><td>64 channels including C3 and C4, 1 kHz</td><td>Yes, one rater: "A single rater (KTN) manually annotated sleep stages and spindles" (2,528 spindles, daytime naps)</td></tr>
+      <tr><td><strong>HMC sleep staging</strong> (PhysioNet)<br><a href="https://physionet.org/content/hmc-sleep-staging/1.1/">doi:10.13026/t79q-fr32</a></td><td>Open; CC BY 4.0</td><td>C3/M2 and C4/M1, 256 Hz</td><td>No: sleep stages only</td></tr>
+      <tr><td><strong>Dreem Open Datasets</strong> DOD-H and DOD-O<br><a href="https://zenodo.org/records/15900394">doi:10.5281/zenodo.15900394</a></td><td>Open download; MIT licence</td><td>C3/M2, 250 Hz (the Portiloop rate)</td><td>No: sleep stages by 5 scorers</td></tr>
+      <tr><td><strong>NSRR</strong> cohorts (SHHS, MrOS, ...)<br><a href="https://sleepdata.org">sleepdata.org</a></td><td>Online request and Data Access and Use Agreement</td><td>SHHS: C3-A2 and C4-A1 at 125 Hz; MrOS: C3, C4 at 256 Hz</td><td>No spindle events; SHHS provides automated spindle summary variables</td></tr>
+    </tbody>
+  </table></div>
+  <p>Databases with sleep stages only are still useful: you can run the pre-trained detector on their N2 sleep (Tutorial <a href="09-your-data.html">09</a>), check its output against your own visual scoring of a subset, or annotate spindles yourself. Note that a PhysioNet search for "spindle" returned no open-access database with spindle annotations, and that Sleep-EDF has no central channel (only Fpz-Cz and Pz-Oz). Whatever the source, resample to 250 Hz and apply the Portiloop preprocessing (Tutorial <a href="03-preprocessing.html">03</a>), then write the four-column files described below, one 145 s segment per labelled block. Cite the database as its maintainers request.</p>
+
+  <h3 id="build">How the original files were built</h3>
+  <p>This is the recipe to follow if you convert a real database to the Portiloop format. The folder <code>portiloop_software/portiloop_python/Dataset generation/</code> builds the files from MASS EDF files and MODA annotations, followed by MATLAB/Simulink scripts (<code>portiloop_software/matlab/old_matlab/my_full_dataset_generation.m</code>). In order, the code:</p>
+  <ol>
+    <li>reads channel C3 of each EDF file (256 Hz), re-referenced to A2 when MODA's channel list says <code>C3-A2</code>;</li>
+    <li>cuts every MODA 115 s block with <strong>15 s of extra signal before and 15 s after</strong>, and builds a label vector at 250 Hz: −1 before, −2 after, 0 or 1 inside;</li>
+    <li>(MATLAB) resamples to 250 Hz, runs the signal through the Simulink model of the Portiloop filters (<code>filter_lp.slx</code>), standardizes it online, computes an envelope and a power ratio, and writes the four columns.</li>
+  </ol>
+<pre data-file="portiloop_software/portiloop_python/Dataset generation/dataset_generator_classification.py (excerpts)"><code class="language-python">    fe = 256
+    new_fe = 250
+    signal_list = []
+    pre_sequence_length_s = 15
+    ...
+            spindle_seq_list[i][index] = np.zeros((lenSignal,), dtype=float)
+            spindle_seq_list[i][index][:pre_sequence_length] = -1
+            spindle_seq_list[i][index][-post_sequence_length:] = -2</code></pre>
+<pre data-file="portiloop_software/matlab/old_matlab/my_full_dataset_generation.m (excerpt)"><code class="language-matlab">datasetupdate = single([lp_standard, envelope_homemade_simulink, r, spindle_250]);
+
+writematrix(datasetupdate, path+"dataset_classification_"+phase + "_"+size_data+"_250_matlab_standardized_envelope_pf.txt");</code></pre>
+  <p>Not every MODA subject made it into the original files: their subject lists contained <strong>162 subjects</strong> (98 from phase 1 with 398 blocks, 64 from phase 2 with 297 blocks), against 180 subjects (404 and 345 blocks) in MODA. We do not know why the other subjects are missing; the generator skips EDF files that raise an error when read ("File ... ignored because of corruption"), which is one possibility. Preprocessing real recordings, with MATLAB or with a Python equivalent, is covered in Tutorials <a href="03-preprocessing.html">03</a> and <a href="09-your-data.html">09</a>. The synthetic generator follows the same steps, so its source code is also a compact Python reference for the whole chain.</p>
+
+  <!-- ===================================================================== -->
+  <h2 id="formats">File formats</h2>
+
+  <h3 id="dataset-files">The dataset files</h3>
+  <p>The four <code>dataset_*_big_250_matlab_standardized_envelope_pf.txt</code> files share one format: plain text, comma separated, <strong>no header</strong>, one row per sample at 250 Hz, four columns. The first rows of the classification file read:</p>
+<pre data-file="dataset_classification_full_big_250_matlab_standardized_envelope_pf.txt (first 3 lines)"><code class="language-none">0.3315376,1.051416,0.9155247,-1
+0.1576234,1.046089,0.9770969,-1
+0.0871462,1.038516,1.036036,-1</code></pre>
+  <table>
+    <thead><tr><th>Column</th><th>Content</th><th>Used by the published model?</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td>EEG after the Portiloop online filtering (21-tap low-pass FIR, 60 Hz notch) and online standardization; dimensionless (roughly in standard deviations)</td><td>Yes: the only input</td></tr>
+      <tr><td>1</td><td>Sigma envelope: band-pass FIR, standardization, squaring and exponential smoothing</td><td>No (only when <code>envelope_input</code> is <code>True</code>)</td></tr>
+      <tr><td>2</td><td>Power ratio: mean FFT amplitude between 9 and 16 Hz divided by the mean between 2 and 8 Hz, over the last 125 samples (0.5 s), from <code>compute_ratio.m</code> (0 for the first 124 rows of the original files; the synthetic files have no zeros, thanks to the extra signal before each segment)</td><td>No (only when <code>power_features_input</code> is <code>True</code>)</td></tr>
+      <tr><td>3</td><td>Label. <strong>−1</strong>: 15 s lead-in; <strong>−2</strong>: 15 s tail; inside the 115 s block, <strong>0</strong> or <strong>1</strong> (no spindle / spindle) in the classification files, or a score between 0 and 1 in the regression file</td><td>Yes: the target</td></tr>
+    </tbody>
+  </table>
+  <p>Each file is a concatenation of <strong>145 s segments</strong> (36,250 rows): 15 s lead-in, the 115 s labelled block (a MODA block in the original files), 15 s tail. Segments follow the order of the subject list (next section). The training code relies on this layout when it cuts the file:</p>
+<pre data-file="portiloop_software/portiloop_python/ANN/portiloop_detector_training.py (SignalDataset.__init__, excerpt)"><code class="language-python">        self.data = pd.read_csv(self.path_file, header=None).to_numpy()
+        assert list_subject is not None
+        used_sequence = np.hstack([range(int(s[1]), int(s[2])) for s in list_subject])
+        split_data = np.array(np.split(self.data, int(len(self.data) / (len_segment + 30 * fe))))  # 115+30 = nb seconds per sequence in the dataset
+        split_data = split_data[used_sequence]
+        ...
+        # list of indices that can be sampled:
+        self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
+                        if not (self.data[3][idx + self.window_size - 1] &lt; 0  # that are not ending in an unlabeled zone
+                                or idx &lt; self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here</code></pre>
+  <p>Here <code>len_segment</code> is <code>LEN_SEGMENT * fe</code> = 115 × 250 samples, so each piece is (115 + 30) × 250 = 36,250 rows. A training example is a window whose <em>last</em> sample is labelled 0 or 1; windows ending in the lead-in or the tail are never used as targets. The lead-in still matters: the network looks back 8.5 s, and for the first labelled samples of a block that history lies in the lead-in.</p>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: why a 15 s lead-in?</span>The online standardization of the Portiloop is a running estimate of the mean and variance, like a slowly adapting baseline; the variance estimate has a memory of about 1/0.001 = 1,000 samples (4 s). The network itself integrates 8.5 s of past signal. Because consecutive blocks come from different moments of the night, the 15 s of EEG before each block let the filters, the baseline and the network's history "settle" on the right signal before the first labelled sample. A device switched on at the start of a block would behave worse during its first seconds, as the warm-up option of the widget in Tutorial <a href="01-introduction.html#online-vs-offline">01</a> shows.</div>
+
+  <p>What you will find in the synthetic files (we checked the first two segments of the classification and regression files):</p>
+  <ul>
+    <li>Rows 0 to 3,749 of each segment are labelled −1 and rows 32,500 to 36,249 are labelled −2, exactly 15 s each.</li>
+    <li>In the classification file, labels inside the block are 0 or 1; in these two blocks 4.4% of the labelled samples are spindles (the first subject of the full list belongs to phase 2, which has fewer spindles; over all subjects the figure is 6.1%).</li>
+    <li>Columns 0 to 2 are identical in the classification and regression files; only the labels differ.</li>
+    <li>In the regression file, labels vary in steps of 0.05, like MODA's averaged scores. No sample with a score of 0.2 or less is labelled 1 in the classification file, but 609 samples with a score above 0.2 are labelled 0: those belong to the phase 2 subject (threshold 0.35) or to events removed by the duration rule. The original files showed the same pattern.</li>
+    <li><code>example_data_not_annotated.txt</code> is a single column of 100,000 values (400 s at 250 Hz) of already preprocessed EEG from an extra synthetic subject that is in none of the dataset files, with a clear spindle at 117.6 s.</li>
+  </ul>
+
+  <h3 id="explorer">Explore a segment (interactive)</h3>
+  <div class="widget" id="fx-widget">
+    <div class="widget-title">Dataset file explorer</div>
+    <p class="widget-desc">A replica of one 145 s segment, computed in your browser the way the dataset files are built (Portiloop filters and standardization for column 0, an envelope for column 1, the power ratio for column 2), with spindles at the positions labelled in the first segment of the synthetic dataset file. What to try: click a column header to plot it and read what it means; move the row slider or use the jump buttons to visit the lead-in, a spindle and the tail, and check whether that row can be a training target.</p>
+    <div class="controls">
+      <label for="fx-row">Row <input type="range" id="fx-row" min="0" max="36249" step="1" value="8050"><output for="fx-row"></output></label>
+      <button class="btn secondary" type="button" data-jump="100">Lead-in</button>
+      <button class="btn secondary" type="button" data-jump="3750">First labelled row</button>
+      <button class="btn secondary" type="button" data-jump="8100">Inside a spindle</button>
+      <button class="btn secondary" type="button" data-jump="32500">Tail</button>
+    </div>
+    <table class="fx-table" id="fx-table" aria-label="Rows of the synthetic dataset file around the selected row"></table>
+    <canvas class="plot" id="fx-plot" role="img" aria-label="Selected column over the 145 s segment"></canvas>
+    <div class="readout">
+      <div><div class="k">Time in segment</div><div class="v" id="fx-time">…</div></div>
+      <div><div class="k">Zone</div><div class="v" id="fx-zone">…</div></div>
+      <div><div class="k">Can be a training target?</div><div class="v" id="fx-target">…</div></div>
+    </div>
+    <div class="fx-explain" id="fx-explain" aria-live="polite"></div>
+    <div class="status">Synthetic EEG; column 1 uses the 21-tap band-pass in <code>matlab/old_matlab/coef1216.coe</code> as a stand-in (we did not check that it is the filter inside <code>envelope_extractor_simulink.slx</code>). Row numbers start at 0, as in Python.</div>
+  </div>
+
+  <div class="callout disk"><span class="callout-title">On the hard drive</span>
+    <ul>
+      <li><code>dataset_classification_full_big_...txt</code>: all 34 subjects (130 segments), 0/1 labels. Used by <code>--phase full</code>, the default.</li>
+      <li><code>dataset_classification_p1_big_...txt</code> and <code>..._p2_big_...txt</code>: the younger (20 subjects, 74 segments) and older (14 subjects, 56 segments) subjects only. Used by <code>--phase p1</code> and <code>--phase p2</code>.</li>
+      <li><code>dataset_regression_full_big_...txt</code>: all subjects, graded labels. Used with <code>--regression</code>.</li>
+      <li><code>example_data_not_annotated.txt</code>: one column of preprocessed EEG, the template for running the detector on your own data (Tutorial <a href="09-your-data.html">09</a>).</li>
+    </ul>
+    From the segment counts, the full classification file should contain 130 × 36,250 = 4,712,500 rows; a file of another length is truncated (see <a href="#troubleshooting">Troubleshooting</a>).
+  </div>
+
+  <h3 id="subject-files">The subject lists</h3>
+  <p>Each <code>subject_sequence_*_big.txt</code> file maps subjects to segments of the matching dataset file. Columns are separated by spaces: subject ID, index of the first segment, index of the end segment (excluded, Python style).</p>
+<pre data-file="subject_sequence_full_big.txt (first 5 lines)"><code class="language-none">syn-p2-001 0 3
+syn-p1-005 3 6
+syn-p2-013 6 9
+syn-p2-012 9 12
+syn-p1-002 12 15</code></pre>
+  <p>So subject <code>syn-p2-001</code> (a phase 2 subject) owns segments 0, 1 and 2, that is rows 0 to 108,749 of the full dataset file. In the full list, 30 subjects have 3 segments and 4 have 10, as in MODA where most subjects contributed 3 blocks and some 10. Segment indices are relative to <em>each</em> file: in <code>subject_sequence_p1_big.txt</code>, <code>syn-p1-005</code> owns segments 0 to 2 of the p1 file. The synthetic IDs read <code>syn-&lt;phase&gt;-&lt;number&gt;</code>; the original files used MASS IDs such as <code>01-02-0017</code> (cohort 01, subset SS2, subject 0017).</p>
+
+  <!-- ===================================================================== -->
+  <h2 id="split">How subjects are split into training, validation and test sets</h2>
+  <p>A detector must be evaluated on people it has never seen. The code therefore splits <strong>subjects</strong>, not samples. Here is the function that does it:</p>
+<pre data-file="portiloop_software/portiloop_python/ANN/portiloop_detector_training.py (generate_dataloader, excerpt)"><code class="language-python">    all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, sep=r"\s+").to_numpy()
+    test_subject = None
+    if PHASE == 'full':
+        p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, sep=r"\s+").to_numpy()
+        p2_subject = pd.read_csv(Path(path_dataset) / subject_list_p2, header=None, sep=r"\s+").to_numpy()
+        train_subject_p1, validation_subject_p1 = train_test_split(p1_subject, train_size=0.8, random_state=split_i)
+        if TEST_SET:
+            test_subject_p1, validation_subject_p1 = train_test_split(validation_subject_p1, train_size=0.5, random_state=split_i)
+        train_subject_p2, validation_subject_p2 = train_test_split(p2_subject, train_size=0.8, random_state=split_i)
+        if TEST_SET:
+            test_subject_p2, validation_subject_p2 = train_test_split(validation_subject_p2, train_size=0.5, random_state=split_i)
+        train_subject = np.array([s for s in all_subject if s[0] in train_subject_p1[:, 0] or s[0] in train_subject_p2[:, 0]]).squeeze()
+        ...
+    else:
+        train_subject, validation_subject = train_test_split(all_subject, train_size=0.8, random_state=split_i)
+        if TEST_SET:
+            test_subject, validation_subject = train_test_split(validation_subject, train_size=0.5, random_state=split_i)</code></pre>
+  <p>Step by step, for the default <code>--phase full</code>:</p>
+  <ol>
+    <li>The phase 1 (younger) and phase 2 (older) subject lists are split <em>separately</em>, so that both age groups are represented in every set (the statistical term is a split <em>stratified</em> by phase).</li>
+    <li>For each phase, scikit-learn's <code>train_test_split</code> shuffles the subjects and keeps 80% for training (rounded down: 16 of 20, 11 of 14 with the default synthetic dataset; 78 of 98 and 51 of 64 with the original files).</li>
+    <li>If a test set is requested (the default, <code>--test_set</code>), the remaining 20% is halved: the first half becomes the test set, the second half the validation set (2 and 2 in phase 1; 1 and 2 in phase 2, as the odd subject goes to validation). With <code>--no_test_set</code>, all of it is used for validation.</li>
+    <li>The phase lists are then mapped back to rows of <code>subject_sequence_full_big.txt</code>, whose segment indices point into the full dataset file.</li>
+    <li>The shuffle is seeded with <code>random_state=split_i</code>: the same split index always gives the same split. From the command line, <code>--experiment_index</code> selects it: even indices use split 0, odd indices use split 2 (<code>possible_split = [0, 2]</code>).</li>
+  </ol>
+  <p>For split 0 this gives 27 training, 4 validation and 3 test subjects (109, 12 and 9 segments); with the original files it gave 129, 17 and 16 subjects. Such small validation and test sets give noisy scores: generate a larger dataset (<a href="#option-generate">option B</a>) when you want to compare models seriously. The paper describes the same proportions: "we choose to use only 10% of subjects as our validation set (for model selection), and another 10% of subjects as our test set (for final model evaluation)" [3]. With <code>--phase p1</code> or <code>--phase p2</code>, only that phase's list is split.</p>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: training, validation, test</span>The <strong>training set</strong> is what the network learns from. The <strong>validation set</strong> is used during training to decide when to stop and which version of the model to keep (like a pilot sample used to tune a protocol). The <strong>test set</strong> is touched once, at the end, to report performance (like the confirmatory sample of a pre-registered study). Reusing test subjects to make decisions inflates the reported performance.</div>
+
+  <h3 id="split-widget">Subject-wise split, and what a sample-wise split would do (interactive)</h3>
+  <div class="widget" id="sx-widget">
+    <div class="widget-title">Who goes where?</div>
+    <p class="widget-desc">The 34 subjects of the synthetic <code>subject_sequence_full_big.txt</code>, each drawn as a block whose width is proportional to its number of segments (3 or 10). Colors show the set of each subject for the selected split. What to try: (1) move the split index and watch subjects change sets while the proportions stay the same; (2) untick "test set" (<code>--no_test_set</code>); (3) tick "split samples instead of subjects" and click a subject to see why that would leak information.</p>
+    <div class="controls">
+      <label for="sx-split">Split index <input type="range" id="sx-split" min="0" max="9" step="1" value="0"><output for="sx-split"></output></label>
+      <label for="sx-test"><input type="checkbox" id="sx-test" checked> test set</label>
+      <label for="sx-leak"><input type="checkbox" id="sx-leak"> split samples instead of subjects</label>
+    </div>
+    <div class="sx-legend"><span style="--c: var(--plot-c1)">training</span><span style="--c: var(--plot-c3)">validation</span><span style="--c: var(--plot-c2)">test</span></div>
+    <div class="sx-group"><h5>Phase 1 (younger subjects)</h5><div class="sx-grid" id="sx-p1"></div></div>
+    <div class="sx-group"><h5>Phase 2 (older subjects)</h5><div class="sx-grid" id="sx-p2"></div></div>
+    <table class="sx-counts" id="sx-counts" aria-label="Number of subjects, segments and hours per set"></table>
+    <div class="panel-label" id="sx-tl-label">One subject, 20 s of its first segment</div>
+    <canvas class="plot short" id="sx-timeline" role="img" aria-label="Timeline of one subject's samples colored by set"></canvas>
+    <div class="readout">
+      <div><div class="k">Selected subject</div><div class="v" id="sx-sub">…</div></div>
+      <div><div class="k">Test windows whose 8.45 s input contains training samples</div><div class="v" id="sx-overlap">…</div></div>
+    </div>
+    <div class="status" id="sx-status">Split computed offline with scikit-learn's <code>train_test_split</code>, exactly as in <code>generate_dataloader</code>, on the default synthetic subject lists (seed 2022).</div>
+  </div>
+  <p>Why is a sample-wise split wrong? Two reasons. First, the network's input for one labelled sample is 8.45 s of signal ((50 − 1) × 42 + 54 = 2,112 samples); with samples assigned at random, every test input overlaps signal the network was trained on. Second, spindles are a personal signature: "These characteristics are predominately trait-like, and remain remarkably stable night after night within an individual, but vary between individuals" [2]. A network evaluated on new samples of known subjects can recognize the subjects' spindles rather than spindles in general, and its score says little about the next participant you record.</p>
+
+  <!-- ===================================================================== -->
+  <h2 id="sanity-check">A first sanity check: offline inference on the example signal</h2>
+  <p>The notebook <code>notebooks/offline_inference.ipynb</code> runs the pre-trained network on <code>example_data_not_annotated.txt</code> and plots its output. It needs the dataset (for the example file) but no GPU.</p>
+  <ol class="steps">
+    <li><strong>Start Jupyter</strong> from the repository root, with the environment activated:
+<pre data-file="terminal"><code class="language-bash">jupyter notebook notebooks/offline_inference.ipynb</code></pre>
+      A browser tab opens with the notebook.</li>
+    <li><strong>Run the cells one by one</strong> (<kbd>Shift</kbd>+<kbd>Enter</kbd>). The configuration cell calls <code>get_final_model_config_dict()</code>, whose model name <code>'sanity_check_final_model_0'</code> is resolved automatically to the distributed checkpoint <code>portiloop_software/experiments/pareto_search_15_35_v4_0</code>.</li>
+    <li><strong>Check the loading cell.</strong> The cell <code>print(f"The data has been loaded as a torch Tensor of {len(data)} data points:\n{data}")</code> prints:
+<pre><code class="language-none">The data has been loaded as a torch Tensor of 100000 data points:
+tensor([-0.5693, -0.8419, -1.0572,  ...,  1.3280,  0.7578,  0.1721])</code></pre></li>
+    <li><strong>Run the inference cell</strong> (<code>run_offline_unlabelled(...)</code>). It processes every sample: in our test it took 8 s on the CPU of the computer used to write this page (expect longer on a slower machine) and returned 99,918 outputs, one per input window, for windows ending at sample indices 54 to 99,971 (<code>true_idx</code> is the last sample of each window). Warnings about <code>pin_memory</code> (no GPU) and about copying a tensor with <code>torch.tensor()</code> are harmless.</li>
+    <li><strong>Look at the plot.</strong> The last cell plots 10 s (from 115 s to 125 s) of the signal (blue) and of the network output (orange). The output is drawn shifted down by 5 so that both fit on one plot: its scale is the right-hand axis (0 to 1), and the dotted grey line is the 0.5 threshold. You should see a large spindle from 117.6 s to about 119.2 s (placed there by the generator): the orange curve crosses the threshold about 0.3 s after its onset (the network needs a few cycles to recognize it) and stays close to 1 until about 119 s. A second, smaller spindle near 124 s also crosses the threshold; elsewhere the output stays near 0, with a few small bumps. Over the whole 400 s, about 5% of the outputs outside 115 to 125 s exceed 0.5, because the example signal contains other spindles.</li>
+  </ol>
+  <p>If you only want to check that the pre-trained network loads (without the dataset), this short script uses <code>get_trained_model()</code>, which has the fallback:</p>
+<pre data-file="check_model.py"><code class="language-python">from pathlib import Path
+import portiloop_software
+from portiloop_software import get_final_model_config_dict, get_trained_model
+
+path_experiments = Path(portiloop_software.__file__).parent / "experiments"
+config = get_final_model_config_dict()
+net = get_trained_model(config, path_experiments)
+print(sum(p.numel() for p in net.parameters()), "trainable parameters")</code></pre>
+  <p>Expected output: <code>25679 trainable parameters</code>.</p>
+
+  <!-- ===================================================================== -->
+  <h2 id="troubleshooting">Troubleshooting</h2>
+
+  <h3 id="ts-module">ModuleNotFoundError: No module named 'portiloop_software' (or 'torch')</h3>
+  <p>The environment is not activated in this terminal or Jupyter kernel, or <code>pip install -e .</code> was not run from the folder containing <code>setup.py</code>. Activate the environment, run <code>pip install -e .</code> again, and in Jupyter choose the kernel of that environment. Check which Python you are using with <code>python -c "import sys; print(sys.executable)"</code>: the path should be inside <code>.venv</code> or your conda environment.</p>
+
+  <h3 id="ts-pip">pip cannot install torch or pyedflib</h3>
+  <p>For PyTorch, use the exact command from the <a href="https://pytorch.org/get-started/locally/">PyTorch selector</a> before <code>pip install -e .</code>; very new Python versions sometimes have no PyTorch package yet, in which case create the environment with an older Python (for example with conda, <code>python=3.11</code>). If pip tries to <em>compile</em> <code>pyedflib</code> and fails, you are probably also on a Python version without a ready-made package for it; the same remedy applies. <code>pyedflib</code> is only used to rebuild the dataset from EDF files.</p>
+
+  <h3 id="ts-cuda">AssertionError: CUDA unavailable</h3>
+  <p>You started training on a machine without an NVIDIA GPU, or PyTorch was installed without CUDA support. Check with <code>python -c "import torch; print(torch.cuda.is_available())"</code>. On a GPU machine, reinstall PyTorch with the selector command for your CUDA version. Inference does not need CUDA.</p>
+
+  <h3 id="ts-path">FileNotFoundError: ... portiloop_software/dataset/subject_sequence_full_big.txt</h3>
+  <p>The dataset is not where the code looks. Common causes: the archive was unzipped one level too deep (<code>portiloop_software/dataset/dataset/...</code>) or at the repository root (<code>portiloop-training/dataset/</code>); or the package was installed without <code>-e</code>, so <code>path_dataset</code> points inside the environment's <code>site-packages</code>. Print the folder the code uses:</p>
+<pre data-file="terminal"><code class="language-bash">python -c "import portiloop_software, pathlib; print(pathlib.Path(portiloop_software.__file__).parent / 'dataset')"</code></pre>
+
+  <h3 id="ts-model">FileNotFoundError: ... experiments/sanity_check_final_model_0</h3>
+  <p>Your copy of the code predates the fix that maps this name to the distributed checkpoint: run <code>git pull</code>. Alternatively, name the checkpoint explicitly after creating the configuration: <code>config_dict['experiment_name'] = 'pareto_search_15_35_v4_0'</code>. If the error persists, check that <code>portiloop_software/experiments/pareto_search_15_35_v4_0</code> exists.</p>
+
+  <h3 id="ts-pandas">TypeError: ... unexpected keyword argument 'delim_whitespace'</h3>
+  <p>You have pandas 3 or newer, which "Removed the deprecated <code>delim_whitespace</code> keyword in <code>read_csv()</code>" (<a href="https://pandas.pydata.org/docs/whatsnew/v3.0.0.html">pandas 3.0.0 release notes</a>), with a copy of the code older than the fix (the code now uses <code>sep=r"\s+"</code>). Run <code>git pull</code>, or install <code>pip install "pandas&lt;3"</code>.</p>
+
+  <h3 id="ts-split">ValueError: array split does not result in an equal division</h3>
+  <p>Raised by <code>np.split</code> in <code>SignalDataset</code> when the number of rows of the dataset file is not a multiple of 36,250. The file is truncated (interrupted download, unzip or generation, full disk) or was not written in segments of 145 s. Compare its size with the listing above and download or generate the dataset again.</p>
+
+  <h3 id="ts-window">AssertionError: Dataset smaller than window size. / Segment smaller than window size.</h3>
+  <p>These checks fire when the signal handed to the network is shorter than one input window (54 samples, 0.216 s). <code>Dataset smaller than window size.</code> comes from <code>SignalDataset</code> (training files): in practice it means that the subject list selected (almost) no data, for example a subject list edited by hand or not matching the dataset file. <code>Segment smaller than window size.</code> comes from <code>UnlabelledSignalDatasetSingleSegment</code> (your own data in <code>run_offline_unlabelled</code>): check that your file was read as one long column and not, for example, as one row.</p>
+
+  <h3 id="ts-index">IndexError: index ... is out of bounds</h3>
+  <p>A subject list refers to segments that do not exist in the dataset file: typically a <code>subject_sequence_p1_big.txt</code> used with the full dataset file, or the other way around, after renaming files. Keep the original names; the code chooses matching pairs from <code>--phase</code>.</p>
+
+  <h3 id="ts-memory">Killed, MemoryError, or the computer freezes when training starts</h3>
+  <p>The training code loads the full text file with pandas, once for training and once for validation. The default synthetic file (150 MB) fits in a few GB of RAM; the original files were 825 MB, and the example SLURM job requested 32,000 MB. If you generated a large synthetic dataset, use a machine with more RAM, close other programs, or start with <code>--phase p2</code>, whose file is the smallest.</p>
+
+  <h3 id="ts-wandb">W&amp;B asks for an API key, or training stops at wandb.init</h3>
+  <p>Run <code>wandb login</code> once, or train without an account: <code>WANDB_MODE=offline</code> keeps the curves locally in <code>./wandb</code> (upload them later with <code>wandb sync</code>), <code>WANDB_MODE=disabled</code> records nothing (for example <code>WANDB_MODE=offline python portiloop_software/portiloop_python/ANN/portiloop_detector_training.py ...</code>). If offline mode fails with an older copy of the code, run <code>git pull</code>. See Tutorial <a href="05-training.html">05</a>.</p>
+
+  <h3 id="ts-warnings">Warnings you can ignore</h3>
+  <ul>
+    <li><code>UserWarning: 'pin_memory' argument is set as true but no accelerator is found</code> (CPU-only machine).</li>
+    <li><code>UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.detach().clone()</code> (offline inference).</li>
+  </ul>
+
+  <!-- ===================================================================== -->
+  <h2 id="exercises">Exercises</h2>
+
+  <details class="exercise"><summary>How much labelled EEG is there?</summary>
+    <p>Using only <code>subject_sequence_full_big.txt</code> and pandas, compute the number of subjects, the number of segments, the number of hours of labelled (115 s) EEG, and the number of rows the full dataset file should have.</p>
+  </details>
+  <details class="solution"><summary>Answer</summary>
+<pre data-file="count_data.py"><code class="language-python">from pathlib import Path
+import pandas as pd
+import portiloop_software
+
+path_dataset = Path(portiloop_software.__file__).parent / "dataset"
+subjects = pd.read_csv(path_dataset / "subject_sequence_full_big.txt", header=None, sep=r"\s+",
+                       names=["subject", "first_segment", "end_segment"])
+subjects["n_segments"] = subjects["end_segment"] - subjects["first_segment"]
+print(len(subjects), "subjects,", subjects["n_segments"].sum(), "segments")
+print(subjects["n_segments"].value_counts())
+print("labelled hours:", round(subjects["n_segments"].sum() * 115 / 3600, 1))
+print("rows expected in the file:", subjects["n_segments"].sum() * 36250)</code></pre>
+<pre><code class="language-none">34 subjects, 130 segments
+n_segments
+3     30
+10     4
+Name: count, dtype: int64
+labelled hours: 4.2
+rows expected in the file: 4712500</code></pre>
+    <p>Note <code>sep=r"\s+"</code>, the pandas 3 compatible spelling of <code>delim_whitespace=True</code>. For comparison, the original MASS-derived files had 162 subjects, 695 segments and 22.2 labelled hours, close to the paper's "∼24 h of annotated data" [3].</p>
+  </details>
+
+  <details class="exercise"><summary>Same number of subjects, different amounts of data</summary>
+    <p>In the split widget, compare split 0 and split 6. Both have 27 / 4 / 3 subjects. Do the validation sets contain the same amount of EEG? Why not, and why could this matter when you compare models trained on different splits?</p>
+  </details>
+  <details class="solution"><summary>Answer</summary>
+    <p>No: split 0 has 12 validation segments, split 6 has 26 (the test sets happen to have 9 each). Subjects contribute 3 or 10 segments, so the amount of data per set depends on how many 10-segment subjects land in it. Validation scores computed on different splits therefore rest on different amounts of data and different people, which is why the paper repeats training over several splits and reports the mean and standard deviation of the test score [3].</p>
+  </details>
+
+  <details class="exercise"><summary>Is the 15 s lead-in long enough?</summary>
+    <p>For the published model, the network's input for one labelled sample spans <code>(seq_len − 1) × seq_stride + window_size</code> samples, with <code>seq_len</code> = 50, <code>seq_stride</code> = <code>int(0.17 × 250)</code> = 42 and <code>window_size</code> = 54. Is a 15 s lead-in long enough so that, for the first labelled sample of a block, this input lies entirely within the same block's 145 s segment?</p>
+  </details>
+  <details class="solution"><summary>Answer</summary>
+    <p>49 × 42 + 54 = 2,112 samples = 8.45 s, shorter than the 15 s (3,750 samples) lead-in. In <code>SignalDataset.__getitem__</code> the input is <code>self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size]</code> cut into 50 windows, so for the first labelled row of a block (row 3,750 of the segment) the oldest sample used is row 3,750 − 2,112 + 1 = 1,639 of the same segment, inside its lead-in. A model looking further back than 15 s would start mixing signal from the previous block, recorded at another time of the night.</p>
+  </details>
+
+  <h2 id="references">References</h2>
+  <ol class="refs">
+    <li>O'Reilly C, Gosselin N, Carrier J, Nielsen T (2014). Montreal Archive of Sleep Studies: an open-access resource for instrument benchmarking and exploratory research. <em>Journal of Sleep Research</em> 23(6): 628 to 635. <a href="https://doi.org/10.1111/jsr.12169">doi:10.1111/jsr.12169</a>. Access procedure: <a href="https://ceams-carsm.ca/en/mass/">ceams-carsm.ca/en/mass</a>.</li>
+    <li>Lacourse K, Yetton B, Mednick S, Warby SC (2020). Massive online data annotation, crowdsourcing to generate high quality sleep spindle annotations from EEG data. <em>Scientific Data</em> 7: 190. <a href="https://doi.org/10.1038/s41597-020-0533-4">doi:10.1038/s41597-020-0533-4</a>. Data: <a href="https://osf.io/8bma7/">osf.io/8bma7</a>; code and annotation files: <a href="https://github.com/klacourse/MODA_GC">github.com/klacourse/MODA_GC</a>.</li>
+    <li>Valenchon N, Bouteiller Y, Jourde HR, L'Heureux X, Sobral M, Coffey EBJ, Beltrame G (2022). The Portiloop: a deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a></li>
+    <li>pandas development team (2026). What's new in 3.0.0. <a href="https://pandas.pydata.org/docs/whatsnew/v3.0.0.html">pandas.pydata.org/docs/whatsnew/v3.0.0.html</a></li>
+  </ol>
+
+</article>
+</main>
+
+<script type="application/json" id="sx-data">{"subjects":[["syn-p2-001","p2",3],["syn-p1-005","p1",3],["syn-p2-013","p2",3],["syn-p2-012","p2",3],["syn-p1-002","p1",3],["syn-p2-007","p2",3],["syn-p2-003","p2",3],["syn-p1-003","p1",10],["syn-p2-008","p2",3],["syn-p2-005","p2",3],["syn-p1-017","p1",3],["syn-p1-007","p1",3],["syn-p2-010","p2",3],["syn-p1-001","p1",3],["syn-p1-014","p1",10],["syn-p1-006","p1",3],["syn-p1-008","p1",3],["syn-p2-014","p2",3],["syn-p2-002","p2",10],["syn-p1-010","p1",3],["syn-p1-015","p1",3],["syn-p1-009","p1",3],["syn-p1-013","p1",3],["syn-p1-012","p1",3],["syn-p1-018","p1",3],["syn-p2-006","p2",3],["syn-p2-009","p2",3],["syn-p1-019","p1",3],["syn-p2-004","p2",3],["syn-p1-004","p1",3],["syn-p1-011","p1",3],["syn-p2-011","p2",10],["syn-p1-020","p1",3],["syn-p1-016","p1",3]],"splits":{"0":"TTTTETVTTVTTTTTTVETTTTTTTTTTTTTTEV","1":"TTTTTVTTTVETETVTTTTTVTTTTTTTTETTTT","2":"TVTTTTVTVTTETTTTTTTTTTETTTETTTTTVT","3":"TTETETVVTTTTVTTTTTTTTTTTETTTTTVTTT","4":"TTTTTVVTTTVTTTETTTTTTTTTTTETTTTTEV","5":"TTVTTTTVVTTTEVTTTTTTTTTTTTTTTTETTE","6":"TTTTTTTTTETTTEVETTTTTTTTTTTTVTVVTT","7":"TTTVETTVTTTTTETTTTTTTTTTTTVTETVTTT","8":"TTTVTTTTTTTTVTVETTTTTVTTTETETTTTTT","9":"TTTTTTTTTTETVVVETTTTTTTTTETTTTTVTT"}}</script>
+<script src="../assets/js/portiloop.js"></script>
+<script src="../assets/js/nav.js"></script>
+<script>
+/* ---------------------------------------------------------------- tabs (venv / conda) */
+(function () {
+  const tabs = PL.ui.$$(".tabs [role=tab]");
+  tabs.forEach(function (t) {
+    t.addEventListener("click", function () {
+      tabs.forEach(function (u) {
+        const on = u === t;
+        u.setAttribute("aria-selected", on ? "true" : "false");
+        document.getElementById(u.getAttribute("aria-controls")).hidden = !on;
+      });
+    });
+  });
+})();
+
+/* ---------------------------------------------------------------- widget 1: dataset file explorer */
+(function () {
+  const $ = PL.ui.$;
+  const FS = PL.FS, N = 36250, LEAD = 3750, TAIL = 32500;
+  // Spindles (onset s, duration s, in segment time) as labelled in the first segment of the synthetic classification file.
+  const SPINDLES = [[31.99, 0.76], [42.42, 0.75], [50.38, 0.49], [60.85, 0.44], [84.75, 0.82], [92.26, 0.74], [106.69, 0.88], [122.47, 0.41]];
+  // 21-tap band-pass from portiloop_software/matlab/old_matlab/coef1216.coe (stand-in for the envelope filter)
+  const BP1216 = [-0.0392841, -0.0563405, -0.0671049, -0.0671027, -0.0537421, -0.0272895, 0.00883288, 0.0485689, 0.0844866, 0.109471, 0.118417,
+    0.109471, 0.0844866, 0.0485689, 0.00883288, -0.0272895, -0.0537421, -0.0671027, -0.0671049, -0.0563405, -0.0392841];
+  const COLS = [
+    { name: "col 0", short: "EEG", title: "Column 0: preprocessed EEG (the network input)",
+      text: "The C3 EEG after the Portiloop online chain: 21-tap low-pass FIR (about 30 Hz), 60 Hz notch, then online standardization (running mean with alpha 0.1, running variance with alpha 0.001). Values are dimensionless, roughly in standard deviations. In the dataset files the 40 ms filter delay is compensated offline (by the MATLAB script for the original files, by the generator for the synthetic ones), so the signal is aligned with the labels. This is <code>self.data[0]</code>, turned into <code>self.full_signal</code> in <code>SignalDataset</code>: the only input of the published model.",
+      yLabel: "a.u." },
+    { name: "col 1", short: "envelope", title: "Column 1: sigma envelope",
+      text: "Computed from the resampled signal: a band-pass FIR, online standardization (alpha 0.001), squaring, then exponential smoothing (alpha 0.01). It rises during spindles. Used only by models with <code>envelope_input = True</code> (the 2-input model of the paper); the published 1-input model ignores it.",
+      yLabel: "a.u." },
+    { name: "col 2", short: "power ratio", title: "Column 2: power-feature ratio",
+      text: "From <code>compute_ratio.m</code>: over the last 125 samples (0.5 s), the mean single-sided FFT amplitude at 10, 12, 14 and 16 Hz divided by the mean at 2, 4, 6 and 8 Hz. In the original files it is 0 for the first 124 rows (not enough past samples). The paper used such power features only for the SpindleNet baseline; the published model ignores this column (<code>power_features_input = False</code>).",
+      yLabel: "ratio" },
+    { name: "col 3", short: "label", title: "Column 3: label",
+      text: "−1 in the 15 s lead-in, −2 in the 15 s tail, and inside the 115 s block 0 (no spindle) or 1 (spindle: consensus of the scorers after thresholding and post-processing, real experts in MODA, simulated ones in the synthetic files). In the regression file, the label is instead a score between 0 and 1 in steps of 0.05. A window can be a training target only if its last sample has a label of 0 or more.",
+      yLabel: "label" },
+  ];
+  let sel = 3, cols = null, t = null;
+
+  function build() {
+    const base = PL.synth.nrem({ duration_s: N / FS, seed: 11, spindleTimes: [], kComplexes: true, backgroundAmp: 18 });
+    const raw = base.signal, label = new Float64Array(N);
+    const R = PL.rng(5);
+    for (let i = 0; i < N; i++) label[i] = i < LEAD ? -1 : i >= TAIL ? -2 : 0;
+    SPINDLES.forEach(function (s) {
+      const i0 = Math.round(s[0] * FS), i1 = Math.round((s[0] + s[1]) * FS);
+      const fr = R.range(12, 14.5), amp = R.range(28, 42), ph = R.range(0, 6.28);
+      for (let i = i0; i < i1; i++) {
+        const u = (i - i0) / (i1 - i0);
+        raw[i] += amp * Math.pow(Math.sin(Math.PI * u), 1.5) * Math.sin(ph + 2 * Math.PI * fr * (i - i0) / FS);
+        label[i] = 1;
+      }
+    });
+    // column 0: Portiloop chain, then offline compensation of the 10-sample FIR delay
+    const std = PL.preprocess(raw).standardized;
+    const c0 = new Float64Array(N);
+    for (let i = 0; i < N; i++) c0[i] = std[Math.min(N - 1, i + 10)];
+    // column 1: band-pass, standardization (alpha 0.001), square, EMA (alpha 0.01)
+    const bp = PL.filters.apply(new PL.filters.FIR(BP1216), raw);
+    const st = new PL.OnlineStandardizer(0.001, 0.001);
+    const c1 = new Float64Array(N);
+    let ema = null;
+    for (let i = 0; i < N; i++) {
+      const v = st.step(bp[Math.min(N - 1, i + 10)]);
+      const sq = v * v;
+      ema = ema === null ? sq : ema + 0.01 * (sq - ema);
+      c1[i] = ema;
+    }
+    // column 2: compute_ratio over the last 125 samples of column 0
+    const L = 125, c2 = new Float64Array(N);
+    const cosT = [], sinT = [];
+    for (let k = 1; k <= 8; k++) {
+      const c = new Float64Array(L), s = new Float64Array(L);
+      for (let n = 0; n < L; n++) { c[n] = Math.cos(2 * Math.PI * k * n / L); s[n] = Math.sin(2 * Math.PI * k * n / L); }
+      cosT.push(c); sinT.push(s);
+    }
+    for (let i = L - 1; i < N; i++) {
+      let low = 0, high = 0;
+      for (let k = 0; k < 8; k++) {
+        let re = 0, im = 0;
+        for (let n = 0; n < L; n++) { const x = c0[i - L + 1 + n]; re += x * cosT[k][n]; im -= x * sinT[k][n]; }
+        const a = 2 * Math.sqrt(re * re + im * im) / L;
+        if (k < 4) low += a; else high += a;
+      }
+      c2[i] = high / Math.max(1e-9, low);
+    }
+    cols = [c0, c1, c2, label];
+    t = base.t;
+  }
+
+  const fmt = function (v, c) { return c === 3 ? String(v) : v.toFixed(c === 2 ? 4 : 5); };
+
+  function zoneOf(r) { return r < LEAD ? "lead-in (−1)" : r >= TAIL ? "tail (−2)" : "labelled block"; }
+
+  function render() {
+    const r = parseInt($("#fx-row").value, 10);
+    // table
+    let h = "<thead><tr><th>row</th><th>time (s)</th>";
+    COLS.forEach(function (c, j) {
+      h += '<th class="' + (j === sel ? "sel" : "") + '"><button type="button" data-col="' + j + '" aria-pressed="' + (j === sel) + '">' + c.name + ": " + c.short + "</button></th>";
+    });
+    h += "</tr></thead><tbody>";
+    for (let k = Math.max(0, r - 3); k <= Math.min(N - 1, r + 3); k++) {
+      h += '<tr class="' + (k === r ? "cur" : "") + '"><td>' + k.toLocaleString("en-US") + "</td><td>" + (k / FS).toFixed(3) + "</td>";
+      for (let j = 0; j < 4; j++) h += '<td class="' + (j === sel ? "sel" : "") + '">' + fmt(cols[j][k], j) + "</td>";
+      h += "</tr>";
+    }
+    h += "</tbody>";
+    $("#fx-table").innerHTML = h;
+    PL.ui.$$("#fx-table [data-col]").forEach(function (b) {
+      b.addEventListener("click", function () { sel = parseInt(b.dataset.col, 10); render(); });
+    });
+    draw();
+    // readouts
+    $("#fx-time").textContent = (r / FS).toFixed(2) + " s";
+    $("#fx-zone").textContent = zoneOf(r);
+    $("#fx-target").textContent = cols[3][r] >= 0 ? "yes (label " + cols[3][r] + ")" : "no (label " + cols[3][r] + ")";
+    const c = COLS[sel];
+    $("#fx-explain").innerHTML = "<h4>" + c.title + "</h4><p>" + c.text + "</p>";
+  }
+
+  function draw() {
+    if (!cols) return;
+    const r = parseInt($("#fx-row").value, 10);
+    const grey = PL.color("grid");
+    const regions = SPINDLES.map(function (s, i) { return { x0: s[0], x1: s[0] + s[1], label: i === 0 ? "Spindle (label 1)" : undefined }; })
+      .concat([{ x0: 0, x1: LEAD / FS, color: grey }, { x0: TAIL / FS, x1: N / FS, color: grey }]);
+    const y = cols[sel];
+    const ranges = [[-6, 6], null, null, [-2.3, 1.3]];
+    PL.plot($("#fx-plot"), {
+      xRange: [0, N / FS], yRange: ranges[sel] || undefined, xLabel: "Time in segment (s)", yLabel: COLS[sel].yLabel,
+      regions: regions,
+      series: [{ x: t, y: y, color: sel === 3 ? PL.color("model") : PL.color("signal"), width: sel === 3 ? 1.8 : 1, label: COLS[sel].name + ": " + COLS[sel].short }],
+      markers: [{ x: 0, color: PL.color("text"), width: 0.01, label: "lead-in" }, { x: TAIL / FS, color: PL.color("text"), width: 0.01, label: "tail" },
+        { x: r / FS, color: PL.color("accent"), width: 2 }],
+    });
+  }
+
+  PL.ui.bind("#fx-row", render, function (v) { return v.toLocaleString("en-US"); });
+  PL.ui.$$("#fx-widget [data-jump]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      const el = $("#fx-row"); el.value = b.dataset.jump; el.dispatchEvent(new Event("input"));
+    });
+  });
+  PL.onRedraw(draw);
+  build();
+  render();
+})();
+
+/* ---------------------------------------------------------------- widget 2: subject-wise split */
+(function () {
+  const $ = PL.ui.$;
+  const DATA = JSON.parse(document.getElementById("sx-data").textContent);
+  const NAMES = { T: "train", V: "val", E: "test" };
+  let picked = DATA.splits["0"].indexOf("E"); // index of the selected subject (first test subject of split 0)
+
+  function assignment() {
+    const s = DATA.splits[String(parseInt($("#sx-split").value, 10))];
+    const test = $("#sx-test").checked;
+    return Array.from(s, function (c) { return !test && c === "E" ? "val" : NAMES[c]; });
+  }
+
+  function render() {
+    const a = assignment(), leak = $("#sx-leak").checked;
+    ["p1", "p2"].forEach(function (ph) {
+      const box = $("#sx-" + ph);
+      let h = "";
+      DATA.subjects.forEach(function (s, i) {
+        if (s[1] !== ph) return;
+        const cls = (leak ? "leak" : a[i]) + (i === picked ? " picked" : "");
+        h += '<button type="button" class="' + cls + '" data-i="' + i + '" style="width:' + (4 + 3 * s[2]) + 'px" title="' + s[0] + ", " + s[2] +
+          ' segments" aria-label="' + s[0] + ", " + s[2] + " segments, " + (leak ? "all sets" : a[i]) + '"></button>';
+      });
+      box.innerHTML = h;
+    });
+    PL.ui.$$("#sx-widget .sx-grid button").forEach(function (b) {
+      b.addEventListener("click", function () { picked = parseInt(b.dataset.i, 10); render(); });
+    });
+    // counts
+    const sets = ["train", "val", "test"], labels = { train: "Training", val: "Validation", test: "Test" };
+    const cnt = {}; sets.forEach(function (k) { cnt[k] = { s: 0, g: 0 }; });
+    DATA.subjects.forEach(function (s, i) {
+      if (leak) { cnt.train.s++; cnt.val.s++; cnt.test.s++; cnt.train.g += 0.8 * s[2]; cnt.val.g += 0.1 * s[2]; cnt.test.g += 0.1 * s[2]; }
+      else { cnt[a[i]].s++; cnt[a[i]].g += s[2]; }
+    });
+    let h = "<thead><tr><th>Set</th><th>Subjects</th><th>Segments</th><th>Labelled hours</th></tr></thead><tbody>";
+    sets.forEach(function (k) {
+      if (!$("#sx-test").checked && !leak && k === "test") return;
+      h += "<tr><td>" + labels[k] + "</td><td>" + cnt[k].s + "</td><td>" + (leak ? "≈ " : "") + cnt[k].g.toFixed(leak ? 1 : 0) +
+        "</td><td>" + (cnt[k].g * 115 / 3600).toFixed(1) + "</td></tr>";
+    });
+    $("#sx-counts").innerHTML = h + "</tbody>";
+    $("#sx-sub").textContent = DATA.subjects[picked][0] + " (" + (leak ? "all sets" : a[picked]) + ")";
+    drawTimeline();
+  }
+
+  function drawTimeline() {
+    const cv = $("#sx-timeline");
+    const dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 600, H = cv.clientHeight || 150;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    const a = assignment(), leak = $("#sx-leak").checked;
+    const col = { train: PL.color("c1"), val: PL.color("c3"), test: PL.color("c2") };
+    const ml = 10, mr = 10, top = 34, bh = 34, Wp = W - ml - mr, secs = 20, fs = PL.FS, n = secs * fs;
+    const R = PL.rng(1000 + picked);
+    const setOf = new Array(n);
+    for (let i = 0; i < n; i++) {
+      if (!leak) setOf[i] = a[picked];
+      else { const u = R.uniform(); setOf[i] = u < 0.8 ? "train" : u < 0.9 ? "val" : "test"; }
+    }
+    for (let i = 0; i < n; i++) {
+      const x0 = ml + i / n * Wp, x1 = ml + (i + 1) / n * Wp;
+      ctx.fillStyle = col[setOf[i]];
+      ctx.fillRect(x0, top, Math.max(0.6, x1 - x0), bh);
+    }
+    // the input span of one test sample: 2,112 samples (8.45 s) ending at the chosen sample
+    let target = -1;
+    for (let i = n - 1; i >= 2112; i--) if (setOf[i] === "test") { target = i; break; }
+    const fg = PL.color("text");
+    ctx.font = "12px " + (getComputedStyle(document.documentElement).getPropertyValue("--font-sans") || "sans-serif");
+    ctx.fillStyle = fg; ctx.textBaseline = "alphabetic";
+    if (target >= 0) {
+      const xa = ml + (target - 2111) / n * Wp, xb = ml + (target + 1) / n * Wp;
+      ctx.strokeStyle = fg; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(xa, top - 6); ctx.lineTo(xa, top - 12); ctx.lineTo(xb, top - 12); ctx.lineTo(xb, top - 6); ctx.stroke();
+      ctx.textAlign = "center";
+      ctx.fillText("input of one test sample (8.45 s)", (xa + xb) / 2, top - 17);
+      let overlap = 0;
+      for (let i = target - 2111; i <= target; i++) if (setOf[i] === "train") overlap++;
+      $("#sx-overlap").textContent = leak ? "100% (here " + overlap.toLocaleString("en-US") + " of the 2,112 input samples are training samples)" : "0% (test subjects never appear in training)";
+    } else {
+      $("#sx-overlap").textContent = "0% (test subjects never appear in training)";
+      ctx.textAlign = "left";
+      ctx.fillText("this subject has no test samples in this split", ml, top - 12);
+    }
+    ctx.textAlign = "left"; ctx.fillStyle = fg;
+    ctx.fillText("0 s", ml, top + bh + 18);
+    ctx.textAlign = "right"; ctx.fillText(secs + " s", ml + Wp, top + bh + 18);
+    ctx.textAlign = "center";
+    ctx.fillText(leak ? "each sample assigned at random (80 / 10 / 10)" : "every sample of this subject is in the same set", ml + Wp / 2, top + bh + 18);
+  }
+
+  PL.ui.bind("#sx-split", render);
+  PL.ui.bind("#sx-test", render, function () { return ""; });
+  PL.ui.bind("#sx-leak", render, function () { return ""; });
+  PL.onRedraw(drawTimeline);
+  render();
+})();
+</script>
+</body>
+</html>

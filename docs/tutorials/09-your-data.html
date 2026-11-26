@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>09 · Detecting spindles in your own data · Portiloop tutorials</title>
+  <meta name="description" content="Run the pre-trained Portiloop spindle detector on your own EEG: requirements, export from EDF, preprocessing in MATLAB or Python, offline inference, conversion to events and sanity checks, plus an in-browser detector for your own file.">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <style>
+    .readout .k .lc { text-transform: none; }
+    .controls .check input { accent-color: var(--accent); }
+    .dropzone { margin: 6px 0 4px; }
+    .dropzone p { margin: 0.3em 0; }
+    .dropzone input[type="file"] { max-width: 100%; font: inherit; font-size: 14px; color: var(--fg); }
+    .privacy { font-size: 13px; color: var(--fg-muted); margin: 4px 0 8px; }
+    .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+    progress { width: 100%; height: 8px; accent-color: var(--accent); }
+    .evlist { max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; margin-top: 10px; }
+    .evlist table { margin: 0; display: table; font-size: 13.5px; }
+    .evlist td, .evlist th { padding: 4px 10px; }
+    .evlist th { position: sticky; top: 0; }
+    .evlist button { font: inherit; font-size: 12.5px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--link); cursor: pointer; }
+    #yd-fs-custom { width: 6em; }
+    #yd-col { width: 4em; }
+  </style>
+</head>
+<body data-page="09-your-data" data-root="..">
+<main>
+<article class="content">
+
+  <div class="eyebrow">Tutorial 09 · Using your model</div>
+  <h1>Detecting spindles in your own data</h1>
+  <p class="lead">This tutorial takes you from an EDF file recorded in your lab to a table of detected spindles: checking that your data resemble the training data, exporting one channel, reproducing the Portiloop preprocessing (in MATLAB or Python), running the pre-trained network, turning its output into events, and checking that the result is physiologically plausible. You can also try the detector on your own file directly in this page.</p>
+
+  <dl class="meta">
+    <div><dt>Time</dt><dd>45 minutes (plus computing time)</dd></div>
+    <div><dt>Level</dt><dd>Intermediate</dd></div>
+    <div><dt>You need</dt><dd>The installation of <a href="02-installation.html">Tutorial 02</a>; an EDF recording; <a href="03-preprocessing.html">Tutorial 03</a> recommended</dd></div>
+    <div><dt>Runs in browser</dt><dd>Yes, both widgets (your file never leaves your computer)</dd></div>
+  </dl>
+
+  <div class="objectives">
+    <h3>In this tutorial you will</h3>
+    <ul>
+      <li>Check whether your montage, population and sleep stages match what the model was trained on</li>
+      <li>Export one EEG channel from EDF with <code>pyedflib</code> (or MNE)</li>
+      <li>Preprocess it exactly like the Portiloop, with the MATLAB script or a tested Python equivalent</li>
+      <li>Run the pre-trained network with <code>run_offline_unlabelled</code> and understand its output</li>
+      <li>Convert probabilities into spindle events and sanity-check density, duration and frequency</li>
+    </ul>
+  </div>
+
+  <h2 id="requirements">Will the model work on my data?</h2>
+  <p>The pre-trained network was trained on a narrow, well-defined kind of data. The closer your recordings are to it, the more you can trust the detections. The repository's README is explicit: "note that the data must be collected in the same experimental setting as MODA for this to work".</p>
+
+  <h3 id="training-data">What the network was trained on</h3>
+  <p>The labels come from the MODA project (Massive Online Data Annotation), whose gold-standard spindles were scored by a median of 5 experts on recordings of the Montreal Archive of Sleep Studies (MASS) [2, 3]. From the MODA paper's methods [2]:</p>
+  <ul>
+    <li>"180 subjects were sampled from the SS1-SS5 subsets": 100 younger adults (phase 1, mean age 24.1 years) and 80 older adults (phase 2, mean age 62.0 years).</li>
+    <li>"“Blocks” of 115 s were randomly extracted from artifact free Stage N2 sleep." Three blocks (about 6 minutes) per subject for most subjects, 10 blocks for 15 subjects of each phase.</li>
+    <li>"C3 channel was reformatted to C3-A2 when possible otherwise the original reference “C3-Linked Ear” (C3-LE) was kept."</li>
+  </ul>
+  <p>The authors' training files contained 162 of these subjects (98 from phase 1, 64 from phase 2). They are not distributed with these tutorials: the practice dataset of <a href="02-installation.html">Tutorial 02</a> is synthetic, and Tutorial 02 lists real annotated databases you can request.</p>
+  <p>The dataset generator of this repository follows the same rules: it reads the C3 channel of each MASS EDF file, subtracts A2 for the subjects listed with a C3-A2 montage in MODA's channel table, and checks that the original sampling rate is 256 Hz (resampled to 250 Hz afterwards):</p>
+<pre data-file="portiloop_software/portiloop_python/Dataset generation/dataset_generator_classification.py (excerpt)"><code class="language-python">            with pyedflib.EdfReader(filename) as edf_file:
+                # print(edf_file.getSignalLabels())
+                indices_C3 = [i for i, s in enumerate(edf_file.getSignalLabels()) if 'C3' in s]
+                signal = edf_file.readSignal(indices_C3[0])
+                assert edf_file.getSampleFrequency(indices_C3[0]) == fe
+                if 'C3-A2' in reference_list[reference_list["subject"] == filename[:-8] + ".edf"]["channel"].values:
+                    indices_A2_CLE = [i for i, s in enumerate(edf_file.getSignalLabels()) if 'A2' in s]
+                    ref = edf_file.readSignal(indices_A2_CLE[0])
+                    assert edf_file.getSampleFrequency(indices_A2_CLE[0]) == fe
+                    assert len(ref) == len(signal)
+                    signal -= ref</code></pre>
+
+  <h3 id="checklist">Checklist</h3>
+  <table>
+    <thead><tr><th>Property</th><th>Training data</th><th>If yours differs</th></tr></thead>
+    <tbody>
+      <tr><td>Channel</td><td>C3</td><td>C4 is the closest alternative (untested here). Frontal or parietal sites see different spindle populations; expect lower agreement.</td></tr>
+      <tr><td>Reference</td><td>A2 (contralateral mastoid or earlobe) or linked ears</td><td>Re-reference to A2/M2 if possible. Average or Cz references change amplitude and shape.</td></tr>
+      <tr><td>Sleep stage</td><td>N2 only (annotated blocks)</td><td>Run on the whole night, but keep only events that fall in N2 (or N2 and N3) epochs of your hypnogram. Detections in wake or REM (alpha, sawtooth waves) are not meaningful.</td></tr>
+      <tr><td>Population</td><td>Adults of the MASS cohorts: a younger group (mean age 24.1) and an older group (mean age 62.0)</td><td>Children, patients, and medications that alter spindles (for example benzodiazepines) were not represented; validate on a hand-scored subset first.</td></tr>
+      <tr><td>Sampling rate</td><td>256 Hz, resampled to 250 Hz</td><td>Any rate of at least 100 Hz is fine once properly resampled to 250 Hz (the chain removes everything above about 35 Hz anyway).</td></tr>
+      <tr><td>Amplitude units</td><td>µV</td><td>Irrelevant: the online standardization removes the scale (<a href="03-preprocessing.html#standardization">Tutorial 03</a>).</td></tr>
+      <tr><td>Mains frequency</td><td>60 Hz (Montreal)</td><td>Keep the 60 Hz notch anyway; the low-pass removes 50 Hz (<a href="03-preprocessing.html#notch">Tutorial 03</a>).</td></tr>
+      <tr><td>Amplifier and electrodes</td><td>Clinical PSG systems of the MASS cohorts</td><td>Dry electrodes, headbands or different hardware filters can change the signal; validate.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warning"><span class="callout-title">Be honest about generalization</span>The Portiloop paper itself lists this limitation: "all our experiments are based on the MODA dataset rather than actual nights spent wearing the Portiloop device", and recommends caution "because the EEG acquisition and signal may differ somewhat from the training data or between individuals" [1]. It also notes that "The MODA dataset is relatively small (∼24 h of annotated data) and heterogeneous." If your montage, population or hardware differs, hand-score a few minutes of N2 from several participants and compute precision and recall as in <a href="06-evaluation.html">Tutorial 06</a> before you interpret detections.</div>
+
+  <h2 id="try">Try it in your browser first</h2>
+  <p>Before installing anything, you can run the real pre-trained network on one channel of your own recording in this page. The widget reproduces the Portiloop chain (resampling, FIR low-pass, 60 Hz notch, online standardization) and runs the same network as the Python code (its JavaScript port matches PyTorch to about 2 × 10<sup>−6</sup>; see <a href="#validation">validation</a>).</p>
+
+  <div class="widget" id="yd">
+    <div class="widget-title">Try it on your own recording</div>
+    <p class="widget-desc">Load a text file with one EEG sample per line (a single channel, for example C3-A2 exported as in <a href="#export">step 1</a>), choose its sampling rate, and the page detects spindles in the first 10 minutes. Without a file, the demo uses 2 minutes of synthetic NREM EEG at 256 Hz with known spindles (purple bars just above the network output); the gray band is the 15 s warm-up. What to try: scroll through the recording, move the threshold, and compare the density with the <a href="#sanity">expected ranges</a>.</p>
+    <div class="dropzone" id="yd-drop">
+      <p><strong>Drop a .txt or .csv file here</strong>, or choose one:</p>
+      <p><input type="file" id="yd-file" accept=".txt,.csv,.tsv,.dat,text/plain,text/csv" aria-label="EEG text file, one sample per line"></p>
+    </div>
+    <p class="privacy">Your file is read by your browser with the File API and processed in this tab. Nothing is uploaded: this site has no server-side code.</p>
+    <div class="controls">
+      <label for="yd-fs">Sampling rate (Hz) <select id="yd-fs">
+        <option>100</option><option>128</option><option>200</option><option>250</option><option selected>256</option>
+        <option>500</option><option>512</option><option>1000</option><option>1024</option><option value="other">other</option></select></label>
+      <label for="yd-fs-custom" id="yd-fs-custom-wrap" hidden>Rate <input type="number" id="yd-fs-custom" min="50" max="20000" step="any" value="400"></label>
+      <label for="yd-col">Column <input type="number" id="yd-col" min="1" max="64" step="1" value="1"></label>
+      <button class="btn secondary" type="button" id="yd-demo">Use a demo recording</button>
+    </div>
+    <progress id="yd-progress" max="1" value="0" aria-label="Detection progress"></progress>
+    <div class="status" id="yd-status">Loading the model…</div>
+    <div class="controls">
+      <label for="yd-thr">Threshold <input type="range" id="yd-thr" min="0.05" max="0.95" step="0.01" value="0.5"><output for="yd-thr"></output></label>
+      <label for="yd-min">Min. duration (s) <input type="range" id="yd-min" min="0" max="1" step="0.05" value="0.3"><output for="yd-min"></output></label>
+      <label for="yd-gap">Merge gap (s) <input type="range" id="yd-gap" min="0" max="0.5" step="0.02" value="0.1"><output for="yd-gap"></output></label>
+    </div>
+    <div class="controls">
+      <label for="yd-win">View <select id="yd-win"><option value="10">10 s</option><option value="30" selected>30 s</option><option value="60">60 s</option></select></label>
+      <label for="yd-pos">Start (s) <input type="range" id="yd-pos" min="0" max="0" step="1" value="0"><output for="yd-pos"></output></label>
+      <button class="btn secondary" type="button" id="yd-prev" aria-label="Previous page of the recording">◀ Earlier</button>
+      <button class="btn secondary" type="button" id="yd-next" aria-label="Next page of the recording">Later ▶</button>
+    </div>
+    <canvas class="plot tall" id="yd-plot" aria-label="Standardized EEG (top) and network output (bottom) with detected spindles shaded"></canvas>
+    <div class="readout">
+      <div><div class="k">Analyzed</div><div class="v" id="yd-dur">…</div></div>
+      <div><div class="k">Spindles</div><div class="v" id="yd-n">…</div></div>
+      <div><div class="k">Density (/min)</div><div class="v" id="yd-dens">…</div></div>
+      <div><div class="k">Median duration</div><div class="v" id="yd-med">…</div></div>
+    </div>
+    <div class="bar">
+      <button class="btn" type="button" id="yd-dl" disabled>Download events (CSV)</button>
+      <button class="btn secondary" type="button" id="yd-dlp" disabled>Download probabilities (CSV)</button>
+    </div>
+    <div class="evlist" id="yd-list" aria-live="polite"></div>
+  </div>
+
+  <div class="callout note"><span class="callout-title">How the widget differs from the Python pipeline</span>
+    <ul>
+      <li><strong>Resampling:</strong> a windowed-sinc (band-limited) resampler written for this page. On our test signals at 100, 256, 500 and 1000 Hz, it differed from <code>scipy.signal.resample_poly</code> by 0.1 to 0.3% (relative RMS), and the standardized signals by at most 0.005. The library's <code>PL.resampleLinear</code>, which is didactic only, differed by 20% from 100 Hz and 3% from 256 Hz, which is why it is not used here.</li>
+      <li><strong>Network stride:</strong> to stay fast, the page runs the network every 5 samples with 8 interleaved hidden states (like the real-time simulation of <a href="08-realtime.html">Tutorial 08</a>), whereas <code>run_offline_unlabelled</code> runs it at every sample with 42 hidden states. On a 2-minute test, the two outputs differed by 0.01 on average (maximum 0.27), and 27 of 5500 compared positions fell on different sides of a 0.5 threshold.</li>
+      <li><strong>Length:</strong> the first 10 minutes only (about 35 to 40 s of computation on our laptop).</li>
+      <li><strong>End result:</strong> on the 10-minute test file of the <a href="#pipeline">Python walkthrough</a>, the code of this widget (run with Node.js) found 64 events and the Python pipeline 64; all matched, with a median onset difference of 8 ms.</li>
+      <li><strong>Timing:</strong> event times are corrected for the 40 ms filter delay and refer to the start of your file; detections in the first 15 s (warm-up) are discarded.</li>
+    </ul>
+  </div>
+
+  <h2 id="pipeline">Step by step, with the Python package</h2>
+  <p>For whole nights, many participants, or analyses you will publish, use the Python pipeline. The five steps below were run end to end on a synthetic 10-minute EDF file (C3 and A2 channels at 256 Hz, 66 spindles); the outputs shown are from that test.</p>
+
+  <ol class="steps">
+    <li id="export"><strong>Export one EEG channel to a text file.</strong> <code>pyedflib</code> is installed with the package (it is listed in <code>setup.py</code>). Adapt the file name and the channel labels: print the labels first, since every system names them differently (<code>C3-M2</code>, <code>EEG C3-A2</code>, <code>C3</code>...). If the C3 channel is already referenced to A2 or M2, do not subtract anything.
+<pre data-file="export_c3.py"><code class="language-python">import numpy as np
+import pyedflib
+
+edf_path = "night1.edf"
+with pyedflib.EdfReader(edf_path) as edf:
+    labels = edf.getSignalLabels()
+    print("channels:", labels)
+    i_c3 = [i for i, s in enumerate(labels) if "C3" in s][0]
+    i_a2 = [i for i, s in enumerate(labels) if "A2" in s][0]
+    fs = edf.getSampleFrequency(i_c3)
+    c3 = edf.readSignal(i_c3)              # physical units, usually microvolts
+    a2 = edf.readSignal(i_a2)
+    assert edf.getSampleFrequency(i_a2) == fs
+eeg = c3 - a2                              # C3-A2, as MODA used when possible
+np.savetxt("night1_C3-A2.txt", eeg, fmt="%.6g")
+print(f"{len(eeg)} samples at {fs} Hz = {len(eeg) / fs / 60:.1f} min")</code></pre>
+    Expected output (our test file):
+<pre data-file="terminal"><code class="language-none">channels: ['EEG C3-CLE', 'EEG A2-CLE']
+153600 samples at 256.0 Hz = 10.0 min</code></pre>
+    With MNE instead (not a project dependency; <code>pip install mne</code>), the equivalent is below; on our test file both exports were identical.
+<pre data-file="export_mne.py"><code class="language-python">import numpy as np
+import mne
+
+raw = mne.io.read_raw_edf("night1.edf", preload=True, verbose="error")
+print(raw.ch_names, raw.info["sfreq"])
+c3 = raw.get_data(picks=["EEG C3-CLE"], units="uV")[0]
+a2 = raw.get_data(picks=["EEG A2-CLE"], units="uV")[0]
+np.savetxt("night1_C3-A2_mne.txt", c3 - a2, fmt="%.6g")</code></pre>
+    <div class="callout tip"><span class="callout-title">Whole night or N2 only?</span>Export the <strong>whole night as one continuous signal</strong> and select N2 afterwards (step 5). Cutting N2 bouts first would create many junctions, each followed by a 15 s warm-up during which detections are unreliable (<a href="03-preprocessing.html#warmup">Tutorial 03</a>).</div>
+    </li>
+
+    <li id="preprocess"><strong>Preprocess like the Portiloop.</strong> Choose one of the two options; they apply the same filters and the same standardization.
+      <h3 id="option-matlab">Option A: the MATLAB script</h3>
+      <p>Open <code>portiloop_software/matlab/preprocess_unannotated_data.m</code> and edit its first lines (explained line by line in <a href="03-preprocessing.html#matlab">Tutorial 03</a>):</p>
+<pre data-file="preprocess_unannotated_data.m, lines 1 to 4 (edited)"><code class="language-matlab">path = "/data/mylab/exports/";                  % folder that contains your text file (keep the final slash)
+dataset_filename = 'night1_C3-A2.txt';          % one sample per line, from step 1
+final_dataset_filename = strcat('preprocessed_', dataset_filename);
+data_sampling_rate = 256;                       % the rate of YOUR recording (printed in step 1)</code></pre>
+      <p>Then run it from the <code>portiloop_software/matlab</code> folder (so that Simulink finds <code>filter_lp.slx</code>). It needs Simulink, the Signal Processing Toolbox and the DSP System Toolbox. It writes <code>preprocessed_night1_C3-A2.txt</code> next to your input file. A whole night may take a while in Simulink.</p>
+
+      <h3 id="option-python">Option B: the Python script (no MATLAB needed)</h3>
+      <p><code>docs/tools/preprocess_like_portiloop.py</code> reproduces the same chain with NumPy and SciPy: <code>scipy.signal.resample_poly</code> to 250 Hz, the exact 21 FIR coefficients of <code>coef30.coe</code>, the notch coefficients of <code>iirnotch(60/125, 1/125, 1)</code>, and the standardization loop (vectorized). First, check it on your installation:</p>
+<pre data-file="terminal"><code class="language-bash">python3 docs/tools/preprocess_like_portiloop.py --selftest</code></pre>
+<pre data-file="expected output"><code class="language-none">FIR coefficients identical to coef30.coe: True
+  1.0 Hz   FIR    0.20 dB   notch   -0.00 dB
+ 13.0 Hz   FIR   -0.21 dB   notch   -0.00 dB
+ 30.0 Hz   FIR   -0.99 dB   notch   -0.00 dB
+ 35.0 Hz   FIR   -4.05 dB   notch   -0.00 dB
+ 50.0 Hz   FIR  -35.92 dB   notch   -0.00 dB
+ 59.5 Hz   FIR  -46.40 dB   notch   -1.00 dB
+ 60.0 Hz   FIR  -43.31 dB   notch -200.00 dB
+ 60.5 Hz   FIR  -41.28 dB   notch   -1.00 dB
+vectorized vs loop standardization, max |difference| = 7.99e-15
+SELFTEST OK</code></pre>
+      <p>(The script prints −200 dB when a frequency is removed completely, as the notch does at exactly 60 Hz.) Then preprocess the text file from step 1, giving its sampling rate, or read the EDF file directly:</p>
+<pre data-file="terminal"><code class="language-bash">python3 docs/tools/preprocess_like_portiloop.py night1_C3-A2.txt --fs 256
+# or, straight from the EDF file (C3 minus A2; labels matched by substring):
+python3 docs/tools/preprocess_like_portiloop.py night1.edf --channel C3 --reference A2 -o preprocessed_night1_C3-A2.txt</code></pre>
+<pre data-file="expected output"><code class="language-none">read 153600 samples at 256 Hz -> wrote 150000 samples at 250 Hz (10.00 min) to preprocessed_night1_C3-A2.txt</code></pre>
+      <table>
+        <thead><tr><th>Option</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>--fs</code></td><td>Sampling rate of a text input (EDF files carry their own).</td></tr>
+          <tr><td><code>--column</code></td><td>Column to read in a multi-column text file (0 = first).</td></tr>
+          <tr><td><code>--channel</code>, <code>--reference</code></td><td>EDF only: substrings of the channel labels; the reference is subtracted.</td></tr>
+          <tr><td><code>--compensate-delay</code></td><td>Remove the 10-sample FIR delay offline, like the MATLAB script. Off by default, so that the output is identical to the device and to the JavaScript in these pages.</td></tr>
+          <tr><td><code>--no-notch</code>, <code>--alpha-avg</code>, <code>--alpha-var</code></td><td>For experiments only; changing them makes your data differ from the training data.</td></tr>
+          <tr><td><code>-o</code></td><td>Output file (default <code>preprocessed_&lt;input name&gt;.txt</code>).</td></tr>
+        </tbody>
+      </table>
+      <div class="callout note" id="validation"><span class="callout-title">Validation and remaining differences</span>
+        <ul>
+          <li><strong>Python versus the JavaScript of these pages:</strong> on 10 minutes of synthetic EEG at 250 Hz with 60 Hz noise, a DC offset and an electrode step, the Python output and <code>PL.preprocess</code> (in <code>docs/assets/js/portiloop.js</code>, run with Node.js) differed by at most 7 × 10<sup>−14</sup> (float64 rounding); after writing to text in single precision, by 5 × 10<sup>−6</sup>.</li>
+          <li><strong>JavaScript network versus PyTorch:</strong> on 2 minutes of preprocessed signal, the JavaScript network run at every sample with 42 hidden states reproduced all 29,946 outputs of <code>run_offline_unlabelled</code> to within 1.7 × 10<sup>−6</sup>, with no threshold crossing changed.</li>
+          <li><strong>Python versus MATLAB:</strong> not compared numerically (we did not run MATLAB). By construction, two differences remain: (1) the MATLAB script removes the FIR delay offline (use <code>--compensate-delay</code> to do the same; set <code>FIR_DELAY = 0</code> in step 4 in that case), and pads the end by repeating its last output samples; (2) MATLAB's <code>resample</code> and SciPy's <code>resample_poly</code> both use Kaiser-windowed anti-aliasing filters, but with slightly different designs, so resampled values differ slightly.</li>
+        </ul>
+      </div>
+    </li>
+
+    <li id="inference"><strong>Run the network.</strong> The package exposes <code>run_offline_unlabelled(config_dict, path_experiments, unlabelled_segment)</code>, which loads a checkpoint and runs it over a whole preprocessed signal. This is what <code>notebooks/offline_inference.ipynb</code> does.
+<pre data-file="detect.py"><code class="language-python">import numpy as np
+import torch
+from pathlib import Path
+import portiloop_software
+from portiloop_software import run_offline_unlabelled, get_final_model_config_dict
+
+config_dict = get_final_model_config_dict()      # the published model (checkpoint pareto_search_15_35_v4_0)
+path_experiments = Path(portiloop_software.__file__).parent / "experiments"
+
+data = np.loadtxt("preprocessed_night1_C3-A2.txt", dtype=np.float32)
+output, true_idx = run_offline_unlabelled(config_dict=config_dict,
+                                          path_experiments=path_experiments,
+                                          unlabelled_segment=torch.from_numpy(data))
+prob = output.numpy()          # one probability per position, between 0 and 1
+idx = true_idx.numpy()         # index of the last (most recent) sample of each 54-sample window
+print(len(data), "samples ->", len(prob), "outputs, first index", idx[0], "last index", idx[-1])
+np.savetxt("night1_probabilities.csv", np.c_[idx, prob], delimiter=",",
+           fmt=["%d", "%.5f"], header="sample_index,probability", comments="")</code></pre>
+    Expected output. Computation time grows linearly with length: on the laptop used to write this page (Intel Core i7-1370P, CPU only, 14 PyTorch threads, other jobs running), 10, 30 and 60 minutes of signal took about 29 to 40 s, 90 s and 161 s, so an 8-hour night should take roughly 20 to 25 minutes.
+<pre data-file="terminal"><code class="language-none">150000 samples -> 149940 outputs, first index 54 last index 149993</code></pre>
+    <p><strong>What the outputs are.</strong> Reading <code>run_offline_unlabelled</code> and the helpers it calls:</p>
+    <ul>
+      <li>The parameters come from the configuration dictionary: window <code>int(0.218 × 250) = 54</code> samples, <code>seq_stride = int(0.170 × 250) = 42</code> samples, and <code>validation_network_stride = 1</code>, so the network is evaluated at <strong>every sample</strong>.</li>
+      <li><code>UnlabelledSignalDatasetSingleSegment</code> returns single windows <code>full_signal[i:i + 54]</code> (starting at <code>i = 1</code>) together with the index of the window's most recent sample, the same convention as the training labels:
+<pre data-file="portiloop_software/portiloop_python/ANN/portiloop_detector_training.py (excerpt, UnlabelledSignalDatasetSingleSegment)"><code class="language-python">        signal_seq = self.full_signal[idx:idx + self.window_size].unfold(0, self.window_size, 1)
+        true_idx = idx + self.window_size - 1  # index of the last (most recent) sample of the window, as for training labels
+        return signal_seq, true_idx</code></pre>
+      The first output is therefore at index 54, and its probability refers to samples 1 to 54: it is what the network says once it has seen sample 54.</li>
+      <li><code>ValidationSampler</code> arranges the windows in batches of 42 consecutive positions, and the GRU hidden state of batch element <em>j</em> is carried to element <em>j</em> of the next batch, i.e. to the window 42 samples later. In other words, 42 interleaved hidden states each see windows 42 samples (168 ms) apart, the same spacing as the training sequences.</li>
+      <li>The number of outputs is <code>42 × floor((N − 55) / 42)</code>, a whole number of batches: the last few samples (at most 42) get no output.</li>
+    </ul>
+    <div class="callout note"><span class="callout-title">Which checkpoint is loaded</span><code>get_final_model_config_dict()</code> names the experiment <code>'sanity_check_final_model_0'</code>. <code>run_offline_unlabelled</code> loads the network through <code>get_trained_model</code>, which falls back to <code>portiloop_software/experiments/pareto_search_15_35_v4_0</code> when no file of that name exists, so the published model is used. In older clones of the repository, <code>run_offline_unlabelled</code> did not have this fallback and raised <code>FileNotFoundError: ... sanity_check_final_model_0</code>; run <code>git pull</code>, or add <code>config_dict["experiment_name"] = "pareto_search_15_35_v4_0"</code> after creating the dictionary.</div>
+    <div class="callout note"><span class="callout-title">Older clones of the repository</span>Before the current version, <code>run_offline_unlabelled</code> had three problems that are now fixed: it did not find the default checkpoint (see above); it raised <code>AssertionError: Index out of range</code> whenever <code>(N − 54)</code> was a multiple of 42 (for example exactly 2 minutes, 30000 samples); and its <code>true_idx</code> pointed one sample <em>after</em> each window. If you see the assertion error or a first index of 55 instead of 54, run <code>git pull</code> (and reinstall with <code>pip install -e .</code> if needed).</div>
+    <div class="callout disk"><span class="callout-title">On the hard drive</span>
+      <ul>
+        <li><strong>Reads:</strong> the preprocessed text file; the checkpoint <code>portiloop_software/experiments/pareto_search_15_35_v4_0</code> (about 300 KB, included in the repository; nine other checkpoints <code>_3</code> to <code>_18</code> sit next to it).</li>
+        <li><strong>Writes:</strong> <code>night1_probabilities.csv</code> with a header and two columns, <code>sample_index</code> (at 250 Hz, in the preprocessed file) and <code>probability</code>.</li>
+      </ul>
+    </div>
+    </li>
+
+    <li id="events"><strong>Threshold the output and convert it to events.</strong> A spindle event is a run of consecutive positions where the probability is at or above a threshold. Three choices shape the result:
+    <ul>
+      <li><strong>Threshold</strong> (default 0.5, as in the notebook): higher means fewer, more certain detections. Choose it on hand-scored data from your own lab (<a href="06-evaluation.html">Tutorial 06</a>).</li>
+      <li><strong>Minimum duration</strong> (default 0.3 s): very short runs are usually noise. MODA removed gold-standard events "longer than 2.5 s or shorter than 0.3 s" [2].</li>
+      <li><strong>Merge gap</strong> (default 0.1 s): two runs separated by a brief dip are counted as one spindle.</li>
+    </ul>
+    The function also removes the 10-sample filter delay (if you used the causal Python preprocessing) and drops detections in the first 15 s (warm-up).
+<pre data-file="events.py"><code class="language-python">import numpy as np
+
+FS = 250
+FIR_DELAY = 10   # samples; set to 0 if you preprocessed with --compensate-delay or with the MATLAB script
+
+def probabilities_to_events(idx, prob, threshold=0.5, min_duration_s=0.3, merge_gap_s=0.1,
+                            warmup_s=15.0, fs=FS, delay=FIR_DELAY):
+    """Threshold the network output; return a list of (onset_s, offset_s, peak_probability)."""
+    above = prob >= threshold
+    edges = np.diff(np.concatenate([[0], above.astype(int), [0]]))
+    starts, stops = np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)   # stops are exclusive
+    events = []
+    for a, b in zip(starts, stops):
+        onset, offset = idx[a] - delay, idx[b - 1] + 1 - delay              # in samples, offset exclusive
+        peak = float(prob[a:b].max())
+        if events and onset - events[-1][1] <= merge_gap_s * fs:          # close to the previous one: merge
+            events[-1] = (events[-1][0], offset, max(events[-1][2], peak))
+        else:
+            events.append((onset, offset, peak))
+    return [(on / fs, off / fs, p) for on, off, p in events
+            if off - on >= min_duration_s * fs and on >= warmup_s * fs]
+
+table = np.loadtxt("night1_probabilities.csv", delimiter=",", skiprows=1)
+idx, prob = table[:, 0].astype(int), table[:, 1]
+events = probabilities_to_events(idx, prob, threshold=0.5)
+with open("night1_spindles.csv", "w") as fh:
+    fh.write("onset_s,offset_s,duration_s,peak_probability\n")
+    for on, off, p in events:
+        fh.write(f"{on:.3f},{off:.3f},{off - on:.3f},{p:.3f}\n")
+print(len(events), "events written to night1_spindles.csv")</code></pre>
+    Expected output and the first lines of the file:
+<pre data-file="terminal"><code class="language-none">64 events written to night1_spindles.csv
+onset_s,offset_s,duration_s,peak_probability
+17.836,18.580,0.744,0.988
+26.824,27.620,0.796,0.986
+35.428,36.232,0.804,0.987</code></pre>
+    Times are in seconds from the start of the exported signal (resampling does not change time). If you exported only part of a night, add its start time.
+    <div class="callout neuro"><span class="callout-title">For neuroscientists: detected boundaries are late</span>An event starts when the network has seen enough of the spindle to be confident, not at the physiological onset. The paper reports a detection delay of the network of about 250 ms (±100 ms) on top of the fixed delays [1]; on our synthetic test file, detected onsets were a median 0.32 s after the true onsets. Use the events to <em>count</em> spindles and to locate them; if you need precise onsets, durations or amplitudes, re-measure them on the raw signal around each detection (for example with a sigma-band envelope).</div>
+    </li>
+
+    <li id="sanity"><strong>Sanity-check the result.</strong> A detector can fail silently on data unlike its training set. Compare three simple statistics with published values.
+<pre data-file="sanity.py"><code class="language-python">import numpy as np
+
+FS = 250
+ev = np.loadtxt("night1_spindles.csv", delimiter=",", skiprows=1, ndmin=2)
+eeg = np.loadtxt("preprocessed_night1_C3-A2.txt")
+minutes = (len(eeg) / FS - 15) / 60                  # exclude the 15 s warm-up
+dur = ev[:, 2]
+print(f"{len(ev)} spindles in {minutes:.1f} min -> {len(ev) / minutes:.2f} per minute")
+print(f"duration: median {np.median(dur):.2f} s, 10th to 90th percentile "
+      f"{np.percentile(dur, 10):.2f} to {np.percentile(dur, 90):.2f} s")
+
+# dominant frequency inside each event (zero-padded spectrum of the preprocessed EEG)
+f = np.fft.rfftfreq(1024, 1 / FS)
+band = (f >= 5) & (f <= 25)
+peaks = []
+for on, off in ev[:, :2]:
+    seg = eeg[int(on * FS):int(off * FS)]
+    seg = (seg - seg.mean()) * np.hanning(len(seg))
+    peaks.append(f[band][np.argmax(np.abs(np.fft.rfft(seg, 1024))[band])])
+peaks = np.array(peaks)
+inside = np.mean((peaks >= 11) & (peaks <= 16)) * 100
+print(f"peak frequency: median {np.median(peaks):.1f} Hz; {inside:.0f}% of events between 11 and 16 Hz")</code></pre>
+<pre data-file="terminal (synthetic test file: about one spindle every 9 s, so the density is high)"><code class="language-none">64 spindles in 9.8 min -> 6.56 per minute
+duration: median 0.72 s, 10th to 90th percentile 0.46 to 0.94 s
+peak frequency: median 13.7 Hz; 100% of events between 11 and 16 Hz</code></pre>
+    Density is only meaningful per minute of N2. If you have a hypnogram with one label per epoch, keep the events that fall in N2 epochs:
+<pre data-file="hypno.py"><code class="language-python">import numpy as np
+
+EPOCH_S = 30                                              # 30 s epochs (AASM); use 20 for R&amp;K-scored files
+stages = np.loadtxt("night1_hypnogram.txt", dtype=str)    # one label per line: W, N1, N2, N3, R
+ev = np.loadtxt("night1_spindles.csv", delimiter=",", skiprows=1, ndmin=2)
+epoch = np.minimum((ev[:, 0] // EPOCH_S).astype(int), len(stages) - 1)
+in_n2 = stages[epoch] == "N2"
+n2_minutes = np.sum(stages == "N2") * EPOCH_S / 60
+print(f"{in_n2.sum()} of {len(ev)} events fall in N2; N2 density {in_n2.sum() / n2_minutes:.2f} per minute")</code></pre>
+    <p>What to compare with. The MODA gold standard, i.e. the very data the network learned from, reports per-subject medians (standard deviation across subjects) [2]:</p>
+    <table>
+      <thead><tr><th>MODA gold standard (C3, N2)</th><th>Younger adults (phase 1)</th><th>Older adults (phase 2)</th></tr></thead>
+      <tbody>
+        <tr><td>Density (spindles per minute)</td><td>4.2 (2.4)</td><td>2.6 (2.2)</td></tr>
+        <tr><td>Duration (s)</td><td>0.79 (0.14)</td><td>0.75 (0.16)</td></tr>
+      </tbody>
+    </table>
+    <p>The AASM definition quoted by MODA describes a spindle as a train of distinct waves at 11 to 16 Hz lasting at least 0.5 s [2]. Red flags: a density far above 10 per minute or near 0 in N2; many events in wake or REM; median durations under 0.4 s or over 1.5 s; most peak frequencies outside 11 to 16 Hz (alpha around 8 to 12 Hz in wake, or muscle artifacts). Always look at a random sample of 20 to 30 detections in your EEG viewer.</p>
+    </li>
+  </ol>
+
+  <h2 id="postprocessing">From probabilities to events, interactively</h2>
+  <p>The three post-processing parameters interact. This widget runs the network on 60 s of synthetic N2-like EEG with known spindles and scores the events with an event-level matching rule (a detection counts as correct if it overlaps a true spindle with an intersection over union of at least 0.2; see <a href="06-evaluation.html">Tutorial 06</a>).</p>
+  <div class="widget" id="pp">
+    <div class="widget-title">Post-processing: threshold, minimum duration, merge gap</div>
+    <p class="widget-desc">Shaded: detected events; purple bars (just above the network output): true spindles. The first 15 s are grayed out (warm-up, excluded from scoring). What to try: (1) set the minimum duration to 0 and lower the threshold: count the short false alarms; (2) raise the threshold to 0.8 and increase the merge gap to recover fragmented spindles; (3) change the recording to see how stable your choice is.</p>
+    <div class="controls">
+      <label for="pp-thr">Threshold <input type="range" id="pp-thr" min="0.05" max="0.95" step="0.01" value="0.5"><output for="pp-thr"></output></label>
+      <label for="pp-min">Min. duration (s) <input type="range" id="pp-min" min="0" max="1" step="0.05" value="0.3"><output for="pp-min"></output></label>
+      <label for="pp-gap">Merge gap (s) <input type="range" id="pp-gap" min="0" max="0.5" step="0.02" value="0.1"><output for="pp-gap"></output></label>
+      <label for="pp-seed">Recording <input type="range" id="pp-seed" min="1" max="12" step="1" value="5"><output for="pp-seed"></output></label>
+    </div>
+    <progress id="pp-progress" max="1" value="0" aria-label="Computation progress"></progress>
+    <canvas class="plot tall" id="pp-plot" aria-label="Synthetic EEG, network output, detected events and true spindles"></canvas>
+    <div class="readout">
+      <div><div class="k">True spindles</div><div class="v" id="pp-true">…</div></div>
+      <div><div class="k">Detections</div><div class="v" id="pp-det">…</div></div>
+      <div><div class="k">Precision</div><div class="v" id="pp-p">…</div></div>
+      <div><div class="k">Recall</div><div class="v" id="pp-r">…</div></div>
+      <div><div class="k">F1</div><div class="v" id="pp-f">…</div></div>
+    </div>
+    <div class="status" id="pp-status">Waiting for the model…</div>
+  </div>
+
+  <h2 id="troubleshooting">Troubleshooting</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>Likely cause</th><th>What to do</th></tr></thead>
+    <tbody>
+      <tr><td><code>FileNotFoundError ... sanity_check_final_model_0</code></td><td>Older clone of the repository, without the checkpoint fallback in <code>run_offline_unlabelled</code></td><td><code>git pull</code>, or set <code>config_dict["experiment_name"] = "pareto_search_15_35_v4_0"</code>.</td></tr>
+      <tr><td><code>AssertionError: Index out of range</code></td><td>Older clone of the repository (bug for some signal lengths)</td><td><code>git pull</code>; or drop the last sample of the signal.</td></tr>
+      <tr><td><code>ModuleNotFoundError: sklearn</code> or <code>wandb</code> on import</td><td>The training module imports them even for inference</td><td><code>pip install -e .</code> from the repository root installs them (<a href="02-installation.html">Tutorial 02</a>).</td></tr>
+      <tr><td>Probability high during the first seconds</td><td>Standardization warm-up</td><td>Expected; discard the first 15 s (done by <code>probabilities_to_events</code>).</td></tr>
+      <tr><td>Detections everywhere, density above 15 per minute</td><td>Not preprocessed, or preprocessed at the wrong rate; or wake/REM included</td><td>Check that the preprocessed file has (duration in s × 250) lines and values mostly between −3 and 3; restrict to N2.</td></tr>
+      <tr><td>Almost no detections</td><td>Different montage or very low spindle amplitude relative to background; or a hardware low-pass below 15 Hz</td><td>Inspect the raw signal for visible spindles; check the amplifier's filters; try a lower threshold and validate.</td></tr>
+      <tr><td>Event times shifted by 40 ms between two pipelines</td><td>One compensated the FIR delay (MATLAB, <code>--compensate-delay</code>), the other not</td><td>Set <code>FIR_DELAY</code> in step 4 accordingly.</td></tr>
+      <tr><td>The browser widget says the file has 0 samples</td><td>Wrong column, or a format with decimal commas</td><td>Use one value per line with a dot as decimal separator; set the column.</td></tr>
+      <tr><td>Inference on a whole night is slow</td><td>CPU inference at every sample (about 2.7 s per minute of signal on our laptop); in older clones, a quadratic slowdown on long signals</td><td><code>git pull</code>; run it overnight, or on a GPU by setting <code>config_dict["device_inference"] = "cuda"</code> (untested here).</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="exercises">Exercises</h2>
+  <details class="exercise"><summary>Density at different thresholds</summary>
+    <p>In the first widget, use the demo recording. Note the number of detected spindles and the density at thresholds 0.3, 0.5 and 0.8. Then compare with the number of true spindles (purple bars after 15 s). Which threshold gives the most plausible count, and what does this tell you about reporting spindle density from an automatic detector?</p></details>
+  <details class="solution"><summary>Answer</summary>
+    <p>The count changes with the threshold (lower thresholds add short or doubtful events, higher ones miss weak spindles), so "spindle density" is partly a property of the detector settings. Always report the threshold, minimum duration and merge gap, use the same settings for all participants and conditions, and, ideally, calibrate the threshold on hand-scored data from your own lab (<a href="06-evaluation.html">Tutorial 06</a>).</p></details>
+
+  <details class="exercise"><summary>Which file did the network really see?</summary>
+    <p>You preprocessed one recording with the MATLAB script and another with the Python script (default options), then ran <code>events.py</code> unchanged on both. Are the event times of the two recordings comparable?</p></details>
+  <details class="solution"><summary>Answer</summary>
+    <p>Not exactly: the MATLAB output is already shifted 40 ms earlier, so with <code>FIR_DELAY = 10</code> its events end up 40 ms too early. Set <code>FIR_DELAY = 0</code> for files preprocessed with MATLAB or with <code>--compensate-delay</code>. The detections themselves (which spindles are found) are the same, because the network sees the same waveforms.</p></details>
+
+  <h2 id="next">What next</h2>
+  <p>To measure how good these detections are on your data, hand-score a subset and follow <a href="06-evaluation.html">Tutorial 06</a>. If performance is poor on your montage or population, consider retraining (<a href="05-training.html">Tutorial 05</a>). To use the network for real-time stimulation, see <a href="08-realtime.html">Tutorial 08</a> and <a href="10-deployment.html">Tutorial 10</a>.</p>
+
+  <h2 id="references">References</h2>
+  <ol class="refs">
+    <li>Valenchon N, Bouteiller Y, Jourde HR, L'Heureux X, Sobral M, Coffey EBJ, Beltrame G (2022). The Portiloop: a deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a> (quotes and Table 2 from the <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9394839/">PMC version</a>).</li>
+    <li>Lacourse K, Yetton B, Mednick S, Warby SC (2020). Massive online data annotation, crowdsourcing to generate high quality sleep spindle annotations from EEG data. <em>Scientific Data</em> 7: 190. <a href="https://doi.org/10.1038/s41597-020-0533-4">doi:10.1038/s41597-020-0533-4</a> (quotes from the Methods; densities and durations from Table 2 of the <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC7305234/">PMC version</a>).</li>
+    <li>O'Reilly C, Gosselin N, Carrier J, Nielsen T (2014). Montreal Archive of Sleep Studies: an open-access resource for instrument benchmarking and exploratory research. <em>Journal of Sleep Research</em> 23(6): 628 to 635. <a href="https://doi.org/10.1111/jsr.12169">doi:10.1111/jsr.12169</a></li>
+  </ol>
+
+</article>
+</main>
+
+<script src="../assets/js/portiloop.js"></script>
+<script src="../assets/js/nav.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = PL.ui.$;
+  const FS = PL.FS, DELAY = 10, STRIDE = 5, WARMUP_S = 15, MAX_MIN = 10;
+
+  /* ------------------------------------------------ input parsing and band-limited resampling
+     (tested with Node.js against scipy.signal.resample_poly: 0.1 to 0.3% relative RMS difference) */
+  function parseSignal(text, column) {
+    const out = [];
+    let skipped = 0, start = 0;
+    const n = text.length;
+    while (start < n) {
+      let end = text.indexOf("\n", start);
+      if (end < 0) end = n;
+      const line = text.slice(start, end).trim();
+      start = end + 1;
+      if (!line) continue;
+      const parts = line.split(/[,;\t ]+/);
+      const v = parseFloat(parts[Math.min(column, parts.length - 1)]);
+      if (Number.isFinite(v) && column < parts.length) out.push(v); else skipped++;
+    }
+    return { x: Float64Array.from(out), skipped };
+  }
+  function resampleSinc(x, fsIn, fsOut) {
+    if (fsIn === fsOut) return Float64Array.from(x);
+    const fc = 0.46 * Math.min(fsIn, fsOut);
+    const step = fsIn / (2 * fc);
+    const half = Math.ceil(12 * step);
+    const nOut = Math.floor(x.length * fsOut / fsIn);
+    const y = new Float64Array(nOut);
+    for (let m = 0; m < nOut; m++) {
+      const p = m * fsIn / fsOut, k0 = Math.max(0, Math.ceil(p - half)), k1 = Math.min(x.length - 1, Math.floor(p + half));
+      let s = 0, wsum = 0;
+      for (let k = k0; k <= k1; k++) {
+        const d = p - k, u = d / half;
+        const win = 0.42 + 0.5 * Math.cos(Math.PI * u) + 0.08 * Math.cos(2 * Math.PI * u);
+        const arg = Math.PI * d / step;
+        const w = (d === 0 ? 1 : Math.sin(arg) / arg) * win;
+        s += w * x[k]; wsum += w;
+      }
+      y[m] = s / wsum;
+    }
+    return y;
+  }
+
+  /* ------------------------------------------------ the network, in chunks (mirrors model.runStream) */
+  function runChunked(model, x, onProgress, token) {
+    const W = model.windowSize;
+    const seqStride = Math.trunc(model.cfg.seq_stride_s * model.cfg.fe);
+    const nbPar = Math.max(1, Math.floor(seqStride / STRIDE));
+    const xs = Float32Array.from(x);
+    const n = xs.length >= W ? Math.floor((xs.length - W) / STRIDE) + 1 : 0;
+    const states = []; for (let k = 0; k < nbPar; k++) states.push(model.zeroState());
+    const tIdx = new Int32Array(n), y = new Float32Array(n);
+    let i = 0, k = 0;
+    return new Promise(function (resolve, reject) {
+      function tick() {
+        if (token.cancelled) { reject(new Error("cancelled")); return; }
+        const t0 = performance.now();
+        while (i < n && performance.now() - t0 < 35) {
+          const end = W - 1 + i * STRIDE;
+          const r = model.step(xs.subarray(end - W + 1, end + 1), states[k]);
+          states[k] = r.h; tIdx[i] = end; y[i] = r.y;   // last sample of the window, as true_idx in Python
+          i++; k = (k + 1) % nbPar;
+        }
+        onProgress(i, n, tIdx, y);
+        if (i < n) setTimeout(tick, 0); else resolve({ tIdx, y, n });
+      }
+      setTimeout(tick, 0);
+    });
+  }
+
+  /* ------------------------------------------------ probabilities -> events (same rules as events.py) */
+  function toEvents(tIdx, y, count, thr, minDur, gap) {
+    const ev = [];
+    let a = -1;
+    const close = function (b) {
+      const on = tIdx[a] - DELAY, off = tIdx[b - 1] + STRIDE - DELAY;   // same rule as events.py, for a stride of 5
+      let peak = 0; for (let j = a; j < b; j++) peak = Math.max(peak, y[j]);
+      const last = ev[ev.length - 1];
+      if (last && on - last.end <= gap * FS) { last.end = off; last.peak = Math.max(last.peak, peak); }
+      else ev.push({ start: on, end: off, peak });
+    };
+    for (let i = 0; i < count; i++) {
+      if (y[i] >= thr) { if (a < 0) a = i; }
+      else if (a >= 0) { close(i); a = -1; }
+    }
+    if (a >= 0) close(count);
+    return ev.filter((e) => e.end - e.start >= minDur * FS && e.start >= WARMUP_S * FS);
+  }
+  const median = (arr) => { if (!arr.length) return NaN; const s = arr.slice().sort((p, q) => p - q); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  function truthSeries(spindles, x0, x1, yv) {
+    const xs = [], ys = [];
+    spindles.forEach((s) => { if (s.end < x0 || s.start > x1) return; xs.push(s.start, s.end, s.end); ys.push(yv, yv, NaN); });
+    return { x: xs, y: ys };
+  }
+  function eegSeries(std, i0, i1) {
+    const t = [], v = [];
+    for (let i = i0; i < i1; i++) { t.push(i / FS); v.push(2.45 + 0.17 * Math.max(-6, Math.min(6, std[i]))); }
+    return { t, v };
+  }
+  function probSeries(tIdx, y, count, x0, x1) {
+    const t = [], v = [];
+    for (let i = 0; i < count; i++) {
+      const tt = (tIdx[i] - DELAY) / FS;
+      if (tt < x0 - 1 || tt > x1 + 1) continue;
+      t.push(tt); v.push(y[i]);
+    }
+    return { t, v };
+  }
+  function download(name, text) {
+    const blob = new Blob([text], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 500);
+  }
+  function whenVisible(el, fn) {
+    if (!("IntersectionObserver" in window)) { fn(); return; }
+    const io = new IntersectionObserver(function (entries) {
+      if (entries.some((e) => e.isIntersecting)) { io.disconnect(); fn(); }
+    }, { rootMargin: "200px" });
+    io.observe(el);
+  }
+  const modelP = PL.loadModel();
+
+  /* ================================================ widget 1: your own recording */
+  (function () {
+    let model = null, rec = null, token = { cancelled: false }, events = [];
+    const status = (s) => { $("#yd-status").textContent = s; };
+
+    function fsValue() {
+      const v = $("#yd-fs").value;
+      return v === "other" ? parseFloat($("#yd-fs-custom").value) : parseFloat(v);
+    }
+    function start(x, fsIn, name, truth) {
+      if (!model) { status("The model is still loading; try again in a moment."); return; }
+      token.cancelled = true; token = { cancelled: false };
+      const my = token;
+      if (!(fsIn >= 50)) { status("Please choose a sampling rate of at least 50 Hz."); return; }
+      const maxIn = Math.floor(MAX_MIN * 60 * fsIn);
+      const truncated = x.length > maxIn;
+      const xin = truncated ? x.subarray(0, maxIn) : x;
+      const x250 = resampleSinc(xin, fsIn, FS);
+      if (x250.length < (WARMUP_S + 5) * FS) { status("The signal is too short (" + (x250.length / FS).toFixed(1) + " s): at least 20 s are needed."); return; }
+      const std = PL.preprocess(x250).standardized;
+      rec = { name, fsIn, nIn: x.length, truncated, std, truth, tIdx: null, y: null, count: 0, dur: x250.length / FS };
+      const pos = $("#yd-pos"); pos.max = Math.max(0, Math.floor(rec.dur - parseFloat($("#yd-win").value))); pos.value = Math.min(parseFloat(pos.value), pos.max);
+      $('output[for="yd-pos"]').textContent = pos.value;
+      $("#yd-dl").disabled = true; $("#yd-dlp").disabled = true;
+      const t0 = performance.now();
+      status("Running the network on " + (rec.dur / 60).toFixed(1) + " min of " + name + "…");
+      let lastDraw = 0;
+      runChunked(model, std, function (i, n, tIdx, y) {
+        $("#yd-progress").value = n ? i / n : 1;
+        rec.tIdx = tIdx; rec.y = y; rec.count = i;
+        const now = performance.now();
+        if (now - lastDraw > 400) { lastDraw = now; update(); }
+      }, my).then(function (r) {
+        if (my.cancelled) return;
+        rec.count = r.n;
+        $("#yd-dl").disabled = false; $("#yd-dlp").disabled = false;
+        status("Done: " + name + ", " + (rec.dur / 60).toFixed(2) + " min analyzed at 250 Hz (input " + rec.fsIn + " Hz, " + rec.nIn + " samples" +
+          (rec.truncated ? ", truncated to the first " + MAX_MIN + " min" : "") + "), " + ((performance.now() - t0) / 1000).toFixed(1) + " s of computation.");
+        update();
+      }).catch(function () { /* cancelled by a newer run */ });
+    }
+    function update() {
+      if (!rec || !rec.tIdx) return;
+      const thr = parseFloat($("#yd-thr").value), minD = parseFloat($("#yd-min").value), gap = parseFloat($("#yd-gap").value);
+      events = toEvents(rec.tIdx, rec.y, rec.count, thr, minD, gap);
+      const analyzedS = rec.count ? (rec.tIdx[rec.count - 1] - DELAY) / FS : 0;
+      const usable = Math.max(0, analyzedS - WARMUP_S) / 60;
+      $("#yd-dur").textContent = (analyzedS / 60).toFixed(1) + " min";
+      $("#yd-n").textContent = events.length;
+      $("#yd-dens").textContent = usable > 0 ? (events.length / usable).toFixed(1) : "…";
+      const md = median(events.map((e) => (e.end - e.start) / FS));
+      $("#yd-med").textContent = isFinite(md) ? md.toFixed(2) + " s" : "n/a";
+      renderList();
+      draw();
+    }
+    function renderList() {
+      const box = $("#yd-list");
+      if (!events.length) { box.innerHTML = '<p class="small muted" style="margin:8px 12px">No events with the current settings.</p>'; return; }
+      const rows = events.slice(0, 500).map((e, i) =>
+        "<tr><td>" + (i + 1) + "</td><td>" + (e.start / FS).toFixed(2) + "</td><td>" + (e.end / FS).toFixed(2) + "</td><td>" +
+        ((e.end - e.start) / FS).toFixed(2) + "</td><td>" + e.peak.toFixed(2) + '</td><td><button type="button" data-t="' + (e.start / FS) + '">Show</button></td></tr>').join("");
+      box.innerHTML = "<table><thead><tr><th>#</th><th>Onset (s)</th><th>Offset (s)</th><th>Duration (s)</th><th>Peak p</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>" +
+        (events.length > 500 ? '<p class="small muted" style="margin:8px 12px">First 500 events shown; the CSV contains all.</p>' : "");
+    }
+    $("#yd-list").addEventListener("click", function (e) {
+      const b = e.target.closest("button[data-t]"); if (!b) return;
+      const w = parseFloat($("#yd-win").value), pos = $("#yd-pos");
+      pos.value = Math.max(0, Math.min(parseFloat(pos.max), Math.floor(parseFloat(b.dataset.t) - w / 3)));
+      pos.dispatchEvent(new Event("input"));
+      $("#yd-plot").scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    function draw() {
+      const cv = $("#yd-plot");
+      if (!rec) { PL.plot(cv, { xRange: [0, 30], yRange: [-0.05, 3.95], xLabel: "Time (s)", series: [] }); return; }
+      const w = parseFloat($("#yd-win").value), x0 = parseFloat($("#yd-pos").value), x1 = x0 + w;
+      const i0 = Math.max(0, Math.floor(x0 * FS)), i1 = Math.min(rec.std.length, Math.ceil(x1 * FS));
+      const e = eegSeries(rec.std, i0, i1);
+      const series = [{ x: e.t, y: e.v, color: PL.color("signal"), width: 1, label: "standardized EEG" }];
+      if (rec.tIdx) { const p = probSeries(rec.tIdx, rec.y, rec.count, x0, x1); series.push({ x: p.t, y: p.v, color: PL.color("model"), width: 1.6, label: "network output" }); }
+      if (rec.truth) { const tr = truthSeries(rec.truth, x0, x1, 1.14); series.push({ x: tr.x, y: tr.y, color: PL.color("c4"), width: 5, label: "true spindle (demo)" }); }
+      const regions = events.filter((ev) => ev.end / FS > x0 && ev.start / FS < x1).map((ev) => ({ x0: ev.start / FS, x1: ev.end / FS, label: "detected spindle" }));
+      if (x0 < WARMUP_S) regions.unshift({ x0: 0, x1: WARMUP_S, color: "rgba(128,128,128,0.12)" });
+      PL.plot(cv, {
+        xRange: [x0, x1], yRange: [-0.05, 3.95], xLabel: "Time (s)", yLabel: "probability | EEG", yTicks: 4, series, regions,
+        hlines: [{ y: parseFloat($("#yd-thr").value), label: "threshold" }],
+      });
+    }
+    function csvEvents() {
+      return "onset_s,offset_s,duration_s,peak_probability\n" + events.map((e) =>
+        (e.start / FS).toFixed(3) + "," + (e.end / FS).toFixed(3) + "," + ((e.end - e.start) / FS).toFixed(3) + "," + e.peak.toFixed(3)).join("\n") + "\n";
+    }
+    function csvProb() {
+      const lines = ["time_s,probability"];
+      for (let i = 0; i < rec.count; i++) lines.push(((rec.tIdx[i] - DELAY) / FS).toFixed(3) + "," + rec.y[i].toFixed(4));
+      return lines.join("\n") + "\n";
+    }
+    const base = () => (rec && rec.name ? rec.name.replace(/\.[^.]+$/, "") : "recording");
+    $("#yd-dl").addEventListener("click", () => { if (rec) download(base() + "_spindles.csv", csvEvents()); });
+    $("#yd-dlp").addEventListener("click", () => { if (rec) download(base() + "_probabilities.csv", csvProb()); });
+
+    let lastFile = null;
+    function loadFile(file) {
+      if (!file) return;
+      lastFile = file;
+      if (file.size > 200 * 1024 * 1024) { status("This file is larger than 200 MB; export a single channel or a shorter excerpt first."); return; }
+      status("Reading " + file.name + "…");
+      const reader = new FileReader();
+      reader.onload = function () {
+        const col = Math.max(0, (parseInt($("#yd-col").value, 10) || 1) - 1);
+        const r = parseSignal(String(reader.result), col);
+        if (r.x.length === 0) { status("No numeric samples found in column " + (col + 1) + " of " + file.name + " (" + r.skipped + " lines skipped)."); return; }
+        start(r.x, fsValue(), file.name, null);
+        if (r.skipped) status($("#yd-status").textContent + " (" + r.skipped + " non-numeric lines skipped)");
+      };
+      reader.onerror = () => status("Could not read " + file.name + ".");
+      reader.readAsText(file);
+    }
+    let demoX = null;
+    function demo() {
+      $("#yd-fs").value = "256"; $("#yd-fs-custom-wrap").hidden = true;
+      lastFile = null;
+      const d = PL.synth.nrem({ duration_s: 120, fs: 256, seed: 21, spindleRate_per_min: 5, lineNoiseAmp: 8 });
+      demoX = d.signal;
+      start(d.signal, 256, "the demo recording", d.spindles);
+    }
+    $("#yd-file").addEventListener("change", (e) => loadFile(e.target.files[0]));
+    const dz = $("#yd-drop");
+    ["dragenter", "dragover"].forEach((t) => dz.addEventListener(t, (e) => { e.preventDefault(); dz.classList.add("drag"); }));
+    ["dragleave", "drop"].forEach((t) => dz.addEventListener(t, (e) => { e.preventDefault(); dz.classList.remove("drag"); }));
+    dz.addEventListener("drop", (e) => { const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) loadFile(f); });
+    $("#yd-demo").addEventListener("click", demo);
+    function rerun() {
+      if (lastFile) loadFile(lastFile);
+      else if (demoX && rec) start(demoX, fsValue(), "the demo recording", fsValue() === 256 ? rec.truth : null);
+    }
+    PL.ui.bind("#yd-fs", function (v) { $("#yd-fs-custom-wrap").hidden = v !== "other"; rerun(); });
+    $("#yd-fs-custom").addEventListener("change", rerun);
+    $("#yd-col").addEventListener("change", () => { if (lastFile) loadFile(lastFile); });
+    PL.ui.bind("#yd-thr", update, (v) => v.toFixed(2));
+    PL.ui.bind("#yd-min", update, (v) => v.toFixed(2));
+    PL.ui.bind("#yd-gap", update, (v) => v.toFixed(2));
+    function setWin() {
+      if (!rec) return draw();
+      const pos = $("#yd-pos"); pos.max = Math.max(0, Math.floor(rec.dur - parseFloat($("#yd-win").value)));
+      if (parseFloat(pos.value) > parseFloat(pos.max)) pos.value = pos.max;
+      $('output[for="yd-pos"]').textContent = pos.value; draw();
+    }
+    PL.ui.bind("#yd-win", setWin);
+    PL.ui.bind("#yd-pos", draw, (v) => v.toFixed(0));
+    function page(dir) {
+      const pos = $("#yd-pos"), w = parseFloat($("#yd-win").value);
+      pos.value = Math.max(0, Math.min(parseFloat(pos.max), parseFloat(pos.value) + dir * w * 0.8));
+      pos.dispatchEvent(new Event("input"));
+    }
+    $("#yd-prev").addEventListener("click", () => page(-1));
+    $("#yd-next").addEventListener("click", () => page(1));
+    PL.onRedraw(draw);
+    draw();
+    modelP.then(function (m) {
+      model = m;
+      status("Model loaded (" + m.nParameters + " parameters). Load a file, or the demo starts when this widget is visible.");
+      whenVisible($("#yd"), function () { if (!rec) demo(); });
+    }).catch((e) => status("Could not load the model: " + e.message + " (serve the docs folder over HTTP, see docs/README.md)."));
+  })();
+
+  /* ================================================ widget 2: post-processing */
+  (function () {
+    let model = null, cur = null, token = { cancelled: false };
+    const cache = {};
+    function compute(seed) {
+      token.cancelled = true; token = { cancelled: false };
+      const my = token;
+      if (cache[seed]) { cur = cache[seed]; draw(); return; }
+      const d = PL.synth.nrem({ duration_s: 60, seed: 100 + seed, spindleRate_per_min: 7 });
+      const std = PL.preprocess(d.signal).standardized;
+      const rec = { d, std, tIdx: null, y: null, count: 0, seed };
+      cur = rec;
+      $("#pp-status").textContent = "Running the network on 60 s…";
+      runChunked(model, std, function (i, n, tIdx, y) {
+        $("#pp-progress").value = n ? i / n : 1; rec.tIdx = tIdx; rec.y = y; rec.count = i;
+      }, my).then(function (r) {
+        rec.count = r.n; cache[seed] = rec;
+        if (cur === rec) { $("#pp-status").textContent = "Real pre-trained network, run in your browser. Scores computed after the 15 s warm-up."; draw(); }
+      }).catch(function () { /* superseded */ });
+    }
+    function draw() {
+      const cv = $("#pp-plot");
+      if (!cur || !cur.tIdx || cur.count === 0) { PL.plot(cv, { xRange: [0, 60], yRange: [-0.05, 3.95], xLabel: "Time (s)", series: [] }); return; }
+      const thr = parseFloat($("#pp-thr").value), minD = parseFloat($("#pp-min").value), gap = parseFloat($("#pp-gap").value);
+      const ev = toEvents(cur.tIdx, cur.y, cur.count, thr, minD, gap);
+      const truth = cur.d.spindles.filter((s) => s.start >= WARMUP_S);
+      const truthS = truth.map((s) => ({ start: Math.round(s.start * FS), end: Math.round(s.end * FS) }));
+      const m = PL.metrics.eventMatch(ev, truthS, 0.2);
+      const prf = PL.metrics.prf(m);
+      $("#pp-true").textContent = truth.length; $("#pp-det").textContent = ev.length;
+      $("#pp-p").textContent = ev.length ? prf.precision.toFixed(2) : "n/a";
+      $("#pp-r").textContent = prf.recall.toFixed(2); $("#pp-f").textContent = prf.f1.toFixed(2);
+      const e = eegSeries(cur.std, 0, cur.std.length), p = probSeries(cur.tIdx, cur.y, cur.count, 0, 60), tr = truthSeries(cur.d.spindles, 0, 60, 1.14);
+      const regions = [{ x0: 0, x1: WARMUP_S, color: "rgba(128,128,128,0.12)" }].concat(ev.map((x) => ({ x0: x.start / FS, x1: x.end / FS, label: "detected spindle" })));
+      PL.plot(cv, {
+        xRange: [0, 60], yRange: [-0.05, 3.95], xLabel: "Time (s)", yLabel: "probability | EEG", yTicks: 4, regions,
+        series: [
+          { x: e.t, y: e.v, color: PL.color("signal"), width: 0.9, label: "standardized EEG" },
+          { x: p.t, y: p.v, color: PL.color("model"), width: 1.5, label: "network output" },
+          { x: tr.x, y: tr.y, color: PL.color("c4"), width: 5, label: "true spindle" },
+        ],
+        hlines: [{ y: thr, label: "threshold" }],
+      });
+    }
+    PL.ui.bind("#pp-thr", draw, (v) => v.toFixed(2));
+    PL.ui.bind("#pp-min", draw, (v) => v.toFixed(2));
+    PL.ui.bind("#pp-gap", draw, (v) => v.toFixed(2));
+    PL.ui.bind("#pp-seed", (v) => { if (model) compute(v); });
+    PL.onRedraw(draw);
+    draw();
+    modelP.then(function (m) {
+      model = m;
+      whenVisible($("#pp"), () => compute(parseInt($("#pp-seed").value, 10)));
+    }).catch((e) => { $("#pp-status").textContent = "Could not load the model: " + e.message; });
+  })();
+})();
+</script>
+</body>
+</html>

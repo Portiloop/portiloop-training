@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>10 · Exporting and deploying · Portiloop tutorials</title>
+  <meta name="description" content="Export a trained Portiloop spindle detector to ONNX, run it with ONNX Runtime while carrying the hidden state, inspect and quantize its weights, and prepare it for embedded hardware.">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <style>
+    /* page-local styles for tutorial 10 */
+    .katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+    .io { font-size: 12px; line-height: 1.55; white-space: pre; margin: 10px 0 0; }
+    .io .k { color: var(--accent); font-weight: 600; }
+    .io .o { color: var(--plot-model); font-weight: 600; }
+    .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+    @media (max-width: 720px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+    .wtable td, .wtable th { font-size: 13px; padding: 5px 8px; white-space: nowrap; vertical-align: middle; }
+    .wtable .small { font-size: 11.5px; }
+    .wtable td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .wtable tbody tr { cursor: pointer; }
+    .wtable tbody tr:hover, .wtable tbody tr.sel { background: var(--accent-soft); }
+    .wtable tfoot td { font-weight: 650; border-top: 2px solid var(--border); }
+    .wtable canvas { display: block; width: 110px; height: 24px; }
+    .btnrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .progress { height: 4px; background: var(--bg-sunk); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+    .progress > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.1s; }
+    label.check { display: inline-flex; gap: 6px; align-items: center; }
+    #qb .readout .v { font-size: 1.05rem; }
+  </style>
+</head>
+<body data-page="10-deployment" data-root="..">
+<main>
+<article class="content">
+
+  <div class="eyebrow">Tutorial 10 · Using your model</div>
+  <h1>Exporting and deploying</h1>
+  <p class="lead">A trained network is only a file of numbers. In this tutorial you turn it into files that other software and hardware can run: an ONNX model that you can execute from Python or compile for an embedded accelerator, and the C arrays used by the FPGA version of the Portiloop. You will check numerically that nothing changed on the way, and see how many bits of precision the weights really need.</p>
+
+  <dl class="meta">
+    <div><dt>Time</dt><dd>45 minutes</dd></div>
+    <div><dt>Level</dt><dd>Intermediate</dd></div>
+    <div><dt>You need</dt><dd><a href="02-installation.html">02</a> (installed package); <a href="05-training.html">05</a> for your own model; <a href="08-realtime.html">08</a> recommended</dd></div>
+    <div><dt>Runs in browser</dt><dd>Widgets yes; exporting needs Python</dd></div>
+  </dl>
+
+  <div class="objectives">
+    <h3>In this tutorial you will</h3>
+    <ul>
+      <li>Understand what ONNX is and what the exported Portiloop model contains (and what it does not)</li>
+      <li>Export the published model or your own with the command line, from Python, or automatically during training</li>
+      <li>Run the exported model with ONNX Runtime, carrying the hidden state between calls, and verify it against PyTorch</li>
+      <li>Inspect all 25,679 weights and extract them as C arrays for the FPGA with <code>parameter_extractor.py</code></li>
+      <li>Explore how fixed-point precision affects the detector, and where to find the device software</li>
+    </ul>
+  </div>
+
+  <h2 id="formats">Five files for one network</h2>
+  <p>The same trained detector exists in several formats in the Portiloop ecosystem, each for a different consumer:</p>
+  <table>
+    <thead><tr><th>Format</th><th>Produced by</th><th>Used by</th></tr></thead>
+    <tbody>
+      <tr><td>PyTorch checkpoint (no extension), e.g. <code>pareto_search_15_35_v4_0</code></td><td><code>run()</code> during training (<a href="05-training.html">05</a>)</td><td>Python: evaluation, notebooks, export</td></tr>
+      <tr><td>ONNX, <code>.onnx</code></td><td><code>onnx_export.py</code> (this tutorial), also automatically during training</td><td>ONNX Runtime on a PC or single-board computer; the device software can run it directly; input to accelerator compilers</td></tr>
+      <tr><td>RDK X5 BPU binary, <code>.bin</code> (int8)</td><td><code>hb_mapper makertbin</code>, driven by <code>compile_bpu.sh</code> in <a href="https://github.com/Portiloop/portiloop-software/tree/rdkx5/portiloop/bpu">portiloop-software (branch <code>rdkx5</code>)</a></td><td>The neural accelerator (BPU) of the D-Robotics RDK X5 board</td></tr>
+      <tr><td>C arrays, <code>weight.txt</code></td><td><code>parameter_extractor.py</code> (this tutorial)</td><td>The FPGA implementation (Pynq) of the original Portiloop [1]</td></tr>
+      <tr><td>TensorFlow Lite, <code>.tflite</code> (quantized)</td><td>Not in this repository</td><td>The Coral version of the Portiloop, in <a href="https://github.com/Portiloop/portiloop-software">portiloop-software</a></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="onnx">What is ONNX?</h2>
+  <p><a href="https://onnx.ai">ONNX</a> (Open Neural Network Exchange) is an open file format that describes a trained network as a <em>graph</em> of standard operations (convolution, matrix product, sigmoid...) together with all their weights. Any program that implements these operations can run the file, without PyTorch and without the training code. <a href="https://onnxruntime.ai/docs/">ONNX Runtime</a> is the reference engine to run ONNX files on CPUs and GPUs; vendors of neural accelerators provide compilers that read ONNX and produce code for their chips. Each ONNX file declares an <em>opset</em>, the version of the operation catalogue it uses; older compilers only accept older opsets.</p>
+  <div class="callout neuro"><span class="callout-title">For neuroscientists</span>ONNX is to neural networks what EDF is to EEG recordings: a vendor-neutral container. Your amplifier's software and your analysis toolbox never need to know about each other as long as both speak EDF. In the same way, the training code (PyTorch) and the device (an FPGA, a Coral, an RDK X5) only need to agree on ONNX or on a format derived from it.</div>
+
+  <h2 id="single-step">The single-step stateful model</h2>
+  <p>During training the network processes a whole <em>sequence</em> of 50 windows at once. A device does not have the future: it gets one window at a time and must remember the past itself. The exporter therefore wraps the network in <code>PortiloopSpindleOnnxStep</code>, which performs exactly <strong>one step</strong>: one window in, the previous hidden state in; one probability out, the new hidden state out.</p>
+<pre data-file="portiloop_software/portiloop_python/ANN/onnx_export.py (excerpt)"><code class="language-python">class PortiloopSpindleOnnxStep(nn.Module):
+    """
+    Single-step stateful ONNX wrapper for `PortiloopNetwork` (1-input sleep spindle detector).
+
+    Inputs:
+        x: (1, 1, 1, window_size) float32 (default window_size=54)
+        h: (1, hidden_size) float32 (default hidden_size=7, or (1, nb_rnn_layers * hidden_size))
+    Outputs:
+        y: (1, 1) float32 probability in [0, 1]
+        h_out: (1, hidden_size) float32 updated hidden state
+    """</code></pre>
+  <table>
+    <thead><tr><th>Tensor</th><th>Shape</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>x</code> (input)</td><td>(1, 1, 1, 54)</td><td>The last 54 standardized samples (0.216 s at 250 Hz), oldest first. The four dimensions are batch, channels, height, width ("NCHW"): one window, one EEG channel, a "height" of 1, and 54 time points as the width.</td></tr>
+      <tr><td><code>h</code> (input)</td><td>(1, 7)</td><td>The GRU hidden state returned by the previous call for this hidden-state slot (zeros at the start).</td></tr>
+      <tr><td><code>y</code> (output)</td><td>(1, 1)</td><td>Probability that the window ends inside a spindle.</td></tr>
+      <tr><td><code>h_out</code> (output)</td><td>(1, 7)</td><td>The new hidden state, to pass back as <code>h</code> next time.</td></tr>
+    </tbody>
+  </table>
+  <p>What the file does <strong>not</strong> contain: the FIR and notch filters, the online standardization, the 8-slot round-robin schedule of hidden states, the threshold and the stimulation rule (<a href="08-realtime.html">tutorial 08</a>). The program that calls the model must implement all of them, exactly as during training.</p>
+
+  <h3 id="why-4d">Why 4D convolutions and an unrolled GRU?</h3>
+  <p>The network's convolutions are one-dimensional (<code>nn.Conv1d</code>, kernel 7). The exporter rewrites each one as a two-dimensional convolution with a kernel of height 1 and width 7, which computes exactly the same thing on a (1, C, 1, L) tensor. The docstring gives the reason: "1D ConvPoolModule lowered to 2D Conv2d((1, k)) + ReLU + MaxPool2d((1, k)) on 4D NCHW tensors for native BPU hardware acceleration". Embedded accelerators are designed for images, so 4D tensors are their native format.</p>
+  <p>The GRU is rewritten as explicit matrix products and gate equations, "so that BPU compilers (Horizon bayes-e `hb_mapper`) do not encounter an ONNX Scan/GRU op". The arithmetic is the standard GRU (as in <code>torch.nn.GRU</code>), with gates in the order reset, update, candidate:</p>
+  $$\begin{aligned} r &= \sigma(W_{ir}x + b_{ir} + W_{hr}h + b_{hr})\\ z &= \sigma(W_{iz}x + b_{iz} + W_{hz}h + b_{hz})\\ n &= \tanh\big(W_{in}x + b_{in} + r \odot (W_{hn}h + b_{hn})\big)\\ h' &= (1-z)\odot n + z \odot h \end{aligned}$$
+<pre data-file="portiloop_software/portiloop_python/ANN/onnx_export.py (_UnrolledGRUCell.forward)"><code class="language-python">    def forward(self, x: torch.Tensor, h: torch.Tensor) -&gt; torch.Tensor:
+        gi = self.ih(x)
+        gh = self.hh(h)
+        i_r, i_z, i_n = torch.split(gi, self.hidden_size, dim=-1)
+        h_r, h_z, h_n = torch.split(gh, self.hidden_size, dim=-1)
+        r = torch.sigmoid(i_r + h_r)
+        z = torch.sigmoid(i_z + h_z)
+        n = torch.tanh(i_n + r * h_n)
+        return (1.0 - z) * n + z * h</code></pre>
+  <p>We opened the exported file with the <code>onnx</code> package: it declares opset 11 and contains only 3 <code>Conv</code>, 3 <code>Relu</code>, 3 <code>MaxPool</code>, 3 <code>Gemm</code> (matrix products), 3 <code>Sigmoid</code>, 1 <code>Tanh</code>, 2 <code>Split</code>, 4 <code>Add</code>, 3 <code>Mul</code>, 1 <code>Sub</code>, 1 <code>Reshape</code> and 2 <code>Constant</code> nodes, with 25,679 weights in total. Opset 11 is the default because, in the words of the command-line help, it is the "default: 11 for Horizon BPU"; the D-Robotics documentation asks for "caffe1.0 or opset=10/11 onnx models" [4].</p>
+
+  <div class="widget" id="step">
+    <div class="widget-title">Step through the exported model</div>
+    <p class="widget-desc">The same interface as the ONNX file (window <code>x</code> and state <code>h</code> in, <code>y</code> and <code>h_out</code> out), computed by the published network in your browser. Each step moves the window by 42 samples (168 ms), i.e. you follow <em>one</em> of the eight hidden-state slots of <a href="08-realtime.html">tutorial 08</a>. <strong>What to try:</strong> step through the two spindles (green bands) and watch the output and the hidden units change; tick "reset h before every step", press Reset and Run again, and compare the outputs between spindles.</p>
+    <div class="controls">
+      <span class="btnrow"><button class="btn" id="step-step" type="button" disabled>Step</button><button class="btn secondary" id="step-run" type="button" disabled>Run</button><button class="btn secondary" id="step-reset" type="button" disabled>Reset</button></span>
+      <label class="check" for="step-forget"><input type="checkbox" id="step-forget"> Reset h before every step</label>
+    </div>
+    <canvas class="plot" id="step-sig" aria-label="Synthetic EEG with the current window highlighted and the outputs so far"></canvas>
+    <div class="grid2">
+      <canvas class="plot" id="step-h" aria-label="Bar chart of the 7 hidden units before and after the step"></canvas>
+      <pre class="io" id="step-io" aria-live="polite">Loading model…</pre>
+    </div>
+    <div class="status" id="step-status"></div>
+  </div>
+
+  <h2 id="export">Exporting a model</h2>
+  <h3 id="cli">From the command line</h3>
+  <ol class="steps">
+    <li><strong>Install the ONNX package.</strong> <code>onnx</code> is listed in <code>setup.py</code>, so <code>pip install -e .</code> (<a href="02-installation.html">tutorial 02</a>) installs it; if your environment predates this, run:
+<pre data-file="terminal"><code class="language-bash">pip install onnx onnxruntime</code></pre>
+      Without <code>onnx</code>, PyTorch stops the export with <code>OnnxExporterError: Module onnx is not installed!</code>. <code>onnxruntime</code> is only needed to run and check the exported file.</li>
+    <li><strong>Export the published model.</strong> From the repository root:
+<pre data-file="terminal"><code class="language-bash">python -m portiloop_software.portiloop_python.ANN.onnx_export --output-dir onnx_models</code></pre>
+      Expected output (PyTorch may also print a <code>DeprecationWarning</code> about the "legacy TorchScript-based ONNX export"; it is harmless):
+<pre data-file="output"><code>Exported Sleep Spindle ONNX model to: onnx_models/portiloop_spindle.onnx</code></pre></li>
+    <li><strong>Options.</strong>
+      <ul>
+        <li><code>--output-dir DIR</code>: where to write the files (default <code>onnx_models</code>, created if needed).</li>
+        <li><code>--spindle-checkpoint PATH</code>: export another checkpoint instead of <code>pareto_search_15_35_v4_0</code>. The architecture is taken from <code>get_final_model_config_dict()</code>, so this works only for checkpoints with the published architecture (31 channels, hidden size 7, window 0.218 s...). For a different architecture, use the Python function below.</li>
+        <li><code>--opset N</code>: ONNX opset version (default 11).</li>
+        <li><code>--tinysleepnet-tflite PATH</code> and <code>--nanosleepnet-npz PATH</code>: also export two <em>sleep-staging</em> networks (next section).</li>
+      </ul></li>
+  </ol>
+  <div class="callout disk"><span class="callout-title">On the hard drive</span>Reads <code>portiloop_software/experiments/pareto_search_15_35_v4_0</code> (or your <code>--spindle-checkpoint</code>). Writes <code>onnx_models/portiloop_spindle.onnx</code> relative to the folder you run the command from; in our test the file is 106,701 bytes (about 104 KiB). It is self-contained: weights and graph in one file.</div>
+
+  <h3 id="sleep-staging">Optional: sleep-staging models</h3>
+  <p>The same module can export two sleep-staging networks, if you have their weight files (they are not in this repository; they are in portiloop-software, branch <code>rdkx5</code>, under <code>portiloop/models/tinysleepnet/</code> and <code>portiloop/models/nanosleepnet/</code>): <strong>TinySleepNet</strong>, "Single-step stateful TinySleepNet (CNN + peephole LSTM) using 4D NCHW convolutions", initialized from <code>tinysleepnet_float.tflite</code> (reading it needs the <code>tflite</code> Python package); and <strong>NanoSleepNet-TCN</strong>, "Single-step causal NanoSleepNet-TCN with BatchNorm fused into 4D NCHW Conv2d layers", loaded from <code>nanosleepnet.npz</code>. Both take one 30 s epoch at 100 Hz (<code>x</code> of shape (1, 1, 1, 3000)) and output five stage logits "(W, N1, N2, N3, REM)"; TinySleepNet carries an LSTM state (<code>c</code>, <code>h</code> of shape (1, 128)), NanoSleepNet carries the "tokens of the previous 9 epochs" (<code>past_tokens</code>, shape (1, 64, 1, 9)). We have not tested these two exports.</p>
+
+  <h3 id="python-export">From Python (any architecture)</h3>
+  <p>To export a model with your own hyperparameters, build the network with <em>your</em> configuration dictionary and call <code>export_spindle_model_to_onnx</code>. The example uses the published model:</p>
+<pre data-file="export_my_model.py"><code class="language-python">from pathlib import Path
+import portiloop_software
+from portiloop_software import get_final_model_config_dict, get_trained_model, export_spindle_model_to_onnx
+
+cfg = get_final_model_config_dict()                       # architecture of the published model
+experiments = Path(portiloop_software.__file__).parent / "experiments"
+net = get_trained_model(cfg, experiments)                 # loads pareto_search_15_35_v4_0
+window_size = int(cfg["window_size_s"] * cfg["fe"])       # 54
+out = export_spindle_model_to_onnx(net, "onnx_models/my_spindle_model.onnx", window_size=window_size)
+print("written:", out)</code></pre>
+  <p>For your own model, replace <code>cfg</code> by the configuration you trained with (same keys as in <a href="05-training.html">tutorial 05</a>) and point <code>get_trained_model</code> to the folder holding your checkpoint; it loads <code>&lt;folder&gt;/&lt;cfg["experiment_name"]&gt;</code>. Only 1-input recurrent models (<code>RNN=True</code>, <code>envelope_input=False</code>, <code>power_features_input=False</code>) can be exported. In our test this script and the command line produced byte-identical files.</p>
+
+  <h3 id="auto-export">Automatically during training</h3>
+  <p>Each time <code>run()</code> saves a new best checkpoint, it also exports it, for 1-input recurrent models:</p>
+<pre data-file="portiloop_software/portiloop_python/ANN/portiloop_detector_training.py (run(), excerpt)"><code class="language-python">                if config_dict["RNN"] and not config_dict["envelope_input"] and not config_dict["power_features_input"]:
+                    from portiloop_software.portiloop_python.ANN.onnx_export import export_spindle_model_to_onnx
+                    export_spindle_model_to_onnx(best_model, path_dataset / f"{experiment_name}.onnx", window_size=window_size)</code></pre>
+  <div class="callout disk"><span class="callout-title">On the hard drive</span>Next to the checkpoints in <code>portiloop_software/dataset/</code>: <code>&lt;experiment_name&gt;.onnx</code> (best validation F1, saved with the checkpoint <code>&lt;experiment_name&gt;</code>) and <code>&lt;experiment_name&gt;_on_loss.onnx</code> (lowest validation loss, saved with <code>&lt;experiment_name&gt;_on_loss</code>). Both are overwritten whenever a better model is found, so at the end of training they match the final checkpoints.</div>
+  <div class="callout warning"><span class="callout-title">If your clone is older</span>An earlier version of this check referred to variables that do not exist inside <code>run()</code>, so training stopped with an error at the first export. Update your copy (<code>git pull</code>) if you see a <code>NameError</code> there.</div>
+
+  <h2 id="run-onnx">Running the ONNX model with ONNX Runtime</h2>
+  <ol class="steps">
+    <li><strong>One step.</strong> The minimal call: create a session, feed a window and a hidden state, get the output and the new state.
+<pre data-file="single_step.py"><code class="language-python">import numpy as np
+import onnxruntime as ort
+
+sess = ort.InferenceSession("onnx_models/portiloop_spindle.onnx", providers=["CPUExecutionProvider"])
+for i in sess.get_inputs():
+    print("input ", i.name, i.shape, i.type)
+for o in sess.get_outputs():
+    print("output", o.name, o.shape, o.type)
+
+x = np.zeros((1, 1, 1, 54), dtype=np.float32)   # one window: 54 standardized samples (N, C, H, W)
+h = np.zeros((1, 7), dtype=np.float32)          # hidden state, all zeros at the start
+y, h = sess.run(["y", "h_out"], {"x": x, "h": h})
+print("y =", y, "h_out =", h.round(4))</code></pre>
+      Expected output:
+<pre data-file="output"><code>input  x [1, 1, 1, 54] tensor(float)
+input  h [1, 7] tensor(float)
+output y [1, 1] tensor(float)
+output h_out [1, 7] tensor(float)
+y = [[0.03100541]] h_out = [[ 0.6783  0.0151  0.085   0.3758 -0.4393  0.5943  0.6186]]</code></pre>
+      Inputs must be <code>float32</code>: a <code>float64</code> NumPy array raises <code>INVALID_ARGUMENT : Unexpected input data type. Actual: (tensor(double)) , expected: (tensor(float))</code>, and a window of the wrong shape raises <code>Invalid rank for input: x</code>.</li>
+    <li><strong>A stream, as the device does it.</strong> Carry eight hidden states and use them in turn (<a href="08-realtime.html#interleaved">tutorial 08</a>). The input must already be filtered and standardized like the training data.
+<pre data-file="stream_onnx.py"><code class="language-python">import numpy as np
+import onnxruntime as ort
+
+sess = ort.InferenceSession("onnx_models/portiloop_spindle.onnx", providers=["CPUExecutionProvider"])
+for i in sess.get_inputs():
+    print("input ", i.name, i.shape, i.type)
+for o in sess.get_outputs():
+    print("output", o.name, o.shape, o.type)
+
+WINDOW = 54            # samples per window (0.218 s at 250 Hz)
+NETWORK_STRIDE = 5     # one new window every 5 samples (20 ms)
+N_STATES = 42 // NETWORK_STRIDE   # 8 interleaved hidden states (seq_stride = 42)
+
+def run_stream(standardized):
+    """Feed a standardized 250 Hz signal to the ONNX model the way the Portiloop does online."""
+    states = [np.zeros((1, 7), dtype=np.float32) for _ in range(N_STATES)]
+    ends, outputs = [], []
+    k = 0
+    for end in range(WINDOW - 1, len(standardized), NETWORK_STRIDE):
+        x = standardized[end - WINDOW + 1:end + 1].astype(np.float32).reshape(1, 1, 1, WINDOW)
+        y, states[k] = sess.run(["y", "h_out"], {"x": x, "h": states[k]})
+        ends.append(end)
+        outputs.append(float(y[0, 0]))
+        k = (k + 1) % N_STATES
+    return np.array(ends), np.array(outputs)</code></pre>
+      <code>run_stream</code> returns, for every window, the index of its last sample and the output. This uses the uniform schedule of <code>runStream</code> on this website (a window every 5 samples); to reproduce the notebook or the device exactly, use their gap patterns (<a href="08-realtime.html#schedules">tutorial 08</a>). To compare with labels, remember the 10-sample FIR delay.</li>
+    <li><strong>Check against PyTorch.</strong> Always verify an exported model before using it in an experiment:
+<pre data-file="compare_torch.py"><code class="language-python">from pathlib import Path
+import numpy as np
+import torch
+import onnxruntime as ort
+import portiloop_software
+from portiloop_software import get_final_model_config_dict, get_trained_model
+
+cfg = get_final_model_config_dict()
+net = get_trained_model(cfg, Path(portiloop_software.__file__).parent / "experiments").eval()
+sess = ort.InferenceSession("onnx_models/portiloop_spindle.onnx", providers=["CPUExecutionProvider"])
+
+rng = np.random.default_rng(0)
+h_onnx = np.zeros((1, 7), dtype=np.float32)    # ONNX: (1, num_layers * hidden_size)
+h_torch = torch.zeros(1, 1, 7)                 # PyTorch: (num_layers, batch, hidden_size)
+worst_y, worst_h = 0.0, 0.0
+for step in range(20):
+    x = rng.normal(size=(1, 1, 1, 54)).astype(np.float32)
+    y_onnx, h_onnx = sess.run(["y", "h_out"], {"x": x, "h": h_onnx})
+    with torch.no_grad():
+        y_torch, h_torch, _, _ = net(torch.from_numpy(x).view(1, 1, 54), None, None, h_torch, None)
+    worst_y = max(worst_y, abs(float(y_onnx[0, 0]) - float(y_torch)))
+    worst_h = max(worst_h, float(np.abs(h_onnx - h_torch.numpy().reshape(1, -1)).max()))
+print(f"largest difference over 20 steps: output {worst_y:.1e}, hidden state {worst_h:.1e}")</code></pre>
+      Expected output (tiny differences are normal float32 rounding):
+<pre data-file="output"><code>largest difference over 20 steps: output 1.2e-07, hidden state 7.9e-07</code></pre></li>
+  </ol>
+  <div class="callout tip"><span class="callout-title">What we verified</span>With onnx 1.23.2, onnxruntime 1.32.0 and PyTorch 2.9.1: the exported published model passes <code>onnx.checker</code>; on the 12-window reference sequence stored with this website's model (<code>docs/assets/models/portiloop_spindle_v4_0.json</code>) it matches PyTorch to 1.2e-7 (output) and 7.8e-7 (hidden state), and so does the <code>portiloop_spindle.onnx</code> shipped in portiloop-software (branch <code>rdkx5</code>), which is byte-identical to our export; the JavaScript model used in these pages matches the same reference to 2.2e-7; and over a 30 s synthetic stream with 8 interleaved states, ONNX Runtime and the JavaScript model agree to 1.4e-6. All three implementations compute the same function.</div>
+
+  <h2 id="weights">The weights, one tensor at a time</h2>
+  <p>Before shrinking a model for hardware it helps to know what is inside. The table lists every tensor of the published network, with its PyTorch name, its name in the ONNX file, and the C array that <code>parameter_extractor.py</code> writes for the FPGA. Their sizes add up to 25,679, the "25.6k parameters" of the paper [1].</p>
+  <div class="widget" id="wi">
+    <div class="widget-title">Weight inspector</div>
+    <p class="widget-desc">Click a row to see the distribution of that tensor. <strong>What to try:</strong> compare the range of the convolution kernels with that of the GRU input weights (<code>weight_ih_l0</code>, almost half of all parameters); find the largest absolute weight in the network. Is any weight larger than 3 in magnitude (the value that <code>parameter_extractor.py</code> checks for)?</p>
+    <table class="wtable" id="wi-table" aria-label="Tensors of the published model">
+      <thead><tr><th>PyTorch name<br><span class="muted small">ONNX initializer / C array</span></th><th>Shape</th><th>Count</th><th>Min</th><th>Max</th><th>Distribution</th></tr></thead>
+      <tbody></tbody>
+      <tfoot></tfoot>
+    </table>
+    <canvas class="plot short" id="wi-plot" aria-label="Histogram of the selected tensor"></canvas>
+    <div class="status" id="wi-status">Loading model…</div>
+  </div>
+
+  <h2 id="fpga">Fixed point and the FPGA: <code>parameter_extractor.py</code></h2>
+  <p>The first Portiloop ran the network on an FPGA, a chip whose circuits are configured for one computation [1]. FPGAs compute far more efficiently with <em>fixed-point</em> numbers (integers with an implicit binary point, e.g. 8 bits where 5 are after the point) than with floating point. The script's docstring states its purpose: "This script extracts the weights of a trained ANN in pytorch so as to implement the ANN in FPGA." It writes every tensor as a C array declaration of type <code>parameter_fixed_type</code>:</p>
+<pre data-file="portiloop_software/dataset/weight.txt (first characters of the first two lines, our run)"><code class="language-c">const parameter_fixed_type conv1_input1_kernel[CHANNEL_SIZE][1][CONV_K_SIZE] = {{{-0.071890644729137420654296875, 0.095020823180675506591796875, ...
+const parameter_fixed_type conv1_input1_bias[CHANNEL_SIZE] = {0.02464049123227596282958984375, -0.1756165325641632080078125, ...</code></pre>
+  <p>The values are written in full (<code>format(f, '.60g')</code>), not rounded: the conversion to fixed point happens when the FPGA code is compiled, according to how <code>parameter_fixed_type</code> and the size macros (<code>CHANNEL_SIZE</code>, <code>CONV_K_SIZE</code>, <code>GRU_WI_SIZE</code>...) are defined there. That FPGA code is not in this repository, and we could not find it in the public repositories of the <a href="https://github.com/Portiloop">Portiloop organization</a>. The script ends by printing every weight larger than 3 in magnitude, presumably to check that all weights fit the integer range of that type (for the published model it prints nothing; the largest weight is 2.33):</p>
+<pre data-file="portiloop_software/portiloop_python/ANN/parameter_extractor.py (end)"><code class="language-python">for i in net.parameters():
+    for j in i.view(-1):
+        if abs(j) &gt; 3:
+            print(j)</code></pre>
+  <p>The training code also keeps track of the largest <em>activation</em>, for the same reason. In <code>PortiloopNetwork.forward</code>:</p>
+<pre data-file="portiloop_software/portiloop_python/ANN/portiloop_detector_training.py (PortiloopNetwork.forward, excerpt)"><code class="language-python">        # max_value (optional) : print the maximal value reach during inference (used to verify if the FPGA implementation precision is enough)</code></pre>
+  <p>Each convolution block, the GRU output and the final linear layer compare their largest absolute value with <code>max_value</code> and log it (<code>logging.debug(f"max_value = {max_temp}")</code>) when it grows; the simulation notebook calls <code>run_inference(..., max_value=0)</code> so that every new maximum is reported.</p>
+
+  <ol class="steps">
+    <li><strong>Run the extractor.</strong> The script imports the training module as a top-level module and reads the checkpoint from the <em>dataset</em> folder, so copy the checkpoint there and run it from its own folder:
+<pre data-file="terminal"><code class="language-bash">cp portiloop_software/experiments/pareto_search_15_35_v4_0 portiloop_software/dataset/
+cd portiloop_software/portiloop_python/ANN
+python parameter_extractor.py</code></pre></li>
+    <li><strong>Check the output.</strong> <code>portiloop_software/dataset/weight.txt</code> has 12 lines (one per tensor, in the order conv1, GRU, conv2, conv3, fc) and about 0.8 MB; the numbers of values per line add up to 25,679.</li>
+    <li><strong>Your own model.</strong> Edit <code>experiment_name</code> and the configuration (<code>portiloop.get_config_dict(29, 0)</code>) at the top of the script to match your training run.</li>
+  </ol>
+  <div class="callout warning"><span class="callout-title">If your clone is older</span>The published checkpoints were saved from a GPU. The current script loads them with <code>map_location='cpu'</code>; older copies stop on a computer without CUDA with <code>RuntimeError: Attempting to deserialize object on a CUDA device but torch.cuda.is_available() is False</code>. Update your clone (<code>git pull</code>) or add <code>map_location='cpu'</code> to the <code>torch.load</code> call. (We ran the current script unchanged, with its output redirected to a scratch folder, to produce the numbers above.)</div>
+  <div class="callout disk"><span class="callout-title">On the hard drive</span>Reads <code>portiloop_software/dataset/&lt;experiment_name&gt;</code> (note: <em>dataset</em>, not <em>experiments</em>). Writes <code>portiloop_software/dataset/weight.txt</code>, overwriting any previous one.</div>
+
+  <div class="widget" id="qb">
+    <div class="widget-title">How many bits do you need?</div>
+    <p class="widget-desc">All 25,679 weights are rounded to N-bit signed fixed point, then the network is re-run on a 30 s synthetic recording (8 interleaved states, one window every 5 samples) and compared with the full-precision network. Activations stay in floating point here; a real FPGA design must also choose their format (see the largest activation below). <strong>What to try:</strong> with per-tensor scaling, lower the bits until the output visibly departs from the float curve; then switch to one global format and see why 2 integer bits plus sign are needed for weights up to 2.33; run the sweep.</p>
+    <div class="controls">
+      <label for="qb-bits">Bits per weight <input type="range" id="qb-bits" min="4" max="16" step="1" value="8"><output for="qb-bits"></output></label>
+      <label for="qb-mode">Scaling <select id="qb-mode"><option value="tensor">Per tensor (automatic)</option><option value="q">One global format</option></select></label>
+      <label for="qb-int">Integer bits incl. sign <input type="range" id="qb-int" min="1" max="6" step="1" value="3"><output for="qb-int"></output></label>
+      <button class="btn secondary" id="qb-sweep" type="button" disabled>Sweep 4 to 16 bits</button>
+    </div>
+    <canvas class="plot tall" id="qb-plot" aria-label="Float and quantized network outputs on a 30 s synthetic recording"></canvas>
+    <div class="progress" aria-hidden="true"><span id="qb-prog"></span></div>
+    <div class="readout">
+      <div><div class="k">Format</div><div class="v" id="qb-fmt" style="font-size:1rem">…</div></div>
+      <div><div class="k">Max |Δ output|</div><div class="v" id="qb-max">…</div></div>
+      <div><div class="k">Mean |Δ output|</div><div class="v" id="qb-mean">…</div></div>
+      <div><div class="k">Decisions flipped</div><div class="v" id="qb-flip">…</div></div>
+      <div><div class="k">F1 float / quantized</div><div class="v" id="qb-f1">…</div></div>
+      <div><div class="k">Weights saturated</div><div class="v" id="qb-clip">…</div></div>
+    </div>
+    <canvas class="plot short" id="qb-sweep-plot" aria-label="Output error and F1 as a function of the number of bits"></canvas>
+    <div class="status" id="qb-status">Loading model…</div>
+  </div>
+  <div class="callout neuro"><span class="callout-title">For neuroscientists</span>Fixed point is like reading a voltage on an amplifier with a fixed input range and a fixed number of ADC bits. The integer bits set the range (values beyond it saturate, like a clipped EEG), the fractional bits set the resolution (the smallest step, like the µV per bit of your ADC). Per-tensor scaling is like choosing a separate gain for every channel.</div>
+  <p>"Decisions flipped" counts outputs that land on the other side of the 0.5 threshold; F1 is the sample-level score of <a href="06-evaluation.html">tutorial 06</a> against the synthetic labels (with the 10-sample FIR delay). On this recording, per-tensor 8-bit weights change the output by a few hundredths at most and flip about one decision in 1,490, while a single global 8-bit format with 5 fractional bits is clearly worse. These are results for one synthetic recording and weights only; they are a guide, not a guarantee for real hardware, where the activation format and the rounding of every multiply-accumulate also matter.</p>
+
+  <h2 id="hardware">Hardware targets and device software</h2>
+  <p>Three hardware platforms appear in the paper and in the code. For each: what runs the network, which file it needs, and what we could verify.</p>
+  <ul>
+    <li><strong>Xilinx Pynq FPGA board with an 8-channel HackEEG front end</strong> (original prototype). The paper: "A version that can be fully built using off-the-shelf components based on a Xilinx Pynq FPGA board and an 8-channel HackEEG frontend" [1]. Weights come from <code>parameter_extractor.py</code> (C arrays). The delays and the 20 ms forward pass of <a href="08-realtime.html#latency">tutorial 08</a> were measured on this version [1]. We did not find its FPGA source in the public repositories.</li>
+    <li><strong>Custom board (ADS1299 EEG front end) with a Google Coral Dev Board Mini</strong>. Described in the paper [1]; plans in <a href="https://github.com/Portiloop/portiloop-hardware">portiloop-hardware</a>, software in <a href="https://github.com/Portiloop/portiloop-software">portiloop-software</a>. The detector in <code>portiloop/src/custom/custom_detectors.py</code> loads the quantized TensorFlow Lite model <code>portiloop/models/portiloop_model_quant.tflite</code> eight times (<code>num_models_parallel = 8</code>) and keeps eight 8-bit hidden states (<code>np.zeros((1, 7), dtype=np.int8)</code>). How that file is produced from a checkpoint is not documented in either repository.</li>
+    <li><strong>D-Robotics RDK X5</strong>, whose BPU is a neural accelerator. The <code>onnx_export.py</code> docstring says the ONNX files are "suitable for both ONNX Runtime (CPU/GPU) and the D-Robotics RDK X5 BPU toolchain (`hb_mapper makertbin`, march='bayes-e')". The conversion pipeline, a compiled model and the runtime are on the <code>rdkx5</code> branch of portiloop-software (next section). We read these files but did not run the toolchain or the board.</li>
+  </ul>
+
+  <h3 id="rdkx5">Getting a model onto the RDK X5</h3>
+  <p>The device software keeps the RDK X5 work on a separate branch, <a href="https://github.com/Portiloop/portiloop-software/tree/rdkx5"><code>rdkx5</code></a> (not on <code>main</code> at the time of writing). Its <a href="https://github.com/Portiloop/portiloop-software/blob/rdkx5/portiloop/bpu/README.md"><code>portiloop/bpu/README.md</code></a> describes the path from a checkpoint to the board. The steps below summarize it; we read these files but did not run the toolchain.</p>
+  <ol class="steps">
+    <li><strong>Export to ONNX, straight into the device repository.</strong> The README's command (paths assume both repositories under <code>~/Projects</code>):
+<pre data-file="portiloop-software: portiloop/bpu/README.md (excerpt)"><code class="language-bash">cd ~/Projects/portiloop-training
+python3 -m portiloop_software.portiloop_python.ANN.onnx_export \
+    --output-dir ~/Projects/portiloop-software/portiloop/models \
+    --tinysleepnet-tflite ~/Projects/portiloop-software/portiloop/models/tinysleepnet/tinysleepnet_float.tflite \
+    --nanosleepnet-npz ~/Projects/portiloop-software/portiloop/models/nanosleepnet/nanosleepnet.npz</code></pre>
+      This is where the two sleep-staging weight files live (<code>tinysleepnet_float.tflite</code>, <code>nanosleepnet.npz</code>). We checked that the <code>portiloop/models/portiloop_spindle.onnx</code> stored in that branch is byte-identical to the file we exported from <code>pareto_search_15_35_v4_0</code>, and that it reproduces the PyTorch reference outputs to 1.2e-7.</li>
+    <li><strong>Compile with <a href="https://github.com/Portiloop/portiloop-software/blob/rdkx5/portiloop/bpu/compile_bpu.sh"><code>compile_bpu.sh</code></a></strong> on an x86_64 computer with the D-Robotics OpenExplorer X5 toolchain (<code>hb_mapper</code> installed, or its Docker image). The script (1) runs <a href="https://github.com/Portiloop/portiloop-software/blob/rdkx5/portiloop/bpu/prepare_calibration_data.py"><code>prepare_calibration_data.py</code></a> with ONNX Runtime to produce calibration inputs for both <code>x</code> and the hidden state <code>h</code> (the README: "so that both input EEG windows/epochs and recurrent hidden states (`h`, `c`, `past_tokens`) are calibrated on realistic activation distributions"); (2) runs <code>hb_mapper makertbin</code> with <a href="https://github.com/Portiloop/portiloop-software/blob/rdkx5/portiloop/bpu/configs/spindle_bpu.yaml"><code>configs/spindle_bpu.yaml</code></a> (<code>march: 'bayes-e'</code>, inputs <code>'x;h'</code>, <code>norm_type: 'no_preprocess;no_preprocess'</code>, <code>optimize_level: 'O3'</code>); (3) copies the result to <code>portiloop/models/portiloop_model_bpu.bin</code>. Intermediate files (original, optimized, calibrated and quantized ONNX graphs) go to <code>portiloop/bpu/build_spindle/</code> and calibration data to <code>portiloop/bpu/cal_data/</code>; both are ignored by git.</li>
+    <li><strong>Copy the repository to the board.</strong> The detector looks for fixed file names in <code>portiloop/models/</code>, the folder of its default model <code>portiloop_model_quant.tflite</code>: it uses <code>portiloop_model_bpu.bin</code> if that file exists and the BPU runtime is installed; <code>portiloop_spindle.onnx</code> only if no TensorFlow Lite runtime is available (or if you select it); otherwise the <code>.tflite</code> file. A specific file can be chosen with the configuration key <code>spindle_model_path</code>.</li>
+  </ol>
+  <p>For the general use of the toolchain, the vendor's quick start [4] describes <code>hb_mapper checker</code>, which makes sure a floating-point model "meets the support constraints of the computing platform", and <code>hb_mapper makertbin</code>, which performs "parsing, graph optimization, calibration, quantization, and compilation"; the architecture option for the X5 is "bayes-e (default value)".</p>
+  <div class="callout warning"><span class="callout-title">Calibration data</span>Quantizing to int8 needs examples of typical inputs. In the current <code>prepare_calibration_data.py</code>, the spindle model is calibrated on 64 windows of <em>synthetic</em> sleep-like EEG divided by 20 (<code>_synthetic_sleep_eeg(54, 250.0, rng) / 20.0</code>), each drawn independently, with the hidden state reset every 16 windows. These are not windows that went through the Portiloop filters and online standardization, which is what the network receives on the device. If you deploy your own model, consider calibrating with standardized windows from real recordings, fed with the 8-state schedule, and compare the <code>.bin</code> outputs with the float model on held-out data.</div>
+  <p>How the board runs the model (<a href="https://github.com/Portiloop/portiloop-software/blob/rdkx5/portiloop/src/custom/custom_detectors.py"><code>SleepSpindleRealTimeDetector</code></a> and <a href="https://github.com/Portiloop/portiloop-software/blob/rdkx5/portiloop/src/core/bpu.py"><code>portiloop/src/core/bpu.py</code></a>): the BPU binary is used whenever <code>portiloop_model_bpu.bin</code> is present and the D-Robotics runtime (<code>hbm_runtime</code> or <code>hobot_dnn</code>) is installed; otherwise ONNX Runtime or TensorFlow Lite. Whatever the backend, the detector keeps a buffer of the last 54 filtered and standardized samples, eight hidden states (<code>np.zeros((1, 7), dtype=h_dtype)</code>, float32 for the BPU and ONNX, int8 for TensorFlow Lite) used in turn with the gaps <code>stride_counters</code> = 5, 5, 5, 6, 5, 5, 5, 6 (each state sees windows exactly 42 samples apart, <a href="08-realtime.html#schedules">tutorial 08</a>), and calls the model as <code>self.session.run({"x": x_4d, "h": input_h})</code>, storing <code>out["h_out"]</code> for that state. An output counts as a detection when <code>result &gt;= self.threshold</code>; the default threshold in <code>DEFAULT_CONFIG_DICT</code> is 0.75. The filters on the device (<code>SpindleFilter</code> in <code>custom_processors.py</code>) use the same 21-tap FIR, the same 60 Hz notch coefficients and the same standardization constants (<code>polyak_mean</code> 0.1, <code>polyak_std</code> 0.001) as training, plus an <code>epsilon</code> of 1e-6 in the denominator.</p>
+  <div class="callout warning"><span class="callout-title">Deploying is more than the model</span>Whatever the target, the device program must reproduce the training preprocessing exactly (21-tap FIR, 60 Hz notch, online standardization with α<sub>μ</sub> = 0.1 and α<sub>σ</sub> = 0.001; <a href="03-preprocessing.html">tutorial 03</a>), the window length (54 samples), the interleaved hidden states (<a href="08-realtime.html">tutorial 08</a>) and the stimulation rule. After deployment, record a session with the device and re-run the same data offline through the PyTorch model: the outputs should agree.</div>
+
+  <h2 id="troubleshooting">Troubleshooting</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>Cause and fix</th></tr></thead>
+    <tbody>
+      <tr><td><code>OnnxExporterError: Module onnx is not installed!</code></td><td><code>pip install onnx</code> (or reinstall the package with <code>pip install -e .</code>).</td></tr>
+      <tr><td><code>ModuleNotFoundError: No module named 'sklearn'</code> or <code>'wandb'</code> when exporting</td><td>The exporter imports the training module, which needs the training dependencies: <code>pip install -e .</code> from the repository root.</td></tr>
+      <tr><td><code>size mismatch</code> when using <code>--spindle-checkpoint</code></td><td>Your checkpoint has a different architecture; export it from Python with your own configuration (<a href="#python-export">above</a>).</td></tr>
+      <tr><td><code>[ONNXRuntimeError] : 2 : INVALID_ARGUMENT</code> on <code>sess.run</code></td><td>Wrong dtype or shape: <code>x</code> must be <code>float32</code> of shape (1, 1, 1, 54) and <code>h</code> <code>float32</code> of shape (1, 7).</td></tr>
+      <tr><td>The outputs are always near 0 or always near 1</td><td>The input was not standardized (raw microvolts instead of the online-standardized signal), or the same hidden state was used for every window instead of 8 interleaved ones.</td></tr>
+      <tr><td><code>RuntimeError: Attempting to deserialize object on a CUDA device</code> in <code>parameter_extractor.py</code></td><td>Your copy predates the fix: <code>git pull</code>, or add <code>map_location='cpu'</code> to its <code>torch.load</code> call.</td></tr>
+      <tr><td><code>ModuleNotFoundError: No module named 'portiloop_detector_training'</code> in <code>parameter_extractor.py</code></td><td>Run it from its own folder, <code>portiloop_software/portiloop_python/ANN</code> (it imports the training module by its file name).</td></tr>
+      <tr><td>The accelerator compiler rejects the model</td><td>Check the opset (<code>--opset</code>), then use the vendor's checker tool on the file; report unsupported operators to the vendor.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="exercises">Exercises</h2>
+  <details class="exercise"><summary>Does the network need its memory?</summary><p>In the "Step through the exported model" widget, press Run until the end of the recording with "reset h before every step" unticked, and note the outputs inside the spindles. Reset, tick the box and run again. What changes, and what does it tell you about what a device must store between calls?</p></details>
+  <details class="solution"><summary>Answer</summary><p>Without the hidden state, every window is judged in isolation, as if the recording had just started. On this recording the spindles are still recognized, but the output between spindles is higher and noisier (we measured a mean of 0.34 outside spindles without memory against 0.23 with it, and slightly lower values inside spindles), so a fixed threshold produces more false detections. The network was trained to integrate several seconds of context; its single-window judgement is weaker. The device must keep <code>h_out</code> of every call and feed it back as <code>h</code> to the next call of the same slot; with 8 slots, that is 8 × 7 = 56 numbers of state.</p></details>
+
+  <details class="exercise"><summary>Find the smallest safe weight format</summary><p>In "How many bits do you need?", find the smallest number of bits for which no decision flips, first with per-tensor scaling and then with one global format (choose the best integer-bit setting). Why does the global format need more bits?</p></details>
+  <details class="solution"><summary>Answer</summary><p>On our run, per-tensor scaling flips no decision from 10 bits on (and only about one at 8 bits); the global format with 3 integer bits needs about 12 bits. A global format must cover the largest weight of the whole network (2.33, in the GRU input weights) with the same step for every tensor, so the small convolution weights (all below 0.8 in magnitude) waste their top bits. Per-tensor scaling gives each tensor its own range. Use the sweep button to see the full curves; your exact numbers depend on the recording.</p></details>
+
+  <details class="exercise"><summary>Verify your own export</summary><p>Export a model you trained in <a href="05-training.html">tutorial 05</a> with <code>export_spindle_model_to_onnx</code>, then adapt <code>compare_torch.py</code> to it. What should you change besides the file name?</p></details>
+  <details class="solution"><summary>Answer</summary><p>Build <code>net</code> from your own configuration (and checkpoint folder), and use your window length and hidden size for the shapes: <code>x</code> of shape (1, 1, 1, <code>int(window_size_s * fe)</code>), <code>h_onnx</code> of shape (1, <code>nb_rnn_layers * hidden_size</code>) and <code>h_torch</code> of shape (<code>nb_rnn_layers</code>, 1, <code>hidden_size</code>). Differences around 1e-7 to 1e-6 are float rounding; anything above about 1e-4 means something is wrong.</p></details>
+
+  <h2 id="references">References</h2>
+  <ol class="refs">
+    <li>Valenchon N, Bouteiller Y, Jourde HR, L'Heureux X, Sobral M, Coffey EBJ, Beltrame G (2022). The Portiloop: a deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a> (preprint <a href="https://arxiv.org/abs/2107.13473">arXiv:2107.13473</a>).</li>
+    <li>ONNX, Open Neural Network Exchange: <a href="https://onnx.ai">onnx.ai</a>. ONNX Runtime documentation, Python quick start: <a href="https://onnxruntime.ai/docs/get-started/with-python.html">onnxruntime.ai/docs/get-started/with-python.html</a>.</li>
+    <li>Portiloop organization on GitHub: <a href="https://github.com/Portiloop/portiloop-hardware">portiloop-hardware</a> (plans of the Coral-based device), <a href="https://github.com/Portiloop/portiloop-software">portiloop-software</a> (device software and GUI; RDK X5 support and BPU pipeline on the <a href="https://github.com/Portiloop/portiloop-software/tree/rdkx5"><code>rdkx5</code></a> branch).</li>
+    <li>D-Robotics, RDK X5 algorithm toolchain, "Algorithm Model PTQ + On-board Deployment Quick Start": <a href="https://developer.d-robotics.cc/oe_x5_doc/en/oe_mapper/source/faststart/quickstart.html">developer.d-robotics.cc/oe_x5_doc/en/oe_mapper/source/faststart/quickstart.html</a>.</li>
+  </ol>
+
+</article>
+</main>
+
+<script src="../assets/js/portiloop.js"></script>
+<script src="../assets/js/nav.js"></script>
+<script id="q-engine">
+/* Q: weight quantization and a fast forward pass of PL.PortiloopModel (same arithmetic as model.step,
+   with specialised loops and float64 accumulators) used to re-run a 30 s recording quickly.
+   Checked offline against the PyTorch reference stored in the model JSON (2.2e-7). */
+(function (root) {
+  "use strict";
+  const PL = root.PL;
+  const Q = {};
+
+  /** step(x, h) -> {y, h, logit}; stats.maxAbs tracks the largest |activation| like max_value in PortiloopNetwork.forward. */
+  Q.fastStep = function (model, stats) {
+    const K = model.convs[0].shape[2], P = model.kPool, C = model.convs[0].shape[0], W0 = model.windowSize, H = model.hidden;
+    if (model.nLayers !== 1) throw new Error("fast path supports 1 GRU layer");
+    const f64 = (a) => Float64Array.from(a);
+    const ws = model.convs.map((w) => f64(w.data)), bs = model.convBiases.map((b) => f64(b.data));
+    const conv = new Float64Array(C * W0), bufA = new Float64Array(C * W0), bufB = new Float64Array(C * W0);
+    const g = model.gru[0], In = g.wih.shape[1];
+    const wih = f64(g.wih.data), whh = f64(g.whh.data), bih = f64(g.bih.data), bhh = f64(g.bhh.data);
+    const fcW = f64(model.fcW.data), fcB = model.fcB.data[0];
+    const gi = new Float64Array(3 * H), gh = new Float64Array(3 * H);
+    const st = stats || { maxAbs: 0 };
+    return function step(x, h) {
+      let inp = bufA, cin = 1, L = W0, mx = st.maxAbs;
+      for (let j = 0; j < W0; j++) inp[j] = x[j];
+      for (let layer = 0; layer < ws.length; layer++) {
+        const w = ws[layer], b = bs[layer], Lc = L - K + 1, Lp = Lc - P + 1;
+        for (let co = 0; co < C; co++) {
+          const oc = co * Lc;
+          for (let t = 0; t < Lc; t++) conv[oc + t] = b[co];
+          for (let ci = 0; ci < cin; ci++) {
+            const wo = (co * cin + ci) * K, io = ci * L;
+            for (let k = 0; k < K; k++) {
+              const wk = w[wo + k], base = io + k;
+              for (let t = 0; t < Lc; t++) conv[oc + t] += wk * inp[base + t];
+            }
+          }
+        }
+        const o = inp === bufA ? bufB : bufA;
+        for (let co = 0; co < C; co++) {
+          const oc = co * Lc, op = co * Lp;
+          for (let t = 0; t < Lp; t++) {
+            let m = 0; // max-pool of ReLU outputs
+            for (let k = 0; k < P; k++) { const v = conv[oc + t + k]; if (v > m) m = v; }
+            o[op + t] = m; if (m > mx) mx = m;
+          }
+        }
+        inp = o; cin = C; L = Lp;
+      }
+      for (let r = 0; r < 3 * H; r++) {
+        let s = bih[r]; const o = r * In;
+        for (let c = 0; c < In; c++) s += wih[o + c] * inp[c];
+        gi[r] = s;
+        let s2 = bhh[r]; for (let c = 0; c < H; c++) s2 += whh[r * H + c] * h[c];
+        gh[r] = s2;
+      }
+      const hn = new Float32Array(H);
+      let logit = fcB;
+      for (let j = 0; j < H; j++) {
+        const rg = 1 / (1 + Math.exp(-(gi[j] + gh[j])));
+        const zg = 1 / (1 + Math.exp(-(gi[H + j] + gh[H + j])));
+        const ng = Math.tanh(gi[2 * H + j] + rg * gh[2 * H + j]);
+        hn[j] = (1 - zg) * ng + zg * h[j];
+        if (Math.abs(hn[j]) > mx) mx = Math.abs(hn[j]);
+      }
+      for (let j = 0; j < H; j++) logit += fcW[j] * hn[j];
+      if (Math.abs(logit) > mx) mx = Math.abs(logit);
+      st.maxAbs = mx;
+      return { y: 1 / (1 + Math.exp(-logit)), h: hn, logit: logit };
+    };
+  };
+
+  /** Round every weight of a model JSON to N-bit signed fixed point. mode "tensor": step from max|w| of each tensor;
+      mode "q": one global format with `frac` fractional bits (values outside the range saturate). */
+  Q.quantizeJson = function (json, bits, mode, frac) {
+    const out = { config: json.config, n_parameters: json.n_parameters, weights: {} };
+    let clipped = 0, maxErr = 0;
+    const qmaxInt = Math.pow(2, bits - 1) - 1, qminInt = -Math.pow(2, bits - 1);
+    Object.keys(json.weights).forEach(function (k) {
+      const src = json.weights[k].data;
+      let step;
+      if (mode === "q") step = Math.pow(2, -frac);
+      else { let m = 0; for (let i = 0; i < src.length; i++) m = Math.max(m, Math.abs(src[i])); step = m > 0 ? m / qmaxInt : 1; }
+      const data = new Array(src.length);
+      for (let i = 0; i < src.length; i++) {
+        let q = Math.round(src[i] / step);
+        if (q > qmaxInt) { q = qmaxInt; clipped++; } else if (q < qminInt) { q = qminInt; clipped++; }
+        data[i] = q * step;
+        maxErr = Math.max(maxErr, Math.abs(data[i] - src[i]));
+      }
+      out.weights[k] = { shape: json.weights[k].shape, data: data };
+    });
+    return { json: out, clipped: clipped, maxErr: maxErr };
+  };
+
+  /** Stream a standardized signal with 8 interleaved states (a window every 5 samples, as runStream), in time slices.
+      Calls done({idx, y, maxAbs}); returns a cancel function. */
+  Q.runStreamAsync = function (model, signal, done, progress) {
+    const stats = { maxAbs: 0 }, step = Q.fastStep(model, stats);
+    const W = model.windowSize, seq = Math.trunc(model.cfg.seq_stride_s * model.cfg.fe), stride = 5, n = Math.floor(seq / stride);
+    const states = []; for (let k = 0; k < n; k++) states.push(model.zeroState());
+    const idx = [], ys = [];
+    let end = W - 1, k = 0, cancelled = false;
+    function slice() {
+      if (cancelled) return;
+      const t0 = Date.now();
+      while (end < signal.length && Date.now() - t0 < 30) {
+        const r = step(signal.subarray(end - W + 1, end + 1), states[k]);
+        states[k] = r.h; idx.push(end); ys.push(r.y);
+        k = (k + 1) % n; end += stride;
+      }
+      if (progress) progress(Math.min(1, end / signal.length));
+      if (end < signal.length) setTimeout(slice, 0);
+      else done({ idx: Int32Array.from(idx), y: Float32Array.from(ys), maxAbs: stats.maxAbs });
+    }
+    slice();
+    return function () { cancelled = true; };
+  };
+
+  root.Q = Q;
+})(typeof window !== "undefined" ? window : globalThis);
+</script>
+<script>
+(function () {
+  "use strict";
+  const $ = PL.ui.$;
+  const FS = PL.FS;
+  const vec = (a, d) => "[" + Array.from(a, (v) => v.toFixed(d)).join(" ") + "]";
+
+  /* ================================================================ step through the exported model */
+  (function () {
+    const sigC = $("#step-sig"), hC = $("#step-h"), io = $("#step-io"), status = $("#step-status");
+    const DUR = 12, SEQ = 42;
+    let model = null, data = null, h = null, hPrev = null, j = 0, outs = [], timer = null, last = null;
+
+    function reset() {
+      h = model.zeroState(); hPrev = model.zeroState(); j = 0; outs = []; last = null;
+      stop(); render();
+    }
+    function step() {
+      const W = model.windowSize, end = W - 1 + j * SEQ;
+      if (end >= data.std.length) { stop(); status.textContent = "End of the recording. Press Reset to start again."; return false; }
+      const x = data.std.subarray(end - W + 1, end + 1);
+      const hin = $("#step-forget").checked ? model.zeroState() : h;
+      const trace = {};
+      const r = model.step(x, hin, trace);
+      hPrev = Float32Array.from(hin); h = r.h;
+      last = { end: end, x: Float32Array.from(x), y: r.y, logit: r.logit };
+      outs.push({ t: end / FS, y: r.y });
+      j++;
+      render();
+      return true;
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; } $("#step-run").textContent = "Run"; }
+    function render() {
+      const W = model.windowSize;
+      const end = last ? last.end : W - 1;
+      const sig = Array.from(data.std, (v) => 2.2 + 0.25 * Math.max(-4, Math.min(4, v)));
+      const regions = data.spindles.map((s, i) => ({ x0: s.start, x1: s.end, label: i === 0 ? "Spindle (truth)" : undefined }));
+      regions.push({ x0: (end - W + 1) / FS, x1: (end + 1) / FS, color: "rgba(196, 86, 29, 0.28)" });
+      PL.plot(sigC, {
+        xRange: [0, DUR], yRange: [-0.05, 3.3], xLabel: "Time (s)", yLabel: "y   |   EEG",
+        series: [
+          { x: Array.from(data.t), y: sig, color: PL.color("signal"), width: 1, label: "EEG (standardized)" },
+          { x: outs.map((o) => o.t), y: outs.map((o) => o.y), color: PL.color("model"), width: 1.6, label: "y so far" },
+          { x: outs.map((o) => o.t), y: outs.map((o) => o.y), color: PL.color("model"), points: true, radius: 2.5 },
+        ],
+        regions: regions, hlines: [{ y: 0.5, label: "0.5" }],
+      });
+      // hidden units, before and after
+      const tr = PL.plot(hC, { xRange: [0, 7], yRange: [-1, 1], xLabel: "Hidden unit", yLabel: "Value", series: [], legend: false, xTicks: 7, title: "h (light) and h_out (dark)" });
+      const ctx = hC.getContext("2d");
+      for (let u = 0; u < 7; u++) {
+        [[hPrev, 0.12, 0.45], [h, 0.5, 1]].forEach(function (b) {
+          const v = b[0][u], p0 = tr.toPx(u + b[1], 0), p1 = tr.toPx(u + b[1] + 0.36, v);
+          ctx.globalAlpha = b[2]; ctx.fillStyle = PL.color("c4");
+          ctx.fillRect(p0[0], Math.min(p0[1], p1[1]), p1[0] - p0[0], Math.abs(p1[1] - p0[1]));
+        });
+      }
+      ctx.globalAlpha = 1;
+      const zero = tr.toPx(0, 0);
+      ctx.strokeStyle = PL.color("axis"); ctx.beginPath(); ctx.moveTo(tr.box.l, zero[1]); ctx.lineTo(tr.box.l + tr.box.w, zero[1]); ctx.stroke();
+      // the ONNX-style call
+      if (!last) {
+        io.innerHTML = "sess.run([\"y\", \"h_out\"],\n         {\"x\": x, \"h\": h})\n\n<span class=\"k\">x</span>     (1, 1, 1, 54)  press Step\n<span class=\"k\">h</span>     (1, 7)\n  " + vec(h, 2);
+      } else {
+        const x = last.x;
+        io.innerHTML = "step " + j + ", window = samples " + (last.end - W + 1) + " to " + last.end + "\n" +
+          "(" + ((last.end - W + 1) / FS).toFixed(3) + " s to " + (last.end / FS).toFixed(3) + " s)\n\n" +
+          "<span class=\"k\">x</span>     (1, 1, 1, 54)\n  " + vec(x.subarray(0, 3), 2).slice(0, -1) + " ... " + vec(x.subarray(52), 2).slice(1) + "\n" +
+          "<span class=\"k\">h</span>     (1, 7)\n  " + vec(hPrev, 2) + "\n" +
+          "<span class=\"o\">y</span>     (1, 1)  " + last.y.toFixed(4) + "  (logit " + last.logit.toFixed(2) + ")\n" +
+          "<span class=\"o\">h_out</span> (1, 7)\n  " + vec(h, 2);
+      }
+    }
+    $("#step-step").addEventListener("click", function () { stop(); step(); });
+    $("#step-run").addEventListener("click", function () {
+      if (timer) { stop(); return; }
+      this.textContent = "Pause";
+      timer = setInterval(function () { if (!step()) stop(); }, 260);
+    });
+    $("#step-reset").addEventListener("click", function () { status.textContent = ""; reset(); });
+    // pause the auto-run when the widget scrolls out of view
+    if ("IntersectionObserver" in window) new IntersectionObserver((es) => es.forEach((e) => { if (!e.isIntersecting) stop(); })).observe($("#step"));
+    PL.onRedraw(function () { if (model) render(); });
+    PL.loadModel().then(function (m) {
+      model = m;
+      const d = PL.synth.nrem({ duration_s: DUR, seed: 11 });
+      data = { t: d.t, label: d.label, spindles: d.spindles, std: Float32Array.from(PL.preprocess(d.signal).standardized) };
+      ["#step-step", "#step-run", "#step-reset"].forEach((s) => ($(s).disabled = false));
+      reset();
+      for (let i = 0; i < 6; i++) step(); // start with a few steps done so the first view is informative
+      status.textContent = "Published network, " + m.nParameters.toLocaleString("en-US") + " parameters, running in your browser.";
+    }).catch(function (e) { io.textContent = ""; status.textContent = "Could not load the model: " + e.message + " (serve the docs folder over HTTP, see docs/README.md)."; });
+  })();
+
+  /* ================================================================ weight inspector */
+  (function () {
+    const ONNX = {
+      "first_layer_input1.conv.weight": "cnn.0.conv.weight", "first_layer_input1.conv.bias": "cnn.0.conv.bias",
+      "seq_input1.0.conv.weight": "cnn.1.conv.weight", "seq_input1.0.conv.bias": "cnn.1.conv.bias",
+      "seq_input1.1.conv.weight": "cnn.2.conv.weight", "seq_input1.1.conv.bias": "cnn.2.conv.bias",
+      "gru_input1.weight_ih_l0": "cells.0.ih.weight", "gru_input1.weight_hh_l0": "cells.0.hh.weight",
+      "gru_input1.bias_ih_l0": "cells.0.ih.bias", "gru_input1.bias_hh_l0": "cells.0.hh.bias",
+      "fc.weight": "fc.weight", "fc.bias": "fc.bias",
+    };
+    const CARR = {
+      "first_layer_input1.conv.weight": "conv1_input1_kernel", "first_layer_input1.conv.bias": "conv1_input1_bias",
+      "seq_input1.0.conv.weight": "conv2_input1_kernel", "seq_input1.0.conv.bias": "conv2_input1_bias",
+      "seq_input1.1.conv.weight": "conv3_input1_kernel", "seq_input1.1.conv.bias": "conv3_input1_bias",
+      "gru_input1.weight_ih_l0": "gru1_input1_w_ih", "gru_input1.weight_hh_l0": "gru1_input1_w_hh",
+      "gru_input1.bias_ih_l0": "gru1_input1_b_ih", "gru_input1.bias_hh_l0": "gru1_input1_b_hh",
+      "fc.weight": "fc_weight", "fc.bias": "fc_bias",
+    };
+    let rows = [], sel = 6, gmin = 0, gmax = 0;
+    function hist(data, lo, hi, nb) {
+      const c = new Array(nb).fill(0);
+      for (let i = 0; i < data.length; i++) c[Math.min(nb - 1, Math.max(0, Math.floor((data[i] - lo) / (hi - lo) * nb)))]++;
+      return c;
+    }
+    function spark(canvas, data) {
+      const dpr = window.devicePixelRatio || 1, w = 110, h = 24;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+      const c = hist(data, gmin, gmax, 44), m = Math.max.apply(null, c);
+      ctx.fillStyle = PL.color("c1");
+      c.forEach((v, i) => { if (v) { const bh = Math.max(1, Math.sqrt(v / m) * (h - 2)); ctx.fillRect(i * w / 44, h - bh, w / 44 - 0.5, bh); } });
+      const z = (0 - gmin) / (gmax - gmin) * w; ctx.fillStyle = PL.color("text"); ctx.fillRect(z, 0, 1, h);
+    }
+    function drawBig() {
+      const r = rows[sel]; if (!r) return;
+      const lo = r.min, hi = r.max === r.min ? r.min + 1 : r.max, nb = 40, c = hist(r.data, lo, hi, nb), bw = (hi - lo) / nb;
+      const tr = PL.plot($("#wi-plot"), { xRange: [lo, hi], yRange: [0, Math.max.apply(null, c) * 1.1 + 1], xLabel: "Weight value: " + r.name + " (" + r.count.toLocaleString("en-US") + " values)", yLabel: "Count", series: [], legend: false, yTicks: 3 });
+      const ctx = $("#wi-plot").getContext("2d"); ctx.fillStyle = PL.color("c1");
+      c.forEach(function (v, i) { if (!v) return; const p0 = tr.toPx(lo + i * bw, 0), p1 = tr.toPx(lo + (i + 1) * bw, v); ctx.fillRect(p0[0] + 0.5, p1[1], Math.max(1, p1[0] - p0[0] - 1), p0[1] - p1[1]); });
+      let sum = 0, sq = 0, small = 0; r.data.forEach((v) => { sum += v; sq += v * v; if (Math.abs(v) < 0.01) small++; });
+      const mean = sum / r.count, sd = Math.sqrt(Math.max(0, sq / r.count - mean * mean));
+      $("#wi-status").textContent = r.name + ": mean " + mean.toFixed(4) + ", standard deviation " + sd.toFixed(4) + ", " + (100 * small / r.count).toFixed(1) + " % of values below 0.01 in magnitude. Whole network: weights from " + gmin.toFixed(3) + " to " + gmax.toFixed(3) + "; largest magnitude " + Math.max(-gmin, gmax).toFixed(3) + ".";
+    }
+    function build(model) {
+      const W = model.json.weights;
+      rows = Object.keys(W).map(function (k) {
+        const d = W[k].data; let mn = Infinity, mx = -Infinity; d.forEach((v) => { if (v < mn) mn = v; if (v > mx) mx = v; });
+        return { name: k, shape: W[k].shape, count: d.length, min: mn, max: mx, data: d };
+      });
+      gmin = Math.min.apply(null, rows.map((r) => r.min)); gmax = Math.max.apply(null, rows.map((r) => r.max));
+      const tb = $("#wi-table tbody"); tb.innerHTML = "";
+      rows.forEach(function (r, i) {
+        const tr = document.createElement("tr");
+        tr.tabIndex = 0;
+        tr.innerHTML = "<td><code>" + r.name + "</code><br><span class=\"muted small\">" + ONNX[r.name] + " / " + CARR[r.name] + "</span></td><td>(" + r.shape.join(", ") + ")</td><td class=\"num\">" + r.count.toLocaleString("en-US") + "</td><td class=\"num\">" + r.min.toFixed(3) + "</td><td class=\"num\">" + r.max.toFixed(3) + "</td><td><canvas aria-label=\"histogram of " + r.name + "\"></canvas></td>";
+        const choose = () => { sel = i; tb.querySelectorAll("tr").forEach((x, j) => x.classList.toggle("sel", j === i)); drawBig(); };
+        tr.addEventListener("click", choose);
+        tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); } });
+        tb.appendChild(tr);
+        r.canvas = tr.querySelector("canvas");
+      });
+      const total = rows.reduce((a, r) => a + r.count, 0);
+      $("#wi-table tfoot").innerHTML = "<tr><td colspan=\"2\">Total (12 tensors)</td><td class=\"num\">" + total.toLocaleString("en-US") + "</td><td class=\"num\">" + gmin.toFixed(3) + "</td><td class=\"num\">" + gmax.toFixed(3) + "</td><td class=\"small muted\">shared x axis</td></tr>";
+      tb.querySelectorAll("tr")[sel].classList.add("sel");
+      redraw();
+    }
+    function redraw() { rows.forEach((r) => spark(r.canvas, r.data)); drawBig(); }
+    PL.onRedraw(function () { if (rows.length) redraw(); });
+    PL.loadModel().then(build).catch(function (e) { $("#wi-status").textContent = "Could not load the model: " + e.message; });
+  })();
+
+  /* ================================================================ how many bits */
+  (function () {
+    const plot = $("#qb-plot"), status = $("#qb-status"), prog = $("#qb-prog");
+    let model = null, data = null, ref = null, cur = null, cancel = null, timer = null, sweep = null, sweeping = false;
+    const THR = 0.5;
+    function params() {
+      const bits = parseInt($("#qb-bits").value, 10), mode = $("#qb-mode").value;
+      const ib = Math.min(bits, parseInt($("#qb-int").value, 10));
+      return { bits: bits, mode: mode, frac: bits - ib, ib: ib };
+    }
+    function labelsFor(idx) { return Array.from(idx, (i) => data.label[Math.max(0, i - 10)]); } // 10-sample FIR delay
+    function f1(y, lab) { return PL.metrics.prf(PL.metrics.confusion(Array.from(y, (v) => v >= THR), lab)).f1; }
+    function compare(r) {
+      let mx = 0, mean = 0, flips = 0;
+      for (let i = 0; i < r.y.length; i++) { const d = Math.abs(r.y[i] - ref.y[i]); if (d > mx) mx = d; mean += d; if ((r.y[i] >= THR) !== (ref.y[i] >= THR)) flips++; }
+      return { max: mx, mean: mean / r.y.length, flips: flips, f1: f1(r.y, labelsFor(r.idx)) };
+    }
+    function fmtText(p) {
+      if (p.mode === "tensor") return p.bits + "-bit, scale per tensor";
+      const step = Math.pow(2, -p.frac), hi = (Math.pow(2, p.bits - 1) - 1) * step, lo = -Math.pow(2, p.bits - 1) * step;
+      return "Q" + (p.ib - 1) + "." + p.frac + ": " + lo + " to " + +hi.toFixed(6) + ", step " + +step.toPrecision(3);
+    }
+    function draw() {
+      if (!ref) return;
+      const t = Array.from(ref.idx, (i) => i / FS);
+      const series = [{ x: t, y: Array.from(ref.y), color: PL.color("signal"), width: 1.4, label: "Float weights" }];
+      if (cur) series.push({ x: t, y: Array.from(cur.r.y), color: PL.color("model"), width: 1.4, dash: [5, 3], label: "Quantized weights" });
+      PL.plot(plot, { xRange: [0, 30], yRange: [-0.03, 1.05], xLabel: "Time (s)", yLabel: "Network output", series: series,
+        regions: data.spindles.map((s, i) => ({ x0: s.start, x1: s.end, label: i === 0 ? "Spindle (truth)" : undefined })), hlines: [{ y: THR, label: "0.5" }] });
+    }
+    function drawSweep() {
+      const xs = [], e = [], fq = [];
+      (sweep || []).forEach((s) => { xs.push(s.bits); e.push(s.max); fq.push(s.f1); });
+      PL.plot($("#qb-sweep-plot"), { xRange: [4, 16], yRange: [0, 1], xLabel: "Bits per weight", yLabel: "Value", xTicks: 12,
+        title: sweep ? "Sweep (" + (sweep.mode === "tensor" ? "per tensor" : "global format, " + sweep.ib + " integer bits") + ")" : "Press the sweep button",
+        series: sweep ? [
+          { x: xs, y: e, color: PL.color("model"), width: 2, label: "max |Δ output|" }, { x: xs, y: e, color: PL.color("model"), points: true },
+          { x: xs, y: fq, color: PL.color("c3"), width: 2, label: "F1 quantized" }, { x: xs, y: fq, color: PL.color("c3"), points: true },
+        ] : [],
+        hlines: ref ? [{ y: f1(ref.y, labelsFor(ref.idx)), color: PL.color("c3"), label: "F1 float" }] : [] });
+    }
+    function run() {
+      if (!ref || sweeping) return;
+      if (cancel) cancel();
+      const p = params();
+      $("#qb-int").disabled = p.mode !== "q";
+      const qj = Q.quantizeJson(model.json, p.bits, p.mode, p.frac);
+      const qm = new PL.PortiloopModel(qj.json);
+      status.textContent = "Re-running the quantized network on 30 s of EEG…";
+      cancel = Q.runStreamAsync(qm, data.std, function (r) {
+        cancel = null; prog.style.width = "0";
+        const c = compare(r);
+        cur = { r: r, c: c, p: p };
+        $("#qb-fmt").textContent = fmtText(p);
+        $("#qb-max").textContent = c.max.toFixed(3);
+        $("#qb-mean").textContent = c.mean.toFixed(4);
+        $("#qb-flip").textContent = c.flips + " / " + r.y.length;
+        $("#qb-f1").textContent = f1(ref.y, labelsFor(ref.idx)).toFixed(3) + " / " + c.f1.toFixed(3);
+        $("#qb-clip").textContent = qj.clipped.toLocaleString("en-US");
+        status.textContent = "Largest weight rounding error " + qj.maxErr.toExponential(2) + ". Largest activation reached by the float network on this recording (the quantity tracked by max_value): " + ref.maxAbs.toFixed(2) + ", so a fixed-point activation format would need at least " + Math.ceil(Math.log2(ref.maxAbs + 1)) + " integer bits plus sign.";
+        draw();
+      }, (f) => (prog.style.width = (100 * f).toFixed(0) + "%"));
+    }
+    function schedule() { if (timer) clearTimeout(timer); timer = setTimeout(run, 200); }
+    function doSweep() {
+      if (!ref || sweeping) return;
+      if (cancel) { cancel(); cancel = null; }
+      sweeping = true; $("#qb-sweep").disabled = true;
+      const base = params(); const res = []; res.mode = base.mode; res.ib = base.ib;
+      let b = 4;
+      (function next() {
+        if (b > 16) { sweep = res; sweeping = false; $("#qb-sweep").disabled = false; drawSweep(); run(); return; }
+        const ib = Math.min(b, base.ib), qj = Q.quantizeJson(model.json, b, base.mode, b - ib);
+        status.textContent = "Sweep: " + b + " bits…";
+        Q.runStreamAsync(new PL.PortiloopModel(qj.json), data.std, function (r) {
+          const c = compare(r); res.push({ bits: b, max: c.max, f1: c.f1 }); sweep = res; drawSweep(); b++; next();
+        }, (f) => (prog.style.width = (100 * ((b - 4 + f) / 13)).toFixed(0) + "%"));
+      })();
+    }
+    PL.ui.bind("#qb-bits", schedule);
+    PL.ui.bind("#qb-mode", function () { sweep = null; drawSweep(); schedule(); });
+    PL.ui.bind("#qb-int", schedule);
+    $("#qb-sweep").addEventListener("click", doSweep);
+    PL.onRedraw(function () { draw(); drawSweep(); });
+    drawSweep();
+    PL.loadModel().then(function (m) {
+      model = m;
+      const d = PL.synth.nrem({ duration_s: 30, seed: 3 });
+      data = { label: d.label, spindles: d.spindles, std: Float32Array.from(PL.preprocess(d.signal).standardized) };
+      status.textContent = "Computing the full-precision reference…";
+      Q.runStreamAsync(model, data.std, function (r) {
+        ref = r; $("#qb-sweep").disabled = false; draw(); drawSweep(); run();
+      }, (f) => (prog.style.width = (100 * f).toFixed(0) + "%"));
+    }).catch(function (e) { status.textContent = "Could not load the model: " + e.message; });
+  })();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>01 · Sleep spindles and closed-loop stimulation · Portiloop tutorials</title>
+  <meta name="description" content="What sleep spindles are, why detecting them in real time is hard, what the Portiloop is, and how this tutorial series on training its spindle detector is organized.">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <!-- KaTeX (only if the page has equations) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <!-- Prism syntax highlighting (colors come from style.css) -->
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <style>
+    blockquote.quote { margin: 1.1em 0; padding: 6px 16px; border-left: 3px solid var(--accent); background: var(--bg-elev); border-radius: 0 8px 8px 0; }
+    blockquote.quote p { margin: 0.3em 0; }
+    blockquote.quote cite { display: block; font-style: normal; font-size: 0.86em; color: var(--fg-muted); margin-top: 4px; }
+    .pipeline { margin: 1.4em 0; }
+    .pipeline svg { width: 100%; height: auto; display: block; }
+    .pipeline .pv { display: none; max-width: 420px; margin: 0 auto; }
+    @media (max-width: 640px) { .pipeline .ph { display: none; } .pipeline .pv { display: block; } }
+    .pipeline a .box { fill: var(--bg-elev); stroke: var(--border); stroke-width: 1.5; transition: stroke 0.15s, fill 0.15s; }
+    .pipeline a:hover .box, .pipeline a:focus .box { stroke: var(--accent); fill: var(--accent-soft); }
+    .pipeline text { fill: var(--fg); font-family: var(--font-sans); }
+    .pipeline .t1 { font-weight: 650; font-size: 13.5px; }
+    .pipeline .t2 { font-size: 11.5px; fill: var(--fg-muted); }
+    .pipeline .grp { font-size: 11.5px; fill: var(--accent); font-weight: 650; letter-spacing: 0.04em; }
+    .pipeline .arrow { stroke: var(--fg-muted); stroke-width: 1.6; fill: none; }
+    .pipeline .brace { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+    .widget .twocol { display: grid; grid-template-columns: 1fr; gap: 6px; }
+    .widget .panel-label { font-size: 13px; font-weight: 650; color: var(--fg-muted); margin: 10px 0 2px; }
+    .readout .v.small { font-size: 1rem; }
+    .series-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body data-page="01-introduction" data-root="..">
+<main>
+<article class="content">
+
+  <div class="eyebrow">Tutorial 01 · Getting started</div>
+  <h1>Sleep spindles and closed-loop stimulation</h1>
+  <p class="lead">Why would anyone want to play a sound to a sleeping brain exactly when a sleep spindle starts, why is that so difficult, and how does the Portiloop solve it with a small neural network? This page sets the scene for the whole tutorial series.</p>
+
+  <dl class="meta">
+    <div><dt>Time</dt><dd>25 minutes</dd></div>
+    <div><dt>Level</dt><dd>Beginner</dd></div>
+    <div><dt>You need</dt><dd>Nothing but this browser</dd></div>
+    <div><dt>Runs in browser</dt><dd>Yes, including the real pre-trained network</dd></div>
+  </dl>
+
+  <div class="objectives">
+    <h3>In this tutorial you will</h3>
+    <ul>
+      <li>Review what a sleep spindle is (frequency, duration, sleep stage, generators, function) and play with a synthetic one.</li>
+      <li>Understand what closed-loop stimulation is and why real-time detection is much harder than offline scoring.</li>
+      <li>Watch the real pre-trained Portiloop network process a synthetic recording, seeing only the past, and compare it with an offline detector that sees the future.</li>
+      <li>Get an overview of the Portiloop pipeline, of the ten tutorials, and of how to cite the work.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================================== -->
+  <h2 id="spindles">What is a sleep spindle?</h2>
+
+  <p>Sleep spindles are short bursts of oscillatory activity in the sigma band that appear in the EEG during non-rapid eye movement (NREM) sleep. They are most characteristic of stage N2 (where they are part of the scoring criteria) but are also present in N3. The MODA paper, whose annotations are used to train the Portiloop detector, describes them as follows:</p>
+
+  <blockquote class="quote">
+    <p>"Spindles follow a characteristic waxing and waning profile, and generally last 0.5 to 1.0 seconds in duration."</p>
+    <cite>Lacourse et al. (2020), Scientific Data, Introduction [2]</cite>
+  </blockquote>
+
+  <p>Definitions of the frequency band vary slightly between sources. The definition of the American Academy of Sleep Medicine (AASM), as quoted in the MODA paper [2], is <em>a train of distinct waves with frequency 11 to 16 Hz with a duration of at least 0.5 seconds, usually maximal in amplitude using central derivations</em>. The MODA introduction itself speaks of 10 to 16 Hz bursts, and the Portiloop paper of a "high frequency (∼12 to 16 Hz) and rapid evolution (&lt;2.5 s)" [3]. In these tutorials we call <strong>11 to 16 Hz</strong> the sigma band.</p>
+
+  <p>How big and how frequent are they? On the MODA data (central channel C3, stage N2), the authors report:</p>
+
+  <blockquote class="quote">
+    <p>"[...] the average spindle density for a young cohort was 4.2 spm with an average duration of 0.8 s, average maximum peak-to-peak amplitude of 33 µV and average dominant oscillation frequency of 13.3 Hz [...]. The aggregated average spindle activity for older sleepers was 2.5 spm with an average duration of 0.75 s, average amplitude of 27 µV and average frequency of 13.2 Hz"</p>
+    <cite>Lacourse et al. (2020), Scientific Data, Discussion [2]; spm = spindles per minute</cite>
+  </blockquote>
+
+  <h3 id="generation">Where do they come from?</h3>
+  <p>Spindles are generated by the thalamus and relayed to the cortex. In the classical picture, GABAergic neurons of the thalamic reticular nucleus rhythmically inhibit thalamocortical relay neurons; these rebound with bursts of action potentials that entrain cortical networks, and the scalp EEG picks up the resulting synchronized cortical activity. The review by Fernandez and Lüthi [1] summarizes this in its first sentence:</p>
+  <blockquote class="quote">
+    <p>"Sleep spindles are burstlike signals in the electroencephalogram (EEG) of the sleeping mammalian brain and electrical surface correlates of neuronal oscillations in thalamus. As one of the most inheritable sleep EEG signatures, sleep spindles probably reflect the strength and malleability of thalamocortical circuits that underlie individual cognitive profiles."</p>
+    <cite>Fernandez and Lüthi (2020), Physiological Reviews, Abstract [1]</cite>
+  </blockquote>
+
+  <h3 id="function">Why do neuroscientists care?</h3>
+  <p>Spindles are linked to memory consolidation, sensory gating and plasticity. The same review proposes that spindles "enable a selective reactivation and routing of wake-instated neuronal traces between brain areas such as hippocampus and cortex" [1]. The Portiloop paper motivates its choice of spindles as a target in the same way:</p>
+  <blockquote class="quote">
+    <p>"Their role in memory consolidation is supported by increases in spindle density following learning [...], and the observation that age-related changes in sleep spindles are correlated with differences in overnight performance gains [...]. If it were possible to influence spindles with sound, as it is to enhance slow oscillations, researchers could explore their functional role in healthy adults as well as characterize their involvement in cognitive aging, and even perhaps restore degraded function."</p>
+    <cite>Valenchon et al. (2022), PLOS ONE, Section 2.2 [3]</cite>
+  </blockquote>
+
+  <h3 id="anatomy">Anatomy of a spindle (interactive)</h3>
+  <p>The widget below builds a synthetic 8 second stretch of NREM EEG with one spindle starting at 3 s. The lower panel shows what a classical (non deep learning) detector would look at: the signal band-pass filtered in the sigma band and its <em>envelope</em>, the slowly varying amplitude of the oscillation.</p>
+
+  <div class="widget" id="anatomy-widget">
+    <div class="widget-title">Anatomy of a spindle</div>
+    <p class="widget-desc">What to try: (1) move the frequency outside 11 to 16 Hz and watch the sigma envelope collapse; (2) shorten the spindle below 0.5 s and see the AASM criterion fail while the envelope still bumps up; (3) raise the background amplitude until the spindle is hard to see in the raw trace but still visible in the envelope; (4) notice that the envelope peak comes <em>after</em> the middle of the spindle: a causal filter can only react to what already happened.</p>
+    <div class="controls">
+      <label for="an-f">Frequency <input type="range" id="an-f" min="8" max="18" step="0.25" value="13"><output for="an-f"></output></label>
+      <label for="an-d">Duration <input type="range" id="an-d" min="0.2" max="3" step="0.05" value="1"><output for="an-d"></output></label>
+      <label for="an-a">Spindle amplitude <input type="range" id="an-a" min="0" max="80" step="1" value="35"><output for="an-a"></output></label>
+      <label for="an-bg">Background <input type="range" id="an-bg" min="0" max="40" step="1" value="15"><output for="an-bg"></output></label>
+      <button class="btn secondary" type="button" id="an-new">New background</button>
+    </div>
+    <div class="panel-label">Raw EEG (synthetic, µV)</div>
+    <canvas class="plot short" id="an-raw" role="img" aria-label="Synthetic raw EEG with one spindle highlighted"></canvas>
+    <div class="panel-label">Sigma band (about 11 to 16 Hz) and its envelope</div>
+    <canvas class="plot" id="an-sigma" role="img" aria-label="Sigma band filtered signal and its envelope"></canvas>
+    <div class="readout">
+      <div><div class="k">Envelope peak</div><div class="v" id="an-peak">…</div></div>
+      <div><div class="k">Envelope width at half height</div><div class="v" id="an-fwhm">…</div></div>
+      <div><div class="k">Envelope peak lag</div><div class="v" id="an-lag">…</div></div>
+      <div><div class="k">AASM rule (11 to 16 Hz, ≥ 0.5 s)</div><div class="v small" id="an-aasm">…</div></div>
+      <div><div class="k">MODA duration rule (0.3 to 2.5 s)</div><div class="v small" id="an-moda">…</div></div>
+    </div>
+    <div class="status">The band-pass used here is a didactic one (two cascaded resonators centered on 13.5 Hz, <code>PL.filters.sigmaEnvelope</code>); the "peak lag" is measured from the middle of the spindle to the maximum of the envelope.</div>
+  </div>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: filters are causal or not</span>A <strong>causal</strong> filter computes its output from the current and past samples only, like a neuron integrating its past inputs. It always introduces a delay. A <strong>zero-phase</strong> (non-causal) filter, such as MATLAB's <code>filtfilt</code> or the default filters of EEGLAB and MNE-Python, runs forward and then backward in time: no delay, but it uses future samples. Offline analysis can afford zero-phase filters; a device that must act during the recording cannot. Tutorial <a href="03-preprocessing.html">03</a> covers the filters of the Portiloop in detail.</div>
+
+  <div class="callout note"><span class="callout-title">Note: the Portiloop network does not use this band-pass</span>The detector trained in these tutorials (the "1-input" model) receives the broadband, standardized EEG (low-passed around 30 Hz), not a sigma-band signal. Its convolutional layers learn their own filters from the data. The paper reports that adding a sigma envelope as a second input did not help: "We find that the envelope input can be removed" [3]. See Tutorial <a href="04-network.html">04</a>.</div>
+
+  <!-- ===================================================================== -->
+  <h2 id="closed-loop">What is closed-loop stimulation?</h2>
+  <p>In an open-loop experiment, stimuli are delivered on a fixed schedule regardless of the brain state. In a <strong>closed-loop</strong> experiment the recorded signal decides when to stimulate: the system measures the EEG, detects a target event (a slow oscillation up-state, a spindle, a theta burst) and triggers a stimulus (a sound, a light, a current) timed to that event. Because the brain responds to the stimulus, which changes the next measurements, the loop is closed.</p>
+  <p>The best known example in sleep research targets slow oscillations:</p>
+  <blockquote class="quote">
+    <p>"Using auditory stimulation to SO up-states, when neural tissue is partly depolarized and more excitable, Ngo et al. enhanced the amplitude of SOs and reported an overnight improvement in memory performance, a result that has now been replicated multiple times"</p>
+    <cite>Valenchon et al. (2022), PLOS ONE, Introduction [3], referring to Ngo et al. (2013) [5]</cite>
+  </blockquote>
+  <p>Slow oscillations are slow (0.5 to 1.5 Hz according to [3]) and large, so detecting their up-state in time is feasible with simple filters and thresholds. Spindles are a much harder target: they are faster, shorter, and lower in amplitude.</p>
+
+  <!-- ===================================================================== -->
+  <h2 id="why-hard">Why is real-time spindle detection hard?</h2>
+
+  <p>When an expert scores a recording, or a detector runs on a finished file, the whole signal is available. A closed-loop device must decide <em>during</em> the spindle, using only what it has already recorded. Three difficulties follow.</p>
+
+  <h3 id="causality">1. Causality: you only have the past</h3>
+  <blockquote class="quote">
+    <p>"Online detectors (i.e., detectors that act during signal acquisition) face more challenging conditions than offline detectors, due to the unavailability of “future” data points. For example, if we aim to detect and stimulate a spindle before it ends, the duration of the spindle is not yet known by definition, yet it is one of the identifying criteria for spindles commonly used by experts."</p>
+    <cite>Valenchon et al. (2022), PLOS ONE, Section 2.4 [3]</cite>
+  </blockquote>
+  <p>An offline detector can measure the whole burst, check that it lasts at least 0.5 s, and then place the onset back in time. A real-time detector has to bet on a spindle after seeing only its first few cycles.</p>
+
+  <h3 id="latency">2. Latency: every stage adds delay</h3>
+  <p>A spindle lasts less than a second, so delays matter. The Portiloop paper measured the delays of its own spindle configuration (Table 2 of [3], reproduced here):</p>
+  <table>
+    <thead><tr><th>Component</th><th>Hardware delay</th><th>Software delay</th></tr></thead>
+    <tbody>
+      <tr><td>Electrodes + ADC</td><td>(none reported)</td><td>(none reported)</td></tr>
+      <tr><td>Filters</td><td>(none reported)</td><td>40 ms</td></tr>
+      <tr><td>Neural network (ANN)</td><td>20 ms</td><td>∼250 (± 100) ms</td></tr>
+      <tr><td>Stimulus</td><td>4 ms</td><td>(none reported)</td></tr>
+      <tr><td><strong>Total: ∼314 ms</strong></td><td>24 ms</td><td>290 (± 100) ms</td></tr>
+    </tbody>
+  </table>
+  <p>"Software delay" means time spent waiting for enough data: the 21-tap filter needs 10 samples (40 ms at 250 Hz) of the future of each sample before its output is "centered" on it, and the network needs to see a few cycles of a spindle before its output rises. As the paper puts it, "the most significant source of delay is the detection delay of our ANN" [3].</p>
+
+  <h3 id="false-alarms">3. False alarms cost stimulations</h3>
+  <p>The network outputs a number between 0 and 1 for each new window of signal; a stimulus is sent when that number crosses a <strong>threshold</strong>. A low threshold detects spindles early but also fires on alpha bursts, artifacts or noise; a high threshold is more selective but later. In a stimulation experiment, every false alarm is a sound played at the wrong moment, which may disturb sleep or dilute the effect you are trying to measure.</p>
+  <blockquote class="quote">
+    <p>"A threshold of 0.84 yields the optimal trade-off; however, researchers may wish to select different parameters according to experimental objectives. [...] Increasing the threshold yields longer delays."</p>
+    <cite>Valenchon et al. (2022), PLOS ONE, Fig 6 caption [3]</cite>
+  </blockquote>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: precision and recall are hits and false alarms</span>Machine-learning papers summarize a detector with <strong>precision</strong> (of all the stimuli sent, the fraction that landed in a spindle; one minus the false-alarm proportion) and <strong>recall</strong> (of all the spindles, the fraction that received a stimulus; the hit rate of signal detection theory). The <strong>F1-score</strong> is their harmonic mean, \(F_1 = \frac{2PR}{P+R}\). Moving the threshold trades one for the other, exactly like moving the criterion in signal detection theory. Tutorial <a href="06-evaluation.html">06</a> explains the metrics used in the code.</div>
+
+  <h3 id="online-vs-offline">See it for yourself: online versus offline (interactive)</h3>
+  <p>The widget below streams a 40 s synthetic NREM recording through the <strong>real pre-trained Portiloop network</strong> (the same weights as the checkpoint <code>pareto_search_15_35_v4_0</code>, running in your browser). The upper panel is what the device knows at each instant: the past. The lower panel is what an offline analysis sees: the whole recording at once. The offline detector is a deliberately simple one (zero-phase sigma envelope, a detection threshold, then boundaries extended backward and forward along the envelope); it is not how the MODA labels were made (those come from human scorers), but it shows what access to the future buys.</p>
+
+  <div class="widget" id="ovo-widget">
+    <div class="widget-title">Online (causal) versus offline (non-causal) detection</div>
+    <p class="widget-desc">What to try: press Play and watch the network output (orange) rise a few hundred milliseconds after each spindle has started; compare the "median online delay" with the offline onset error. Then (1) raise the threshold from 0.5 to 0.84 (the paper's choice) and watch false stimuli disappear and delays grow; (2) tick "stimulate during warm-up" to see what happens in the first seconds, while the running standardization and the network's memory are still filling up; (3) try another recording.</p>
+    <div class="controls">
+      <button class="btn" type="button" id="ovo-play" disabled>Play</button>
+      <button class="btn secondary" type="button" id="ovo-restart" disabled>Restart</button>
+      <label for="ovo-speed">Speed <select id="ovo-speed"><option value="1">1× (real time)</option><option value="2" selected>2×</option><option value="4">4×</option></select></label>
+      <label for="ovo-t">Time <input type="range" id="ovo-t" min="0" max="40" step="0.02" value="22"><output for="ovo-t"></output></label>
+    </div>
+    <div class="controls">
+      <label for="ovo-thr">Threshold <input type="range" id="ovo-thr" min="0.05" max="0.99" step="0.01" value="0.5"><output for="ovo-thr"></output></label>
+      <label for="ovo-seed">Recording <input type="range" id="ovo-seed" min="1" max="12" step="1" value="4"><output for="ovo-seed"></output></label>
+      <label for="ovo-warm"><input type="checkbox" id="ovo-warm"> stimulate during warm-up (first 10 s)</label>
+    </div>
+    <div class="panel-label">Online: what the Portiloop knows at the playhead</div>
+    <canvas class="plot tall" id="ovo-online" role="img" aria-label="Streaming view: EEG and network output up to the playhead, stimuli as triangles"></canvas>
+    <div class="panel-label">Offline: the whole recording, past and future</div>
+    <canvas class="plot" id="ovo-offline" role="img" aria-label="Offline view: whole EEG, zero-phase sigma envelope and offline detections"></canvas>
+    <div class="readout">
+      <div><div class="k">Stimuli sent</div><div class="v" id="ovo-n">…</div></div>
+      <div><div class="k">Spindles stimulated</div><div class="v" id="ovo-hit">…</div></div>
+      <div><div class="k">Stimuli outside spindles</div><div class="v" id="ovo-fa">…</div></div>
+      <div><div class="k">Median online delay</div><div class="v" id="ovo-delay">…</div></div>
+      <div><div class="k">Median offline onset error (whole recording)</div><div class="v" id="ovo-off">…</div></div>
+    </div>
+    <div class="status" id="ovo-status">Loading the pre-trained network…</div>
+  </div>
+
+  <p>How to read the widget. Shaded green bands are the true spindles of the synthetic signal (they are revealed as the playhead passes them, as an expert would score them afterwards). A pink vertical line is a stimulus: here, one stimulus is sent each time the output crosses the threshold upward. Delays are measured from the true spindle onset to the first stimulus inside the spindle, in "wall-clock" time, so they include the 40 ms filter delay. Online counts and delays cover the part of the recording to the left of the playhead, after the warm-up; the offline error covers every spindle after the warm-up, since the offline detector sees everything at once. Extra stimuli inside an already stimulated spindle are counted in "stimuli sent" but not in the two other boxes; the paper counts them as false positives.</p>
+
+  <div class="callout warning"><span class="callout-title">Synthetic data, real network</span>The network is the real one, but the EEG is a didactic synthetic signal (<code>PL.synth.nrem</code>: colored noise, slow waves and waxing and waning sigma bursts). Delays and counts on this signal illustrate the concepts; they are not the performance of the Portiloop on human EEG. For the published numbers, see the paper [3] and Tutorial <a href="06-evaluation.html">06</a>.</div>
+
+  <!-- ===================================================================== -->
+  <h2 id="portiloop">What is the Portiloop?</h2>
+  <p>The Portiloop is an open-source, low-cost device for closed-loop EEG stimulation, developed by the MIST Lab (Polytechnique Montréal) and the CL:ASP lab (Concordia University), the affiliations of the authors of [3]. In the words of the paper:</p>
+  <blockquote class="quote">
+    <p>"In this article, we propose the Portiloop, a deep learning-based, portable and low-cost closed-loop stimulation system able to target specific brain oscillations. [...] Software and plans are available to the community as an open science initiative to encourage further development and advance closed-loop neuroscience research"</p>
+    <cite>Valenchon et al. (2022), PLOS ONE, Abstract [3]</cite>
+  </blockquote>
+  <p>The paper describes two hardware implementations, "one using the Xilinx Pynq FPGA together with the HackEEG board and one using a custom board and a Google Coral System-on-Module neural accelerator" [3]. This repository, <a href="https://github.com/Portiloop/portiloop-training">portiloop-training</a>, contains the <em>software side</em>: building the training dataset, training and selecting the spindle detector, simulating it offline, and exporting it for a device. Its headline result:</p>
+  <blockquote class="quote">
+    <p>"Our resulting system is the first portable device to be able to detect and stimulate sleep spindles in real time with an f1-score of 0.71, measured on MODA, a dataset renowned for the reliability of its labels."</p>
+    <cite>Valenchon et al. (2022), PLOS ONE, Section 7 [3]</cite>
+  </blockquote>
+  <p>For comparison, "The experts annotating the MODA dataset had an average performance of 0.72 on the whole cohort in term of the f1-score of their individual annotations with respect to the final labels" [3]. Note what this comparison means: the reference labels are a <em>consensus</em> of several human scorers, so even individual experts do not reach an F1 of 1.</p>
+
+  <div class="callout note"><span class="callout-title">What the training data are</span>The pre-trained network was trained on EEG from the Montreal Archive of Sleep Studies (MASS) [4] with spindle labels from the MODA crowd-sourcing project [2]: 115 s blocks of N2 sleep from 180 subjects, split into a younger "phase 1" (100 subjects) and an older "phase 2" (80 subjects); 162 of these subjects were in the authors' training files. MASS recordings are available only on request, so these tutorials train on a <strong>synthetic practice dataset</strong> with the same format. Tutorial <a href="02-installation.html">02</a> describes both, and lists real annotated databases you can request.</div>
+
+  <!-- ===================================================================== -->
+  <h2 id="pipeline">The pipeline at a glance</h2>
+  <p>Every new EEG sample travels through the same chain, on the device and in the offline simulations of this repository. Click a box to jump to the tutorial that explains it.</p>
+
+  <figure class="pipeline">
+    <svg class="ph" viewBox="0 0 960 230" role="img" aria-label="Pipeline: EEG acquisition, low-pass FIR, 60 Hz notch, online standardization, convolutional layers, GRU, threshold, stimulus">
+      <defs><marker id="arrh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--fg-muted)"/></marker></defs>
+      <text class="grp" x="308" y="22" text-anchor="middle">PREPROCESSING · TUTORIAL 03</text>
+      <path class="brace" d="M128 34 v-6 h360 v6"/>
+      <text class="grp" x="608" y="22" text-anchor="middle">NETWORK · TUTORIAL 04</text>
+      <path class="brace" d="M488 34 v-6 h240 v6" transform="translate(0,0)"/>
+      <text class="grp" x="843" y="22" text-anchor="middle">DECISION · TUTORIAL 08</text>
+      <path class="brace" d="M728 34 v-6 h230 v6"/>
+      <g transform="translate(0,46)">
+        <a href="03-preprocessing.html"><rect class="box" x="4" y="0" width="104" height="104" rx="10"/><text class="t1" x="56" y="32" text-anchor="middle">EEG</text><text class="t2" x="56" y="54" text-anchor="middle">electrode</text><text class="t2" x="56" y="70" text-anchor="middle">+ ADC</text><text class="t2" x="56" y="86" text-anchor="middle">250 Hz</text></a>
+        <a href="03-preprocessing.html"><rect class="box" x="124" y="0" width="104" height="104" rx="10"/><text class="t1" x="176" y="32" text-anchor="middle">Low-pass</text><text class="t2" x="176" y="54" text-anchor="middle">21-tap FIR</text><text class="t2" x="176" y="70" text-anchor="middle">about 30 Hz</text><text class="t2" x="176" y="86" text-anchor="middle">40 ms delay</text></a>
+        <a href="03-preprocessing.html"><rect class="box" x="244" y="0" width="104" height="104" rx="10"/><text class="t1" x="296" y="32" text-anchor="middle">Notch</text><text class="t2" x="296" y="54" text-anchor="middle">60 Hz mains</text><text class="t2" x="296" y="70" text-anchor="middle">(50 Hz in</text><text class="t2" x="296" y="86" text-anchor="middle">Europe)</text></a>
+        <a href="03-preprocessing.html"><rect class="box" x="364" y="0" width="120" height="104" rx="10"/><text class="t1" x="424" y="32" text-anchor="middle">Standardize</text><text class="t2" x="424" y="54" text-anchor="middle">running mean</text><text class="t2" x="424" y="70" text-anchor="middle">and variance</text><text class="t2" x="424" y="86" text-anchor="middle">(online)</text></a>
+        <a href="04-network.html"><rect class="box" x="500" y="0" width="104" height="104" rx="10"/><text class="t1" x="552" y="32" text-anchor="middle">CNN</text><text class="t2" x="552" y="54" text-anchor="middle">3 conv layers</text><text class="t2" x="552" y="70" text-anchor="middle">on a 54-sample</text><text class="t2" x="552" y="86" text-anchor="middle">window</text></a>
+        <a href="04-network.html"><rect class="box" x="620" y="0" width="104" height="104" rx="10"/><text class="t1" x="672" y="32" text-anchor="middle">GRU</text><text class="t2" x="672" y="54" text-anchor="middle">memory of</text><text class="t2" x="672" y="70" text-anchor="middle">8.5 s</text><text class="t2" x="672" y="86" text-anchor="middle">→ output 0 to 1</text></a>
+        <a href="08-realtime.html"><rect class="box" x="740" y="0" width="104" height="104" rx="10"/><text class="t1" x="792" y="32" text-anchor="middle">Threshold</text><text class="t2" x="792" y="54" text-anchor="middle">output ≥ θ ?</text><text class="t2" x="792" y="70" text-anchor="middle">(0.84 in</text><text class="t2" x="792" y="86" text-anchor="middle">the paper)</text></a>
+        <a href="08-realtime.html"><rect class="box" x="852" y="0" width="104" height="104" rx="10"/><text class="t1" x="904" y="32" text-anchor="middle">Stimulus</text><text class="t2" x="904" y="54" text-anchor="middle">e.g. a sound</text><text class="t2" x="904" y="70" text-anchor="middle">4 ms</text><text class="t2" x="904" y="86" text-anchor="middle">hardware delay</text></a>
+        <path class="arrow" d="M108 52 H122" marker-end="url(#arrh)"/>
+        <path class="arrow" d="M228 52 H242" marker-end="url(#arrh)"/>
+        <path class="arrow" d="M348 52 H362" marker-end="url(#arrh)"/>
+        <path class="arrow" d="M484 52 H498" marker-end="url(#arrh)"/>
+        <path class="arrow" d="M604 52 H618" marker-end="url(#arrh)"/>
+        <path class="arrow" d="M724 52 H738" marker-end="url(#arrh)"/>
+        <path class="arrow" d="M844 52 H850" marker-end="url(#arrh)"/>
+        <path class="arrow" d="M904 104 V140 H56 V108" marker-end="url(#arrh)" stroke-dasharray="5 4"/>
+        <text class="t2" x="480" y="160" text-anchor="middle">the stimulus changes the brain activity that is recorded next: the loop is closed</text>
+      </g>
+    </svg>
+    <svg class="pv" viewBox="0 0 360 760" role="img" aria-label="Pipeline, vertical layout">
+      <defs><marker id="arrv" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--fg-muted)"/></marker></defs>
+      <text class="grp" x="20" y="18">PREPROCESSING · TUTORIAL 03</text>
+      <a href="03-preprocessing.html"><rect class="box" x="20" y="28" width="300" height="56" rx="10"/><text class="t1" x="36" y="52">EEG electrode + ADC</text><text class="t2" x="36" y="72">sampled, then 250 Hz</text></a>
+      <a href="03-preprocessing.html"><rect class="box" x="20" y="108" width="300" height="56" rx="10"/><text class="t1" x="36" y="132">Low-pass 21-tap FIR</text><text class="t2" x="36" y="152">about 30 Hz, 40 ms delay</text></a>
+      <a href="03-preprocessing.html"><rect class="box" x="20" y="188" width="300" height="56" rx="10"/><text class="t1" x="36" y="212">Notch filter</text><text class="t2" x="36" y="232">60 Hz mains (50 Hz in Europe)</text></a>
+      <a href="03-preprocessing.html"><rect class="box" x="20" y="268" width="300" height="56" rx="10"/><text class="t1" x="36" y="292">Online standardization</text><text class="t2" x="36" y="312">running mean and variance</text></a>
+      <text class="grp" x="20" y="356">NETWORK · TUTORIAL 04</text>
+      <a href="04-network.html"><rect class="box" x="20" y="366" width="300" height="56" rx="10"/><text class="t1" x="36" y="390">CNN: 3 convolutional layers</text><text class="t2" x="36" y="410">on a 54-sample window (0.216 s)</text></a>
+      <a href="04-network.html"><rect class="box" x="20" y="446" width="300" height="56" rx="10"/><text class="t1" x="36" y="470">GRU memory (8.5 s)</text><text class="t2" x="36" y="490">output between 0 and 1</text></a>
+      <text class="grp" x="20" y="534">DECISION · TUTORIAL 08</text>
+      <a href="08-realtime.html"><rect class="box" x="20" y="544" width="300" height="56" rx="10"/><text class="t1" x="36" y="568">Threshold</text><text class="t2" x="36" y="588">output ≥ θ (0.84 in the paper)</text></a>
+      <a href="08-realtime.html"><rect class="box" x="20" y="624" width="300" height="56" rx="10"/><text class="t1" x="36" y="648">Stimulus</text><text class="t2" x="36" y="668">e.g. a sound, 4 ms hardware delay</text></a>
+      <path class="arrow" d="M290 84 V106" marker-end="url(#arrv)"/>
+      <path class="arrow" d="M290 164 V186" marker-end="url(#arrv)"/>
+      <path class="arrow" d="M290 244 V266" marker-end="url(#arrv)"/>
+      <path class="arrow" d="M290 324 V364" marker-end="url(#arrv)"/>
+      <path class="arrow" d="M290 422 V444" marker-end="url(#arrv)"/>
+      <path class="arrow" d="M290 502 V542" marker-end="url(#arrv)"/>
+      <path class="arrow" d="M290 600 V622" marker-end="url(#arrv)"/>
+      <path class="arrow" d="M320 652 H340 V56 H324" marker-end="url(#arrv)" stroke-dasharray="5 4"/>
+      <text class="t2" x="20" y="712">The stimulus changes the brain activity that is</text>
+      <text class="t2" x="20" y="728">recorded next: the loop is closed.</text>
+    </svg>
+    <figcaption>The Portiloop spindle pipeline. Preprocessing values come from the MATLAB/Simulink model in <code>portiloop_software/matlab/</code>; network sizes from <code>get_final_model_config_dict()</code>; delays from Table 2 of the paper [3]. The notch frequency must match the mains frequency of your country.</figcaption>
+  </figure>
+
+  <p>The numbers in the diagram are those of the published model, read from the code:</p>
+<pre data-file="portiloop_software/portiloop_python/ANN/portiloop_detector_training.py (excerpt of get_final_model_config_dict)"><code class="language-python">              'fe': 250,
+              ...
+              'nb_conv_layers': 3,
+              'seq_len': 50,
+              'nb_channel': 31,
+              'hidden_size': 7,
+              'seq_stride_s': 0.170,
+              'nb_rnn_layers': 1,
+              'RNN': True,
+              'envelope_input': False,
+              ...
+              'window_size_s': 0.218,
+              ...
+              'kernel_conv': 7,
+              'kernel_pool': 7,
+              ...
+              'time_in_past': 8.5,</code></pre>
+  <p>Reading it as a neuroscientist: the sampling rate <code>fe</code> is 250 Hz; the network looks at windows of <code>window_size_s</code> = 0.218 s, which the code turns into <code>int(0.218 * 250)</code> = 54 samples; three convolutional layers with 31 channels and kernels of 7 samples extract features from each window; a recurrent unit (GRU) with 7 hidden units remembers the last <code>seq_len</code> = 50 windows taken 0.17 s apart, which is the 8.5 s of <code>time_in_past</code>. The whole network has 25,679 trainable parameters, small enough to run on embedded hardware.</p>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: CNN and GRU in one paragraph</span>A <strong>convolutional layer</strong> slides a set of short learned kernels along the signal, like a bank of matched filters or receptive fields, and passes the result through a rectifier (ReLU: negative values become 0), a bit like a firing-rate nonlinearity. A <strong>recurrent layer</strong> (here a GRU, gated recurrent unit) keeps a small internal state that is updated at each step, combining the new input with what it remembered, like a leaky integrator whose leak is controlled by learned gates. The final output passes through a sigmoid, which squeezes it between 0 and 1. Tutorial <a href="04-network.html">04</a> opens the network up layer by layer.</div>
+
+  <!-- ===================================================================== -->
+  <h2 id="series">How this tutorial series is organized</h2>
+  <p>The tutorials follow the life of a detector, from data to device. Each page has interactive widgets that run in your browser; pages that need Python say so in their header.</p>
+  <table class="series-table">
+    <thead><tr><th>#</th><th>Tutorial</th><th>What it covers</th></tr></thead>
+    <tbody>
+      <tr><td>01</td><td><a href="01-introduction.html">Sleep spindles and closed-loop stimulation</a></td><td>This page: the scientific context and the pipeline.</td></tr>
+      <tr><td>02</td><td><a href="02-installation.html">Installation and data</a></td><td>Installing the code, downloading the dataset and pre-trained models, file formats, how subjects are split, a first sanity check.</td></tr>
+      <tr><td>03</td><td><a href="03-preprocessing.html">Signal preprocessing</a></td><td>The low-pass FIR, the notch, the online standardization, and the delays they introduce.</td></tr>
+      <tr><td>04</td><td><a href="04-network.html">Inside the network</a></td><td>The convolutional and recurrent layers of the detector, step by step.</td></tr>
+      <tr><td>05</td><td><a href="05-training.html">Training a new model</a></td><td>Running the training script, its options, and monitoring a run.</td></tr>
+      <tr><td>06</td><td><a href="06-evaluation.html">Evaluating a detector</a></td><td>Precision, recall, F1, thresholds, and sample-level versus event-level scoring.</td></tr>
+      <tr><td>07</td><td><a href="07-hyperparameter-search.html">Hyperparameter search</a></td><td>How the architecture was chosen under hardware constraints.</td></tr>
+      <tr><td>08</td><td><a href="08-realtime.html">Real-time simulation and stimulation</a></td><td>Simulating the device offline: when would it have stimulated, and how late.</td></tr>
+      <tr><td>09</td><td><a href="09-your-data.html">Detecting spindles in your own data</a></td><td>Preparing your recordings and running the pre-trained detector on them.</td></tr>
+      <tr><td>10</td><td><a href="10-deployment.html">Exporting and deploying</a></td><td>Exporting a trained model (ONNX, parameter files) for a device.</td></tr>
+    </tbody>
+  </table>
+  <div class="callout tip"><span class="callout-title">Suggested paths</span>To <em>use</em> the pre-trained detector on your data: 01, 02, 03, 09. To <em>train</em> your own: 01 to 06, then 07 if you want to change the architecture. To build a closed-loop experiment: 01, 03, 08, 10.</div>
+
+  <!-- ===================================================================== -->
+  <h2 id="exercises">Exercises</h2>
+
+  <details class="exercise"><summary>How narrow is the sigma band of the widget?</summary>
+    <p>In the "Anatomy of a spindle" widget, keep the duration at 1 s and the amplitude at 35 µV, set the background to 0, and read the envelope peak at 13 Hz, then at 9, 11, 16 and 18 Hz. By what factor does the envelope shrink at each frequency? What does this tell you about using a fixed 11 to 16 Hz band for subjects whose spindles are slower (for example, frontal "slow spindles" around 11 to 12 Hz)?</p>
+  </details>
+  <details class="solution"><summary>Answer</summary>
+    <p>The didactic filter is two cascaded resonators centered on 13.5 Hz. Its gain, computed with <code>PL.filters.freqz</code>, is about −0.3 dB at 13 Hz, −5.3 dB at 11 Hz (amplitude factor ≈ 0.54), −4.0 dB at 16 Hz (≈ 0.63), −13 dB at 9 Hz (≈ 0.22) and −8.7 dB at 18 Hz (≈ 0.37). The readout will differ slightly from these factors because the envelope is a running RMS over 0.2 s and the spindle is short. A slow spindle at 11 Hz therefore looks about half as large as an identical 13.5 Hz spindle: a fixed-band, fixed-threshold detector is biased against slow spindles. A learned detector like the Portiloop network can in principle adapt its filters, but only to what is in its training labels.</p>
+  </details>
+
+  <details class="exercise"><summary>Short events and the duration rule</summary>
+    <p>Set the duration to 0.4 s. Does the event satisfy the AASM definition? Would it survive the MODA duration rule? Now think about the online detector: at what moment can a real-time system know that an event will last at least 0.5 s?</p>
+  </details>
+  <details class="solution"><summary>Answer</summary>
+    <p>A 0.4 s event fails the AASM criterion (at least 0.5 s) but passes the MODA post-processing, which removes consensus events shorter than 0.3 s or longer than 2.5 s ("spindle longer than 2.5 s or shorter than 0.3 s were filtered out of the GC" [2]). Such short events do occur in the training labels: the very first 115 s block of the released dataset contains a labelled spindle of about 0.39 s (see Tutorial <a href="02-installation.html">02</a>). An online detector can only know that an event lasted 0.5 s after 0.5 s have passed, which is already most of an average 0.8 s spindle. This is why the Portiloop network must learn to bet on spindles from their first cycles, and why it sometimes stimulates events that turn out to be too short.</p>
+  </details>
+
+  <details class="exercise"><summary>The price of a high threshold</summary>
+    <p>In the online versus offline widget, run recording 4 to the end with threshold 0.5, then with 0.84. Write down the number of stimuli outside spindles, the number of spindles stimulated, and the median delay. Which setting would you choose for (a) an experiment where any stimulus outside a spindle may wake the participant, (b) an experiment that needs the stimulus as early as possible in the spindle?</p>
+  </details>
+  <details class="solution"><summary>Answer</summary>
+    <p>On this synthetic recording, the higher threshold sends fewer stimuli outside spindles, but it also misses some spindles and stimulates later in the ones it catches: exactly the trend the paper reports ("Increasing the threshold yields longer delays" [3]). For (a), favor precision: a high threshold, accepting later and fewer stimuli. For (b), favor timing: a lower threshold, accepting more false alarms, or train a model that is faster to react. The paper's choice of 0.84 maximizes the F1 of stimulation, a compromise between the two; Tutorials <a href="06-evaluation.html">06</a> and <a href="08-realtime.html">08</a> show how to choose a threshold on your own criteria.</p>
+  </details>
+
+  <!-- ===================================================================== -->
+  <h2 id="cite">How to cite</h2>
+  <p>If you use the Portiloop software, the pre-trained models or these tutorials in your work, cite the Portiloop paper [3]. If you use the pre-trained models or MASS data, also cite MODA [2] and MASS [4], as required by their maintainers (MASS asks users to state which subsets they used).</p>
+<pre data-file="portiloop.bib"><code class="language-none">@article{valenchon2022portiloop,
+  author  = {Valenchon, Nicolas and Bouteiller, Yann and Jourde, Hugo R. and L'Heureux, Xavier and Sobral, Milo and Coffey, Emily B. J. and Beltrame, Giovanni},
+  title   = {The Portiloop: A deep learning-based open science tool for closed-loop brain stimulation},
+  journal = {PLOS ONE},
+  year    = {2022},
+  volume  = {17},
+  number  = {8},
+  pages   = {e0270696},
+  doi     = {10.1371/journal.pone.0270696}
+}
+
+@article{lacourse2020moda,
+  author  = {Lacourse, Karine and Yetton, Ben and Mednick, Sara and Warby, Simon C.},
+  title   = {Massive online data annotation, crowdsourcing to generate high quality sleep spindle annotations from {EEG} data},
+  journal = {Scientific Data},
+  year    = {2020},
+  volume  = {7},
+  pages   = {190},
+  doi     = {10.1038/s41597-020-0533-4}
+}
+
+@article{oreilly2014mass,
+  author  = {O'Reilly, Christian and Gosselin, Nadia and Carrier, Julie and Nielsen, Tore},
+  title   = {Montreal Archive of Sleep Studies: an open-access resource for instrument benchmarking and exploratory research},
+  journal = {Journal of Sleep Research},
+  year    = {2014},
+  volume  = {23},
+  number  = {6},
+  pages   = {628--635},
+  doi     = {10.1111/jsr.12169}
+}</code></pre>
+  <p>The paper is also available as a preprint: <a href="https://arxiv.org/abs/2107.13473">arXiv:2107.13473</a>. The code is released under the MIT License.</p>
+
+  <h2 id="references">References</h2>
+  <ol class="refs">
+    <li>Fernandez LMJ, Lüthi A (2020). Sleep spindles: mechanisms and functions. <em>Physiological Reviews</em> 100(2): 805 to 868. <a href="https://doi.org/10.1152/physrev.00042.2018">doi:10.1152/physrev.00042.2018</a></li>
+    <li>Lacourse K, Yetton B, Mednick S, Warby SC (2020). Massive online data annotation, crowdsourcing to generate high quality sleep spindle annotations from EEG data. <em>Scientific Data</em> 7: 190. <a href="https://doi.org/10.1038/s41597-020-0533-4">doi:10.1038/s41597-020-0533-4</a> (open access, also on <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC7305234/">PubMed Central</a>)</li>
+    <li>Valenchon N, Bouteiller Y, Jourde HR, L'Heureux X, Sobral M, Coffey EBJ, Beltrame G (2022). The Portiloop: a deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a>; preprint <a href="https://arxiv.org/abs/2107.13473">arXiv:2107.13473</a></li>
+    <li>O'Reilly C, Gosselin N, Carrier J, Nielsen T (2014). Montreal Archive of Sleep Studies: an open-access resource for instrument benchmarking and exploratory research. <em>Journal of Sleep Research</em> 23(6): 628 to 635. <a href="https://doi.org/10.1111/jsr.12169">doi:10.1111/jsr.12169</a></li>
+    <li>Ngo HVV, Martinetz T, Born J, Mölle M (2013). Auditory closed-loop stimulation of the sleep slow oscillation enhances memory. <em>Neuron</em> 78(3): 545 to 553. <a href="https://doi.org/10.1016/j.neuron.2013.03.006">doi:10.1016/j.neuron.2013.03.006</a></li>
+  </ol>
+
+</article>
+</main>
+
+<script src="../assets/js/portiloop.js"></script>
+<script src="../assets/js/nav.js"></script>
+<script>
+/* ---------------------------------------------------------------- shared helpers */
+function plMedian(a) {
+  if (!a.length) return NaN;
+  const s = a.slice().sort(function (x, y) { return x - y; });
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : 0.5 * (s[m - 1] + s[m]);
+}
+/* hex color (#rrggbb) from a CSS token to rgba with alpha; falls back to the input */
+function plAlpha(c, a) {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec((c || "").trim());
+  if (!m) return c;
+  return "rgba(" + parseInt(m[1], 16) + "," + parseInt(m[2], 16) + "," + parseInt(m[3], 16) + "," + a + ")";
+}
+
+/* ---------------------------------------------------------------- widget 1: anatomy of a spindle */
+(function () {
+  const $ = PL.ui.$;
+  const T0 = 3;          // spindle start (s)
+  let seed = 7, cur = null;
+
+  function compute() {
+    const f = parseFloat($("#an-f").value), d = parseFloat($("#an-d").value);
+    const a = parseFloat($("#an-a").value), bg = parseFloat($("#an-bg").value);
+    const s = PL.synth.nrem({
+      duration_s: 8, seed: seed, spindleTimes: [T0], spindleFreq: [f, f], spindleDur: [d, d],
+      spindleAmp: [a, a], backgroundAmp: bg, slowWaveAmp: bg * 1.25, kComplexes: false,
+    });
+    const se = PL.filters.sigmaEnvelope(s.signal, PL.FS, 0.2);
+    cur = { s: s, band: se.band, env: se.envelope, f: f, d: d, a: a };
+  }
+
+  function draw() {
+    if (!cur) return;
+    const t = cur.s.t, sp = cur.s.spindles[0];
+    const reg = [{ x0: sp.start, x1: sp.end, label: "Spindle" }];
+    PL.plot($("#an-raw"), {
+      xRange: [0, 8], yRange: [-100, 100], yLabel: "µV", regions: reg,
+      series: [{ x: t, y: cur.s.signal, color: PL.color("signal"), width: 1.1, label: "Raw EEG" }],
+    });
+    // envelope statistics
+    const env = cur.env;
+    let ip = 0;
+    const lo = Math.round(1 * PL.FS), hi = Math.round(7.5 * PL.FS);
+    for (let i = lo; i < hi; i++) if (env[i] > env[ip] || ip < lo) ip = i;
+    const peak = env[ip], half = peak / 2;
+    let a = ip, b = ip;
+    while (a > 0 && env[a - 1] >= half) a--;
+    while (b < env.length - 1 && env[b + 1] >= half) b++;
+    const fwhm = (b - a + 1) / PL.FS;
+    const lagMs = (ip / PL.FS - (sp.start + sp.end) / 2) * 1000;
+    PL.plot($("#an-sigma"), {
+      xRange: [0, 8], yRange: [-60, 60], xLabel: "Time (s)", yLabel: "µV", regions: reg,
+      series: [
+        { x: t, y: cur.band, color: PL.color("signal"), width: 1, label: "Sigma-band signal" },
+        { x: t, y: env, color: PL.color("model"), width: 2.2, label: "Envelope" },
+      ],
+      hlines: [{ y: half, label: "half of the peak", color: PL.color("text") }],
+      markers: [{ x: ip / PL.FS, color: PL.color("model"), shape: "triangle" }],
+    });
+    $("#an-peak").textContent = peak.toFixed(0) + " µV";
+    $("#an-fwhm").textContent = fwhm.toFixed(2) + " s";
+    $("#an-lag").textContent = (lagMs >= 0 ? "+" : "") + lagMs.toFixed(0) + " ms";
+    const aasm = cur.f >= 11 && cur.f <= 16 && cur.d >= 0.5 && cur.a > 0;
+    $("#an-aasm").textContent = aasm ? "meets the definition" : "does not meet it";
+    $("#an-moda").textContent = cur.d >= 0.3 && cur.d <= 2.5 ? "kept" : "removed";
+  }
+
+  function update() { compute(); draw(); }
+  PL.ui.bind("#an-f", update, function (v) { return v.toFixed(2) + " Hz"; });
+  PL.ui.bind("#an-d", update, function (v) { return v.toFixed(2) + " s"; });
+  PL.ui.bind("#an-a", update, function (v) { return v.toFixed(0) + " µV"; });
+  PL.ui.bind("#an-bg", update, function (v) { return v.toFixed(0) + " µV"; });
+  $("#an-new").addEventListener("click", function () { seed = 1 + ((seed * 7919) % 997); update(); });
+  PL.onRedraw(draw);
+  update();
+})();
+
+/* ---------------------------------------------------------------- widget 2: online versus offline */
+(function () {
+  const $ = PL.ui.$;
+  const DUR = 40, WARM = 10, FS = PL.FS;
+  let model = null, D = null, playing = false, last = null, playT = parseFloat($("#ovo-t").value);
+  let stimAll = [];
+
+  // Zero-phase (forward-backward) sigma band-pass and centered RMS envelope: an OFFLINE tool.
+  function zeroPhaseSigma(x) {
+    const bp = PL.filters.bandpass(13.5, 2.2, FS);
+    let y = PL.filters.apply(new PL.filters.Biquad(bp), x);
+    y = PL.filters.apply(new PL.filters.Biquad(bp), y.slice().reverse()).reverse();
+    const W = Math.round(0.3 * FS), h = Math.floor(W / 2), n = x.length;
+    const c = new Float64Array(n + 1), env = new Float64Array(n);
+    for (let i = 0; i < n; i++) c[i + 1] = c[i] + y[i] * y[i];
+    for (let i = 0; i < n; i++) {
+      const a = Math.max(0, i - h), b = Math.min(n, i + h + 1);
+      env[i] = Math.sqrt((c[b] - c[a]) / (b - a)) * Math.SQRT2;
+    }
+    return env;
+  }
+
+  function compute(seed) {
+    const data = PL.synth.nrem({ duration_s: DUR, seed: seed, spindleRate_per_min: 10 });
+    const pre = PL.preprocess(data.signal);
+    const out = model.runStream(pre.standardized);
+    const n = data.signal.length;
+    const eeg = new Float64Array(n);
+    for (let i = 0; i < n; i++) eeg[i] = pre.standardized[i] * 0.3 + 3.9;
+    const outT = new Float64Array(out.idx.length);
+    for (let k = 0; k < out.idx.length; k++) outT[k] = out.idx[k] / FS;
+    // offline detector: detect with a high threshold, then extend both boundaries with a lower one
+    const env = zeroPhaseSigma(data.signal);
+    const med = plMedian(Array.from(env));
+    const envPlot = new Float64Array(n);
+    for (let i = 0; i < n; i++) envPlot[i] = Math.min(2.4, (env[i] / med) * 0.4);
+    let ev = PL.metrics.toEvents(Array.from(env, function (v) { return v > 2.5 * med; }))
+      .filter(function (e) { return e.end - e.start >= 0.25 * FS; });
+    ev = ev.map(function (e) {
+      let a = e.start, b = e.end;
+      while (a > 0 && env[a - 1] > 1.2 * med) a--;
+      while (b < n && env[b] > 1.2 * med) b++;
+      return { start: a, end: b };
+    });
+    // merge overlapping events after extension
+    const merged = [];
+    ev.forEach(function (e) {
+      const p = merged[merged.length - 1];
+      if (p && e.start <= p.end) p.end = Math.max(p.end, e.end); else merged.push({ start: e.start, end: e.end });
+    });
+    const detBar = new Float64Array(n).fill(NaN);
+    merged.forEach(function (e) { for (let i = e.start; i < e.end; i++) detBar[i] = 2.7; });
+    D = { data: data, eeg: eeg, out: out, outT: outT, envPlot: envPlot, offEv: merged, detBar: detBar };
+    computeStims();
+  }
+
+  function computeStims() {
+    if (!D) return;
+    const thr = parseFloat($("#ovo-thr").value), warm = $("#ovo-warm").checked;
+    stimAll = [];
+    let prev = false;
+    for (let k = 0; k < D.out.y.length; k++) {
+      const a = D.out.y[k] >= thr;
+      if (a && !prev && (warm || D.outT[k] >= WARM)) stimAll.push(D.outT[k]);
+      prev = a;
+    }
+  }
+
+  function countUpTo(n, T) { // number of samples with time <= T
+    return Math.max(0, Math.min(n, Math.floor(T * FS) + 1));
+  }
+  function countOut(T) { // number of network outputs with time <= T
+    let lo = 0, hi = D.outT.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (D.outT[m] <= T) lo = m + 1; else hi = m; }
+    return lo;
+  }
+
+  function draw() {
+    if (!D) return;
+    const T = playT, thr = parseFloat($("#ovo-thr").value), warm = $("#ovo-warm").checked;
+    const n = D.eeg.length, ns = countUpTo(n, T), no = countOut(T);
+    const lab = PL.color("label");
+    const spReg = D.data.spindles.filter(function (s) { return s.start <= T; })
+      .map(function (s, i) { return { x0: s.start, x1: Math.min(s.end, T), color: lab, label: i === 0 ? "Spindle (true)" : undefined }; });
+    const regions = spReg.concat([
+      { x0: T, x1: DUR, color: PL.color("grid") },
+      { x0: 0, x1: WARM, color: plAlpha(PL.color("c4"), 0.07) },
+    ]);
+    const stims = stimAll.filter(function (s) { return s <= T; });
+    PL.plot($("#ovo-online"), {
+      xRange: [0, DUR], yRange: [-0.15, 5.4], xLabel: "Time (s)", regions: regions,
+      series: [
+        { x: D.data.t.subarray(0, ns), y: D.eeg.subarray(0, ns), color: PL.color("signal"), width: 1, label: "EEG (standardized)" },
+        { x: D.outT.subarray(0, no), y: D.out.y.subarray(0, no), color: PL.color("model"), width: 1.7, label: "Network output" },
+      ],
+      hlines: [{ y: thr, label: "threshold " + thr.toFixed(2), color: PL.color("warn") }],
+      markers: stims.map(function (s) { return { x: s, color: PL.color("stim"), width: 1.6 }; })
+        .concat([{ x: WARM, color: PL.color("grid"), width: 1, label: "warm-up ends" }, { x: T, color: PL.color("accent"), width: 2, label: "now" }]),
+    });
+    PL.plot($("#ovo-offline"), {
+      xRange: [0, DUR], yRange: [-0.15, 5.4], xLabel: "Time (s)",
+      regions: D.data.spindles.map(function (s, i) { return { x0: s.start, x1: s.end, color: lab, label: i === 0 ? "Spindle (true)" : undefined }; }),
+      series: [
+        { x: D.data.t, y: D.eeg, color: PL.color("signal"), width: 1, label: "EEG" },
+        { x: D.data.t, y: D.envPlot, color: PL.color("c3"), width: 1.4, label: "Zero-phase sigma envelope" },
+        { x: D.data.t, y: D.detBar, color: PL.color("c4"), width: 6, label: "Offline detection" },
+      ],
+      hlines: [{ y: 1.0, color: PL.color("text"), label: "detection threshold" }, { y: 0.48, color: PL.color("grid"), dash: [2, 3] }],
+      markers: [{ x: T, color: PL.color("accent"), width: 2 }],
+    });
+    // readouts, over the part of the recording already seen (after warm-up unless ticked)
+    const tMin = warm ? 0 : WARM;
+    const passed = D.data.spindles.filter(function (s) { return s.start <= T && s.start >= tMin; });
+    let hits = 0; const delays = [], offErr = [];
+    passed.forEach(function (s) {
+      const st = stims.find(function (x) { return x >= s.start && x <= s.end; });
+      if (st !== undefined) { hits++; delays.push((st - s.start) * 1000); }
+    });
+    // the offline detector has the whole recording, so its error does not depend on the playhead
+    D.data.spindles.filter(function (s) { return s.start >= tMin; }).forEach(function (s) {
+      const e = D.offEv.find(function (e) { return e.end / FS > s.start && e.start / FS < s.end; });
+      if (e) offErr.push((e.start / FS - s.start) * 1000);
+    });
+    const outside = stims.filter(function (x) {
+      return !D.data.spindles.some(function (s) { return x >= s.start && x <= s.end; });
+    }).length;
+    $("#ovo-n").textContent = String(stims.length);
+    $("#ovo-hit").textContent = hits + " / " + passed.length;
+    $("#ovo-fa").textContent = String(outside);
+    const md = plMedian(delays), mo = plMedian(offErr);
+    $("#ovo-delay").textContent = isFinite(md) ? md.toFixed(0) + " ms" : "n/a";
+    $("#ovo-off").textContent = isFinite(mo) ? (mo >= 0 ? "+" : "") + mo.toFixed(0) + " ms" : "n/a";
+  }
+
+  function setT(v) {
+    playT = Math.max(0, Math.min(DUR, v));
+    const s = $("#ovo-t"); s.value = playT;
+    const o = PL.ui.$('output[for="ovo-t"]'); if (o) o.textContent = playT.toFixed(1) + " s";
+  }
+  function tick(ts) {
+    if (!playing) { last = null; return; }
+    if (last === null) last = ts;
+    const dt = Math.min(0.1, (ts - last) / 1000); last = ts;
+    setT(playT + dt * parseFloat($("#ovo-speed").value));
+    draw();
+    if (playT >= DUR) { playing = false; last = null; $("#ovo-play").textContent = "Play"; return; }
+    requestAnimationFrame(tick);
+  }
+  function play() {
+    if (!D) return;
+    if (playT >= DUR) setT(0);
+    playing = !playing;
+    $("#ovo-play").textContent = playing ? "Pause" : "Play";
+    if (playing) requestAnimationFrame(tick);
+  }
+
+  PL.ui.bind("#ovo-t", function (v) { playT = v; draw(); }, function (v) { return v.toFixed(1) + " s"; });
+  PL.ui.bind("#ovo-thr", function () { computeStims(); draw(); }, function (v) { return v.toFixed(2); });
+  PL.ui.bind("#ovo-warm", function () { computeStims(); draw(); }, function () { return ""; });
+  PL.ui.bind("#ovo-seed", function (v) {
+    if (!model) return;
+    $("#ovo-status").textContent = "Running the network on recording " + v + "…";
+    setTimeout(function () { compute(v); draw(); $("#ovo-status").textContent = statusText; }, 20);
+  });
+  $("#ovo-play").addEventListener("click", play);
+  $("#ovo-restart").addEventListener("click", function () { setT(0); draw(); if (!playing) play(); });
+  PL.onRedraw(draw);
+
+  let statusText = "";
+  PL.loadModel().then(function (m) {
+    model = m;
+    compute(parseInt($("#ovo-seed").value, 10));
+    statusText = "Pre-trained Portiloop network loaded (" + m.nParameters.toLocaleString("en-US") +
+      " parameters), running locally in your browser; output every 5 samples (20 ms).";
+    $("#ovo-status").textContent = statusText;
+    $("#ovo-play").disabled = false; $("#ovo-restart").disabled = false;
+    draw();
+  }).catch(function (e) {
+    $("#ovo-status").textContent = "Could not load the model: " + e.message + " (the pages must be served over HTTP, see docs/README.md).";
+  });
+})();
+</script>
+</body>
+</html>

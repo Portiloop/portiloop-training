@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>08 · Real-time simulation and stimulation · Portiloop tutorials</title>
+  <meta name="description" content="How a trained Portiloop network becomes a closed-loop spindle detector: the 250 Hz sample stream, eight interleaved hidden states, the latency budget, the stimulation rule, and the simulation notebook.">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <style>
+    /* page-local styles for tutorial 08 */
+    .chain { list-style: none; padding: 0; margin: 1.2em 0; display: flex; flex-wrap: wrap; gap: 10px 22px; counter-reset: none; }
+    .chain li { position: relative; margin: 0; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 14px; line-height: 1.3; }
+    .chain li .d { display: block; font-size: 12px; color: var(--fg-muted); }
+    .chain li.hw { border-left: 4px solid var(--plot-c4); }
+    .chain li.sw { border-left: 4px solid var(--plot-c1); }
+    .chain li.nn { border-left: 4px solid var(--plot-c2); }
+    .chain li:not(:last-child)::after { content: "→"; position: absolute; right: -18px; top: 50%; transform: translateY(-50%); color: var(--fg-muted); }
+    .btnrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .scope-hist-wrap { margin-top: 10px; }
+    .lat-scale { position: relative; margin: 14px 0 4px; }
+    .lat-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; align-items: center; margin: 6px 0; font-size: 13px; color: var(--fg-muted); }
+    .lat-track { position: relative; height: 30px; background: var(--bg-sunk); border-radius: 6px; overflow: hidden; }
+    .lat-track > span { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; padding-left: 5px; font-size: 12px; font-weight: 600; color: var(--bg-elev); white-space: nowrap; overflow: hidden; }
+    .lat-track .lost { background: repeating-linear-gradient(45deg, var(--bg-sunk), var(--bg-sunk) 5px, var(--border) 5px, var(--border) 10px); color: var(--fg-muted); }
+    .lat-track .left { background: var(--tip); }
+    .lat-track .cursor { width: 2px; padding: 0; background: var(--plot-stim); }
+    .lat-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--fg-muted); margin-top: 6px; }
+    .lat-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; }
+    .note-small { font-size: 0.9em; color: var(--fg-muted); }
+    .kv { font-variant-numeric: tabular-nums; }
+    .katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+  </style>
+</head>
+<body data-page="08-realtime" data-root="..">
+<main>
+<article class="content">
+
+  <div class="eyebrow">Tutorial 08 · Using your model</div>
+  <h1>Real-time simulation and stimulation</h1>
+  <p class="lead">A detector that scores well offline is not yet a closed-loop device. In this tutorial you stream EEG through the real Portiloop network sample by sample, see why it keeps eight hidden states instead of one, add up every millisecond between a spindle's onset and the sound reaching the sleeper, and run the repository's simulation notebook with your own trained model.</p>
+
+  <dl class="meta">
+    <div><dt>Time</dt><dd>45 to 60 minutes</dd></div>
+    <div><dt>Level</dt><dd>Intermediate</dd></div>
+    <div><dt>You need</dt><dd><a href="03-preprocessing.html">03</a> and <a href="04-network.html">04</a>; <a href="05-training.html">05</a> for your own model</dd></div>
+    <div><dt>Runs in browser</dt><dd>Widgets yes; the notebook needs the dataset of <a href="02-installation.html">02</a></dd></div>
+  </dl>
+
+  <div class="objectives">
+    <h3>In this tutorial you will</h3>
+    <ul>
+      <li>Follow one EEG sample from the electrode to a stimulation decision, and name every source of delay</li>
+      <li>Understand the eight interleaved hidden states (the "virtual parallel networks" of the paper) and why they are needed</li>
+      <li>Watch a live closed loop: the published network, the Portiloop filters and the stimulation rule, running in your browser</li>
+      <li>Read and modify <code>simulate_Portiloop_1_input_classification.ipynb</code> to evaluate your own trained model as a stimulation device</li>
+      <li>Interpret the notebook's stimulation statistics and its Captum attribution plots</li>
+    </ul>
+  </div>
+
+  <h2 id="overview">From offline scores to a closed loop</h2>
+  <p>In <a href="06-evaluation.html">tutorial 06</a> the network was judged sample by sample: is this 4 ms point inside a spindle or not? A stimulation experiment asks a different question: <em>did one sound arrive while the spindle was still going on, and only one?</em> The Portiloop paper makes this distinction explicitly [1]:</p>
+  <blockquote class="callout note"><span class="callout-title">Valenchon et al. (2022), section 6.1</span>"The performance measured in the previous section is not entirely representative of the performance on the final task. So far, we have only measured the capability of the model to annotate each data point of the signal individually. Yet, we want the ability to send one single stimulation per sleep spindle."</blockquote>
+  <p>Between the brain and the speaker, the signal goes through a chain of stages. Coloured edges: purple for the acquisition and output hardware, blue for signal processing, orange for the network:</p>
+  <ol class="chain" aria-label="Closed-loop processing chain">
+    <li class="hw">Electrodes and ADC<span class="d">one sample every 4 ms (250 Hz)</span></li>
+    <li class="sw">FIR lowpass, 21 taps<span class="d">40 ms group delay</span></li>
+    <li class="sw">60 Hz notch<span class="d">IIR, one biquad</span></li>
+    <li class="sw">Online standardization<span class="d">running mean and variance</span></li>
+    <li class="nn">Window of 54 samples<span class="d">0.216 s of signal</span></li>
+    <li class="nn">Network forward pass<span class="d">20 ms on the FPGA [1]</span></li>
+    <li class="sw">Threshold and refractory rule<span class="d">one stimulus per spindle</span></li>
+    <li class="hw">Sound<span class="d">4 ms with a basic sound controller [1]</span></li>
+  </ol>
+  <p>The filters were covered in <a href="03-preprocessing.html">tutorial 03</a> and the network in <a href="04-network.html">tutorial 04</a>. Here we focus on what happens when these pieces run <em>continuously</em>, against the clock.</p>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists</span>Think of the device as a participant in a reaction-time task. The "stimulus" is the spindle onset, the "response" is the sound. Part of the reaction time is perceptual (the network must see enough cycles to be confident), part is motor (the sound hardware), and part is conduction (the filters). Just as in psychophysics, you cannot remove the perceptual part without increasing errors: a lower detection threshold answers faster but also "responds" to things that are not spindles. The paper notes that each spindle cycle is "only ~60 ms long and the entire spindle is between 0.5 and 2.5 s" [1], so every few tens of milliseconds matter.</div>
+
+  <h2 id="stream">The sample stream and the 20 ms rhythm</h2>
+  <p>The Portiloop samples the EEG at 250 Hz, so a new value arrives every 4 ms. The network cannot run that often: the paper reports "We measure the execution time of this architecture to be 20 ms per forward pass on the Portiloop" [1] (FPGA version). The simulation notebook encodes this as a number of samples:</p>
+<pre data-file="notebooks/simulate_Portiloop_1_input_classification.ipynb (cell 8, excerpt)"><code class="language-python">FPGA_NN_EXEC_TIME = 5  # equivalent to 20 ms
+ERROR_FPGA_EXEC_TIME = 0  # to be sure there is no overlap</code></pre>
+  <p>Five samples at 4 ms each is 20 ms. <code>ERROR_FPGA_EXEC_TIME</code> is a safety margin (in samples) that you can add if your hardware's inference time fluctuates; it is 0 in the notebook. So at most one window can be evaluated every 5 samples. Each window is the last 54 standardized samples (<code>int(0.218 * 250) = 54</code>, about 0.22 s), ending at the newest sample. Consecutive windows therefore overlap by 49 samples: the network looks at almost the same stretch of signal, shifted by 20 ms.</p>
+
+  <h2 id="interleaved">Why eight hidden states?</h2>
+  <p>The network ends with a GRU, a recurrent layer whose 7-number <em>hidden state</em> carries a memory of previous windows (<a href="04-network.html">tutorial 04</a>). During training, the GRU was not fed overlapping windows 20 ms apart. It was fed sequences of 50 windows spaced by <code>seq_stride_s = 0.17</code> s, that is <code>int(0.17 * 250) = 42</code> samples or 168 ms. The paper calls this spacing time dilation: "the time-dilation (set to 168 ms by PMBO)" [1]. A sequence of 50 such windows covers about 8.4 s of EEG, which is what lets the network use context well beyond one window (the config entry <code>'time_in_past': 8.5</code>).</p>
+  <p>The hidden state has therefore learned dynamics that assume <strong>168 ms between updates</strong>. If we fed it a window every 20 ms, its memory would evolve about eight times too fast, a regime it never saw. The solution is to keep several independent copies of the hidden state and use them in turn (round robin):</p>
+  $$n_\text{parallel} = \left\lfloor \frac{\text{seq\_stride}}{\text{FPGA\_NN\_EXEC\_TIME} + \text{ERROR\_FPGA\_EXEC\_TIME}} \right\rfloor = \left\lfloor \frac{42}{5} \right\rfloor = 8$$
+<pre data-file="notebooks/simulate_Portiloop_1_input_classification.ipynb (cell 6, simulate(), excerpt)"><code class="language-python">    nb_parallel_runs = seq_stride // (FPGA_NN_EXEC_TIME + ERROR_FPGA_EXEC_TIME)
+    print(f"seq_stride: {seq_stride}")
+    print(f"FPGA_NN_EXEC_TIME + ERROR_FPGA_EXEC_TIME: {FPGA_NN_EXEC_TIME + ERROR_FPGA_EXEC_TIME}")
+    print(f"nb_parallel_runs: {nb_parallel_runs}")
+    stride_between_runs = seq_stride // nb_parallel_runs</code></pre>
+  <p>Hidden state 1 sees windows ending at samples 53, 95, 137, ... (42 apart); state 2 sees the windows 5 samples later; and so on. Each state lives in the 168 ms world it was trained in, yet together they produce a fresh output about every 20 ms. The paper calls these "decoupled virtual parallel networks" [1] and shows they matter: when the time dilation is shrunk to 20 ms so that a single state must be used, "the highly deteriorated results illustrate the importance of time-dilation" [1].</p>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists</span>Picture eight observers watching the same EEG monitor, each glancing at it once every 168 ms, with their glances staggered by 20 ms. Each observer keeps their own running impression of the last few seconds. Any single observer is slow, but at every moment one of them has just looked. Nothing is shared between observers, which is why the paper calls them "decoupled".</div>
+
+  <h3 id="schedules">Three ways to fit 8 windows into 42 samples</h3>
+  <p>Eight windows 5 samples apart span 40 samples, not 42, so the two extra samples must go somewhere. The code in the Portiloop ecosystem does this in three slightly different ways; all keep 8 hidden states:</p>
+  <table>
+    <thead><tr><th>Where</th><th>Gaps between consecutive windows (samples)</th><th>Spacing seen by each hidden state</th></tr></thead>
+    <tbody>
+      <tr><td>Simulation notebook (<code>ValidationSampler</code> with <code>network_stride = stride_between_runs = 5</code>)</td><td>5, 5, 5, 5, 5, 5, 5, 7</td><td>exactly 42</td></tr>
+      <tr><td>Device software, <a href="https://github.com/Portiloop/portiloop-software">portiloop-software</a> (<code>stride_counters</code>)</td><td>5, 5, 5, 6, 5, 5, 5, 6</td><td>exactly 42</td></tr>
+      <tr><td>This website, <code>PL.PortiloopModel.prototype.runStream</code></td><td>5, 5, 5, 5, 5, 5, 5, 5</td><td>40 (an approximation)</td></tr>
+    </tbody>
+  </table>
+  <p>The device code computes its gaps from the same two numbers:</p>
+<pre data-file="portiloop-software: portiloop/src/custom/custom_detectors.py (SleepSpindleRealTimeDetector.__init__, excerpt; same on branches main and rdkx5)"><code class="language-python">        num_models_parallel = 8
+        window_size = 54
+        seq_stride = 42
+...
+        self.stride_counters = [np.floor((self.seq_stride / self.num_models_parallel) * (i + 1)) for i in range(self.num_models_parallel)]
+        for idx in reversed(range(1, len(self.stride_counters))):
+            self.stride_counters[idx] -= self.stride_counters[idx-1]
+        assert sum(self.stride_counters) == self.seq_stride, f"{self.stride_counters} does not sum to {self.seq_stride}"</code></pre>
+  <p>In the notebook, the extra 2 samples appear as the <code>adder = 2</code> applied every 8th output (<code>if (i+1)%nb_samp ==0</code>) when outputs are mapped back to sample indices. The live oscilloscope below lets you switch between the three schedules.</p>
+
+  <div class="widget" id="ilv">
+    <div class="widget-title">Interleaved hidden states</div>
+    <p class="widget-desc">Each coloured bar is one 54-sample window; its row is the hidden state that processes it. The vertical line is "now", in slow motion (about 25 times slower than real time). The arcs show the spacing seen by the most recent state. <strong>What to try:</strong> set the network stride to 7 (6 states, every schedule agrees); set it to 4 (10 states, but 16 ms is shorter than the 20 ms forward pass); set the sequence stride to 5 to reproduce the paper's "no time dilation" ablation (a single state).</p>
+    <div class="controls">
+      <label for="ilv-stride">Network stride <input type="range" id="ilv-stride" min="2" max="21" step="1" value="5"><output for="ilv-stride"></output></label>
+      <label for="ilv-seq">Sequence stride <input type="range" id="ilv-seq" min="5" max="84" step="1" value="42"><output for="ilv-seq"></output></label>
+      <label for="ilv-sched">Schedule <select id="ilv-sched"><option value="notebook">Notebook</option><option value="device">Device software</option><option value="uniform">Uniform (runStream)</option></select></label>
+      <button class="btn secondary" id="ilv-play" type="button">Pause</button>
+    </div>
+    <canvas class="plot tall" id="ilv-canvas" aria-label="Animated diagram of windows dispatched to interleaved hidden states"></canvas>
+    <div class="readout">
+      <div><div class="k">Hidden states</div><div class="v" id="ilv-n">8</div></div>
+      <div><div class="k">Gaps (samples)</div><div class="v" id="ilv-gaps" style="font-size:1rem">…</div></div>
+      <div><div class="k">Spacing per state</div><div class="v" id="ilv-spacing">…</div></div>
+      <div><div class="k">Outputs per second</div><div class="v" id="ilv-rate">…</div></div>
+    </div>
+    <div class="status" id="ilv-status"></div>
+  </div>
+
+  <h2 id="latency">Latency: where the milliseconds go</h2>
+  <p>The paper measured each delay on the FPGA version of the Portiloop and summarized them in its Table 2 (reproduced here; "~" marks the variable part):</p>
+  <table>
+    <caption class="note-small" style="caption-side: bottom; text-align: left;">Table 2 of Valenchon et al. (2022) [1], "Delays measured in the Portiloop (sleep spindle configuration)".</caption>
+    <thead><tr><th>Component</th><th>Hardware delay</th><th>Software delay</th></tr></thead>
+    <tbody>
+      <tr><td>Electrodes + ADC</td><td>-</td><td>-</td></tr>
+      <tr><td>Filters</td><td>-</td><td>40 ms</td></tr>
+      <tr><td>ANN</td><td>20 ms</td><td>~250 (± 100) ms</td></tr>
+      <tr><td>Stimulus</td><td>4 ms</td><td>-</td></tr>
+      <tr><td><strong>Total: ~314 ms</strong></td><td>24 ms</td><td>290 (± 100) ms</td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li><strong>Filters, 40 ms (constant).</strong> The 21-tap linear-phase FIR delays every frequency by half its length: 10 samples = 40 ms (<a href="03-preprocessing.html">tutorial 03</a>). The paper designed both preprocessing branches "so that they introduce identical software delays to their respective outputs (i.e., 40 ms at 250 Hz sampling rate with FIR filters of order 20)" [1].</li>
+    <li><strong>ANN forward pass, 20 ms (constant).</strong> The time to compute one output once its window is complete.</li>
+    <li><strong>Stimulus, 4 ms (constant).</strong> "We measure an auditory stimulation delay of 4 ms when using a basic sound controller, for a total constant delay of 64 ms" [1].</li>
+    <li><strong>Detection delay, about 250 ms (variable).</strong> The network needs to see part of the spindle before its output crosses the threshold. This is the largest term, and the paper notes that "Training a faster model is thus a potential avenue for future work" [1].</li>
+  </ul>
+  <p>The constant part is exactly the notebook's <code>constant_delay_s</code>:</p>
+<pre data-file="notebooks/simulate_Portiloop_1_input_classification.ipynb (cell 10)"><code class="language-python">seq_stride = int(config_dict["seq_stride_s"]*config_dict["fe"])
+network_stride = 5
+nb_samp = 8
+window_size = int(config_dict["window_size_s"]*config_dict["fe"])
+max_time_stimulate_s = 0.25
+constant_delay_s = 0.064
+
+print(f"seq_stride: {seq_stride}")</code></pre>
+  <p><code>constant_delay_s = 0.064</code> is 40 + 20 + 4 ms. It is <em>added</em> in the notebook because the notebook's dataset was filtered offline with the FIR delay already compensated (<a href="03-preprocessing.html">tutorial 03</a>), so the filter delay has to be put back by hand. <code>max_time_stimulate_s = 0.25</code> is the tolerance used to call a stimulation "accurate" (see <a href="#notebook">below</a>). <code>nb_samp = 8</code> repeats the number of hidden states for the bookkeeping loops.</p>
+
+  <div class="widget" id="lat">
+    <div class="widget-title">Latency budget calculator</div>
+    <p class="widget-desc">A calculator with values you choose. The defaults are the measurements of Table 2 above. The bar shows when the stimulus arrives relative to a spindle that starts at time 0. <strong>What to try:</strong> shorten the spindle to 0.5 s (the shortest spindles in the paper's description); then reduce the detection delay and see how much of the spindle you gain.</p>
+    <div class="controls">
+      <label for="lat-fir">Filter delay (ms) <input type="range" id="lat-fir" min="0" max="120" step="2" value="40"><output for="lat-fir"></output></label>
+      <label for="lat-det">Detection delay (ms) <input type="range" id="lat-det" min="0" max="700" step="10" value="250"><output for="lat-det"></output></label>
+      <label for="lat-inf">Forward pass (ms) <input type="range" id="lat-inf" min="0" max="80" step="1" value="20"><output for="lat-inf"></output></label>
+      <label for="lat-stim">Stimulus hardware (ms) <input type="range" id="lat-stim" min="0" max="60" step="1" value="4"><output for="lat-stim"></output></label>
+      <label for="lat-dur">Spindle duration (s) <input type="range" id="lat-dur" min="0.5" max="2.5" step="0.05" value="1"><output for="lat-dur"></output></label>
+      <label for="lat-freq">Spindle frequency (Hz) <input type="range" id="lat-freq" min="11" max="16" step="0.5" value="13"><output for="lat-freq"></output></label>
+      <button class="btn secondary" id="lat-reset" type="button">Paper values</button>
+    </div>
+    <div class="lat-row"><span>Delays</span><div class="lat-track" id="lat-delays" role="img" aria-label="Stacked delays"></div></div>
+    <div class="lat-row"><span>Spindle</span><div class="lat-track" id="lat-spindle" role="img" aria-label="Spindle with the part remaining after the stimulus"></div></div>
+    <div class="lat-legend" id="lat-legend"></div>
+    <canvas class="plot short" id="lat-curve" aria-label="Fraction of the spindle remaining as a function of spindle duration"></canvas>
+    <div class="readout">
+      <div><div class="k">Total delay</div><div class="v" id="lat-total">…</div></div>
+      <div><div class="k">Spindle left</div><div class="v" id="lat-left">…</div></div>
+      <div><div class="k">Fraction left</div><div class="v" id="lat-frac">…</div></div>
+      <div><div class="k">Cycles left</div><div class="v" id="lat-cyc">…</div></div>
+    </div>
+  </div>
+
+  <h2 id="decision">The decision rule: threshold and refractory period</h2>
+  <p>The network outputs a number between 0 and 1 every ~20 ms. Turning it into stimuli needs two choices.</p>
+  <p><strong>A threshold.</strong> An output above the threshold means "spindle". The notebook uses <code>THRESHOLD = 0.5</code> (from <code>threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}</code> with <code>PHASE = 'full'</code>). The device software uses a default of 0.75 (<code>"threshold": 0.75</code> in <code>DEFAULT_CONFIG_DICT</code>, adjustable in its interface) and counts an output equal to the threshold as a detection (<code>&gt;=</code>, where the notebook uses <code>&gt;</code>). The paper found that, counting stimulations rather than samples, "the best such trade-off is attained at a threshold of 0.84 with our model, yielding a precision and a recall of 0.71 both", at the price of "slightly shifting the stimulation delay distribution to the right" [1].</p>
+  <p><strong>A refractory rule.</strong> The output often flickers around the threshold at the beginning and end of a spindle, and the eight hidden states do not agree perfectly. Without a rule, one spindle would trigger a burst of sounds. The paper describes the rule [1]:</p>
+  <blockquote class="callout note"><span class="callout-title">Valenchon et al. (2022), section 5</span>"A stimulus is sent upon initial spindle detection. To avoid multiple stimuli of the same spindle, the subsequent stimulation may only occur 400 ms following the end of the spindle. If a spindle is detected again within this duration the timer is reset, and we consider it as being part of the previous spindle."</blockquote>
+  <p>In the notebook it is implemented with two counters in samples (100 samples = 400 ms):</p>
+<pre data-file="notebooks/simulate_Portiloop_1_input_classification.ipynb (cell 11, stimulation_analysis(), excerpt)"><code class="language-python">        for i in range(len(output_test)):
+            adder = 0
+            label = output_test[i]
+            if (i+1)%nb_samp ==0:
+                adder = 2
+            if label &gt; THRESHOLD and wait_stim == 0 and not in_spindle:
+                spindle_list_stimulate.append(cur_idx)
+                wait_stim = 100
+                in_spindle = True
+            if in_spindle and label &gt; THRESHOLD:
+                wait_in_spindle = 100#42
+            if label &lt;= THRESHOLD and wait_in_spindle &lt;= 0:
+                in_spindle = False
+            cur_idx += network_stride+adder
+            wait_stim -=network_stride+adder
+            wait_in_spindle -=network_stride+adder</code></pre>
+  <p>Read it as a small state machine: a stimulation is sent when the output crosses the threshold while we are not "in a spindle"; we stay "in the spindle" as long as above-threshold outputs keep coming less than 400 ms apart. The device software implements the same idea with a wall clock (<code>self.wait_t = 0.4  # 400 ms</code> and <code>if ts - self.last_detected_ts &gt; self.wait_t:</code> in <code>SleepSpindleRealTimeStimulator</code>). The 400 ms value is a design choice, not a property of the network: you can change it for your experiment, for example to avoid stimulating spindle trains.</p>
+  <div class="callout neuro"><span class="callout-title">For neuroscientists</span>This is a refractory period with a twist: it is measured from the <em>last</em> time the detector said "spindle", not from the last stimulus. A long spindle therefore receives one sound, however long it lasts, and the detector re-arms only after 400 ms of "no spindle". It plays the same role as the dead time of a spike detector that prevents one action potential from being counted twice.</div>
+
+  <h2 id="oscilloscope">A live closed loop in your browser</h2>
+  <p>The widget below is a complete software Portiloop. A synthetic NREM recording (<a href="01-introduction.html">tutorial 01</a>, ground-truth spindles known) is played sample by sample through the exact Portiloop filters (21-tap FIR, 60 Hz notch, online standardization with α<sub>μ</sub> = 0.1 and α<sub>σ</sub> = 0.001), a 54-sample window is sent to the <strong>real published network</strong> (<code>pareto_search_15_35_v4_0</code>, 25,679 parameters) at the chosen schedule with 8 hidden states, and the notebook's stimulation rule decides when to "play a sound".</p>
+  <div class="widget" id="scope">
+    <div class="widget-title">Live closed-loop oscilloscope</div>
+    <p class="widget-desc">Top: the standardized EEG as the network sees it (already 40 ms late because of the FIR). Bottom: the network output. Green bands: ground-truth spindles. Pink vertical lines: stimulations, drawn at the time the sound would start (decision time + 20 ms forward pass + 4 ms sound hardware). Statistics restart whenever you change a setting. <strong>What to try:</strong> press Play; set the refractory period to 0 and watch the false stimulations pile up; raise the threshold to 0.84 (the paper's best value) and watch the median delay grow; switch to the uniform schedule.</p>
+    <div class="controls">
+      <span class="btnrow"><button class="btn" id="scope-play" type="button" disabled>Play</button><button class="btn secondary" id="scope-reset" type="button" disabled>Restart</button></span>
+      <label for="scope-speed">Speed <select id="scope-speed"><option value="1">1x (real time)</option><option value="2">2x</option><option value="5">5x</option></select></label>
+      <label for="scope-thr">Threshold <input type="range" id="scope-thr" min="0.05" max="0.95" step="0.01" value="0.5"><output for="scope-thr"></output></label>
+      <label for="scope-refr">Refractory (ms) <input type="range" id="scope-refr" min="0" max="1000" step="20" value="400"><output for="scope-refr"></output></label>
+      <label for="scope-sched">Schedule <select id="scope-sched"><option value="notebook">Notebook (5,5,5,5,5,5,5,7)</option><option value="device">Device (5,5,5,6,5,5,5,6)</option><option value="uniform">Uniform (runStream)</option></select></label>
+      <label for="scope-seed">Recording <input type="range" id="scope-seed" min="1" max="20" step="1" value="4"><output for="scope-seed"></output></label>
+    </div>
+    <canvas class="plot tall" id="scope-plot" aria-label="Scrolling EEG, network output, ground-truth spindles and stimulation markers"></canvas>
+    <div class="readout">
+      <div><div class="k">Stream time</div><div class="v" id="scope-time">0:00</div></div>
+      <div><div class="k">Spindles (ended)</div><div class="v" id="scope-nsp">0</div></div>
+      <div><div class="k">Stimulated</div><div class="v" id="scope-tp">0</div></div>
+      <div><div class="k">False stimuli</div><div class="v" id="scope-fp">0</div></div>
+      <div><div class="k">Median delay</div><div class="v" id="scope-med">-</div></div>
+      <div><div class="k">Within 250 ms</div><div class="v" id="scope-250">-</div></div>
+    </div>
+    <div class="scope-hist-wrap"><canvas class="plot short" id="scope-hist" aria-label="Histogram of delays from spindle onset to stimulation"></canvas></div>
+    <div class="status" id="scope-status">Loading model…</div>
+  </div>
+  <p>How the statistics are computed (paper definitions, section 6.1 [1]): a spindle is <em>stimulated</em> (true positive) if a stimulation falls inside its labelled duration, all delays included, and the delay is measured from the spindle onset to the first such stimulation; every other stimulation is <em>false</em>. "Within 250 ms" counts stimulated spindles whose delay is at most <code>max_time_stimulate_s = 0.25</code>, the notebook's tolerance. The first 5 s of each recording are not used for stimulation (see the note below).</p>
+  <div class="callout note"><span class="callout-title">Note on start-up</span>The online standardizer starts with no knowledge of the signal's variance; with α<sub>σ</sub> = 0.001 its estimate needs on the order of 1000 samples (4 s) to settle, and in that period the network sees badly scaled input and tends to fire. The widget therefore ignores the first 5 s. This warm-up is a choice of this widget, not something we found in the notebook; on a device, start stimulating only after the signal has been streaming for a few seconds.</div>
+  <div class="callout warning"><span class="callout-title">Synthetic data</span>The recording is a didactic signal with smooth, waxing spindles. Its numbers (on the order of 0.4 s median delay at threshold 0.5 in our tests) are not those of real EEG. For real performance figures, run the notebook (next section) on real annotated data converted to the dataset format, or use the values of the paper (Table 2 above; precision and recall of 0.71 at threshold 0.84).</div>
+  <div class="callout tip"><span class="callout-title">Under the hood</span>The JavaScript in this page uses <code>PL.filters.FIR</code>, <code>PL.filters.Biquad</code> with <code>PL.filters.PORTILOOP_NOTCH</code>, <code>PL.OnlineStandardizer</code> and <code>model.step(window, h)</code> from the site library. We checked offline that, with the uniform schedule, its outputs equal <code>PL.preprocess</code> followed by <code>model.runStream</code> on the same data (largest difference 3e-8, float rounding). Each <code>model.step</code> takes a few milliseconds in JavaScript; if your computer cannot keep up at 5x, the widget slows down rather than skipping samples and says so in the status line.</div>
+
+  <h2 id="notebook">Running the simulation notebook</h2>
+  <p>The notebook <code>notebooks/simulate_Portiloop_1_input_classification.ipynb</code> does the same thing on the annotated dataset files (the synthetic practice dataset, or your own real data in the same format), offline but with every real-time constraint. It (1) runs the network on the test subjects with the interleaved schedule, (2) applies the stimulation rule, (3) measures stimulation delays, (4) shows an interactive plot and (5) explains individual decisions with Captum.</p>
+
+  <ol class="steps">
+    <li><strong>Prepare the data and environment.</strong> Complete <a href="02-installation.html">tutorial 02</a>: the package installed with <code>pip install -e .</code> and the dataset files in <code>portiloop_software/dataset/</code>. The notebook additionally imports <code>ipywidgets</code> (interactive plot) and installs <code>captum</code> itself in cell 15 (with <code>%pip</code>, which installs into the notebook's own environment; you can also install it beforehand, as below).
+<pre data-file="terminal"><code class="language-bash">pip install jupyter ipywidgets captum
+jupyter notebook notebooks/simulate_Portiloop_1_input_classification.ipynb</code></pre></li>
+    <li><strong>Cells 1 to 5: paths and definitions.</strong> Cell 1 prints the dataset, plots and experiments folders. Cell 5 is a copy of the training code (dataset, samplers, <code>PortiloopNetwork</code>, <code>run_inference</code>, <code>get_metrics</code>, <code>generate_dataloader</code>) plus <code>get_config_dict</code>, which returns the configuration of the published architecture.</li>
+    <li><strong>Cell 6: <code>simulate(c_dict, split_idx)</code>.</strong> Builds the test set for split <code>split_idx</code>, loads <code>portiloop_software/experiments/&lt;experiment_name&gt;</code>, and runs inference with 8 parallel hidden states (the batch dimension holds one hidden state per (segment, offset) pair, so each state sees windows 42 samples apart). It re-interleaves the outputs in time order and returns <code>f1_test, precision_test, recall_test, state, labels_portiloop, output_portiloop, test_loader, net</code>. <code>state</code> codes every output as 1 = true positive, 2 = false positive, 3 = true negative, 4 = false negative.</li>
+    <li><strong>Cell 8: choose phase, threshold and models.</strong> This is the cell you edit (see <a href="#own-model">below</a>). As shipped it evaluates the first pre-trained model only: the loop over the 10 splits ends with <code>break</code>. Expected printout:
+<pre data-file="output (cell 8)"><code>seq_stride: 42
+FPGA_NN_EXEC_TIME + ERROR_FPGA_EXEC_TIME: 5
+nb_parallel_runs: 8
+output_segments.shape: (9, 5472)</code></pre>
+      with many <code>DEBUG</code> lines (dataset sizes, subjects, <code>f1_test</code>, <code>precision_test</code>, <code>recall_test</code>). These sample-level scores are those of <a href="06-evaluation.html">tutorial 06</a>, computed on the interleaved stream.</li>
+    <li><strong>Cells 10 to 12: stimulation analysis.</strong> <code>stimulation_analysis(THRESHOLD)</code> walks through the outputs with the rule shown <a href="#decision">above</a>, records each stimulation's sample index, finds spindle onsets and ends in the labels, and for each spindle keeps the stimulation closest to its onset:
+<pre data-file="notebooks/simulate_Portiloop_1_input_classification.ipynb (cell 11, excerpt)"><code class="language-python">            for s in spindle_list_stimulate:
+                delay = s - b
+                if abs(delay) &lt; abs(best):
+                    best = delay
+            spindle_list_stimulate_delay_best.append(best)
+        spindle_list_stimulate_delay_best = np.array(spindle_list_stimulate_delay_best)
+        corrected_stimulation_delay = np.append(corrected_stimulation_delay, spindle_list_stimulate_delay_best/fe + constant_delay_s)</code></pre>
+      It then reports, for a margin of 0.25 s and 0.5 s (<code>i*max_time_stimulate_s</code> with <code>i</code> = 1, 2), how many spindles were stimulated between 0 and the margin after their onset. Printout with the default synthetic dataset and the pre-trained model (split 0, 9 test segments):
+<pre data-file="output (cell 12)"><code>Split idx: 0
+mean spindle length: 0.8278636363636364
+For margin = 0.25 s
+accurate stimulation: 19
+spindle not stimulated: 69
+total stimulation: 113
+ratio: 16.8141592920354
+percentage stimulated spindles: 21.59090909090909
+For margin = 0.5 s
+accurate stimulation: 74
+spindle not stimulated: 14
+total stimulation: 113
+ratio: 65.48672566371681
+percentage stimulated spindles: 84.0909090909091</code></pre>
+      <code>ratio</code> is the percentage of all stimulations that were accurate (a precision); <code>percentage stimulated spindles</code> is the percentage of spindles that received an accurate stimulation (a recall). Note that a stimulation that comes <em>before</em> the labelled onset (negative delay) counts as "not stimulated". In this example most stimulations arrive between 0.25 and 0.5 s after the labelled onset: 84% of the spindles are stimulated within 0.5 s, only 22% within 0.25 s. These are synthetic spindles; for real EEG, see the paper's figures above.</li>
+    <li><strong>Cell 13: interactive plot.</strong> Two sliders (start time and width, in seconds) and a <em>Print</em> button. Colours of the EEG trace: green = true positive, red = false positive, blue = true negative, black = false negative; magenta = network output (drawn 5 units below the EEG, right axis); dotted cyan = labelled spindle onsets; dotted grey = stimulations; dashed grey = threshold. It is the notebook equivalent of the oscilloscope above.</li>
+  </ol>
+
+  <div class="callout disk"><span class="callout-title">On the hard drive</span>
+    <p><strong>Reads:</strong> <code>portiloop_software/dataset/dataset_classification_full_big_250_matlab_standardized_envelope_pf.txt</code> (signal, envelope, power ratio and label columns), <code>subject_sequence_full_big.txt</code>, <code>subject_sequence_p1_big.txt</code>, <code>subject_sequence_p2_big.txt</code> (which 115 s segments belong to which subject), and the checkpoints <code>portiloop_software/experiments/pareto_search_15_35_v4_*</code>.</p>
+    <p><strong>Writes:</strong> <code>portiloop_software/plots/stimulation_plot.pdf</code> when you press <em>Print</em> in cell 13, and <code>portiloop_software/plots/grad_explainer.pdf</code> in cell 24. Nothing else is saved; results live in the notebook variables <code>res</code>, <code>corrected_stimulation_delay</code>, <code>total_stim</code>, <code>spindle_list_stimulate</code>.</p>
+  </div>
+
+  <h3 id="own-model">Using your own trained model</h3>
+  <p>After <a href="05-training.html">tutorial 05</a> you have a checkpoint named after your experiment. Change these things, all in the notebook:</p>
+  <table>
+    <thead><tr><th>What</th><th>Where</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Copy the checkpoint into <code>portiloop_software/experiments/</code></td><td>file system</td><td><code>run()</code> saves to <code>portiloop_software/dataset/&lt;experiment_name&gt;</code>, but <code>simulate()</code> loads <code>path_experiments / experiment_name</code>.</td></tr>
+      <tr><td><code>exp_name</code></td><td>cell 8</td><td>List of checkpoint file names, one per split. Put your experiment name(s) here.</td></tr>
+      <tr><td><code>split_idx</code> pairing</td><td>cell 8</td><td>Model <code>exp_name[split_idx]</code> is tested on the test subjects of split <code>split_idx</code>. Use the split your model was trained with (<code>config_dict["split_idx"]</code> in training), or you will test on training subjects.</td></tr>
+      <tr><td><code>get_config_dict</code> values</td><td>cell 5</td><td>Must match the architecture you trained (<code>nb_channel</code>, <code>hidden_size</code>, <code>window_size_s</code>, <code>seq_stride_s</code>, <code>nb_conv_layers</code>, kernels...). A mismatch raises <code>size mismatch</code> in <code>load_state_dict</code>.</td></tr>
+      <tr><td><code>FPGA_NN_EXEC_TIME</code>, <code>ERROR_FPGA_EXEC_TIME</code></td><td>cell 8</td><td>Your hardware's inference time, in samples. This sets the number of hidden states.</td></tr>
+      <tr><td><code>network_stride</code>, <code>nb_samp</code></td><td>cells 10 and 13</td><td>Must equal <code>stride_between_runs</code> and <code>nb_parallel_runs</code> printed by <code>simulate()</code>. Cell 13 also hard-codes <code>seq_stride = 42</code>.</td></tr>
+      <tr><td><code>THRESHOLD</code> and the 100-sample counters</td><td>cells 8 and 11</td><td>Detection threshold and refractory period of your protocol.</td></tr>
+      <tr><td><code>constant_delay_s</code></td><td>cell 10</td><td>Filter delay + forward pass + stimulus hardware of <em>your</em> setup.</td></tr>
+      <tr><td>The <code>break</code> at the end of the loop</td><td>cell 8</td><td>Remove it to evaluate all splits; <code>stimulation_analysis</code> loops over every entry of <code>res</code>.</td></tr>
+    </tbody>
+  </table>
+  <div class="callout warning"><span class="callout-title">Warning</span><code>stimulation_analysis</code> contains <code>assert segment_state_size == 5472</code>, which is 8 states × (28,750 // 42) cycles per 115 s segment. If you change the sequence stride, the network stride or <code>LEN_SEGMENT</code>, recompute this number (or replace the assertion) or the cell stops with an <code>AssertionError</code>.</div>
+
+  <h3 id="captum">Which part of the signal drives a decision? (Captum)</h3>
+  <p>The last section of the notebook ("Interpretation of the results with Captum") asks which samples of the input pushed the output up. It uses Integrated Gradients [3] from the Captum library [2]: the input is morphed gradually from a <em>baseline</em> (here, a sequence of windows taken elsewhere in the test set) to the real input, and the gradient of the output with respect to each input sample is accumulated along the way. Cell 19 rebuilds a sequence of <code>seq_len = 20</code> consecutive windows of one hidden state (<code>idx_batch</code> selects the segment and offset, <code>i_min = 98</code> the starting window; the comment suggests spindles at 97, 200, 281), cell 21 wraps the network so that it takes only the signal and starts from a zero hidden state, and cell 23 computes:</p>
+<pre data-file="notebooks/simulate_Portiloop_1_input_classification.ipynb (cell 23, excerpt)"><code class="language-python">ig = IntegratedGradients(net_captum)
+attributions, delta = ig.attribute(input, baselines=bl, return_convergence_delta=True)</code></pre>
+  <p>Cell 24 draws the 20 windows in a grid, each coloured by the absolute attribution (red = strong influence), the last panel titled with the network's score, and saves <code>grad_explainer.pdf</code>. The convergence delta printed by cell 23 should be small compared with the output; if it is not, the attribution is not reliable (more integration steps are needed).</p>
+  <div class="callout neuro"><span class="callout-title">For neuroscientists</span>Integrated Gradients is a "virtual lesion" study: instead of removing a brain region and measuring the deficit, it asks how much the output would change if each input sample were replaced by its baseline value, integrating over all intermediate levels. Like lesion studies, the answer depends on the control condition: a different baseline gives different maps.</div>
+  <div class="callout warning"><span class="callout-title">Known issue</span>Cell 24 starts with <code>#FIXME: x axis is not correct here</code>: the time axis of each small panel is approximate, so read the panels by their order, not their x values.</div>
+
+  <h2 id="interpret">Interpreting the results</h2>
+  <ul>
+    <li><strong>Sample-level F1 vs stimulation precision and recall.</strong> They measure different things. A detector can have a modest sample-level F1 (it marks the second half of each spindle) and still stimulate nearly every spindle once.</li>
+    <li><strong>The delay distribution is the key number for your protocol.</strong> If your hypothesis needs the sound during the first 300 ms of a spindle, count the stimulations inside that window, not the overall recall.</li>
+    <li><strong>Negative delays</strong> (stimulation before the labelled onset) happen; the paper counts them as false positives and notes that this "slightly harms our reported results" [1].</li>
+    <li><strong>Raising the threshold</strong> trades early stimulations for fewer false ones: precision goes up, the delay distribution shifts right.</li>
+  </ul>
+
+  <h2 id="troubleshooting">Troubleshooting</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>Cause and fix</th></tr></thead>
+    <tbody>
+      <tr><td><code>FileNotFoundError</code> on <code>dataset_classification_full_big_250_...txt</code> or <code>subject_sequence_...txt</code></td><td>The dataset is not in <code>portiloop_software/dataset/</code>; see <a href="02-installation.html">tutorial 02</a>.</td></tr>
+      <tr><td><code>ModuleNotFoundError: sklearn</code> or <code>ipywidgets</code></td><td><code>pip install -e .</code> from the repository root installs scikit-learn; install <code>ipywidgets</code> separately.</td></tr>
+      <tr><td><code>RuntimeError: Error(s) in loading state_dict ... size mismatch</code></td><td><code>get_config_dict</code> in cell 5 does not match the checkpoint's architecture.</td></tr>
+      <tr><td><code>AssertionError</code> in <code>stimulation_analysis</code></td><td>See the warning about <code>segment_state_size == 5472</code> above.</td></tr>
+      <tr><td><code>TypeError</code> or <code>FutureWarning</code> about <code>delim_whitespace</code></td><td>Older copies of the notebook pass <code>delim_whitespace=True</code> to <code>read_csv</code>, which recent pandas versions reject. The current notebook uses <code>sep=r"\s+"</code>; update your clone (<code>git pull</code>) or make the same replacement in <code>generate_dataloader</code>.</td></tr>
+      <tr><td>The oscilloscope runs slower than the selected speed</td><td>Your browser cannot run enough forward passes per second; the status line shows the effective speed. 1x always needs only 50 forward passes per second.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="exercises">Exercises</h2>
+  <details class="exercise"><summary>Why do we need a refractory rule?</summary><p>In the oscilloscope, note the number of false stimuli after about one minute at the default settings. Restart, set the refractory period to 0 ms and run for the same time. What happens and why?</p></details>
+  <details class="solution"><summary>Answer</summary><p>With 0 ms, the detector re-arms as soon as one output falls below the threshold, so every flicker of the output inside a spindle (and the disagreement between the eight hidden states) triggers a new sound. In our offline run of the widget's code on 3 minutes of recording 4 (the default) at threshold 0.5, 17 of 17 spindles were stimulated in both cases, but false stimuli went from 0 (400 ms) to 29 (0 ms): the extra sounds land on spindles that were already stimulated, or just after them, so they add no hits, only errors.</p></details>
+
+  <details class="exercise"><summary>How much of a short spindle is left?</summary><p>With the paper's values in the latency calculator, what fraction of a 0.5 s spindle remains when the sound starts? And of a 2 s spindle?</p></details>
+  <details class="solution"><summary>Answer</summary><p>The total delay is 40 + 250 + 20 + 4 = 314 ms. For 0.5 s, 186 ms remain (37 %), about 2.4 cycles at 13 Hz; for 2 s, 1686 ms remain (84 %). Short spindles are the hard case for closed-loop stimulation, and the detection delay (not the hardware) is the main term to reduce.</p></details>
+
+  <details class="exercise"><summary>Faster hardware, more hidden states</summary><p>Suppose your hardware runs the network in 12 ms. With <code>seq_stride</code> unchanged, how many hidden states would <code>simulate()</code> use, and what do you change in the notebook?</p></details>
+  <details class="solution"><summary>Answer</summary><p>12 ms is 3 samples, so set <code>FPGA_NN_EXEC_TIME = 3</code>: <code>nb_parallel_runs = 42 // 3 = 14</code> and <code>stride_between_runs = 42 // 14 = 3</code>. Then set <code>network_stride = 3</code> and <code>nb_samp = 14</code> in cells 10 and 13, recompute the <code>segment_state_size</code> assertion (14 × 684 = 9576) and the <code>adder</code> (here 14 × 3 = 42, so <code>adder</code> must be 0). Also update <code>constant_delay_s</code> to 0.040 + 0.012 + your stimulus delay. You can check the schedule in the interleaved-states widget with a network stride of 3.</p></details>
+
+  <h2 id="references">References</h2>
+  <ol class="refs">
+    <li>Valenchon N, Bouteiller Y, Jourde HR, L'Heureux X, Sobral M, Coffey EBJ, Beltrame G (2022). The Portiloop: a deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a> (preprint <a href="https://arxiv.org/abs/2107.13473">arXiv:2107.13473</a>). Quotes are from the PLOS ONE version.</li>
+    <li>Kokhlikyan N, Miglani V, Martin M, Wang E, Alsallakh B, Reynolds J, Melnikov A, Kliushkina N, Araya C, Yan S, Reblitz-Richardson O (2020). Captum: a unified and generic model interpretability library for PyTorch. <a href="https://arxiv.org/abs/2009.07896">arXiv:2009.07896</a>. Library: <a href="https://captum.ai">captum.ai</a>.</li>
+    <li>Sundararajan M, Taly A, Yan Q (2017). Axiomatic attribution for deep networks. <em>Proceedings of the 34th International Conference on Machine Learning</em>, PMLR 70: 3319 to 3328. <a href="https://proceedings.mlr.press/v70/sundararajan17a.html">proceedings.mlr.press/v70/sundararajan17a</a>.</li>
+    <li>Portiloop device software: <a href="https://github.com/Portiloop/portiloop-software">github.com/Portiloop/portiloop-software</a>, files <a href="https://github.com/Portiloop/portiloop-software/blob/main/portiloop/src/custom/custom_detectors.py"><code>portiloop/src/custom/custom_detectors.py</code></a> and <a href="https://github.com/Portiloop/portiloop-software/blob/main/portiloop/src/custom/custom_stimulators.py"><code>portiloop/src/custom/custom_stimulators.py</code></a> (RDK X5 version on the <code>rdkx5</code> branch).</li>
+  </ol>
+
+</article>
+</main>
+
+<script src="../assets/js/portiloop.js"></script>
+<script src="../assets/js/nav.js"></script>
+<script id="rt-engine">
+/* RT: the closed-loop pipeline of this page, sample by sample, without any DOM code
+   (kept separate so that it can be tested in Node). */
+(function (root) {
+  "use strict";
+  const PL = root.PL;
+  const RT = {};
+
+  /**
+   * Gaps (in samples) before each window of one cycle of `seqStride` samples, n = floor(seqStride / stride) states.
+   *  "notebook": ValidationSampler offsets 0, 5, ..., 35 then the next cycle at 42 (gap 7 before state 0)
+   *  "device":   portiloop-software stride_counters (5,5,5,6,5,5,5,6 for 42 and 8 states)
+   *  "uniform":  one window every `stride` samples, as PL.PortiloopModel.prototype.runStream
+   */
+  RT.schedule = function (kind, seqStride, stride) {
+    const n = Math.max(1, Math.floor(seqStride / stride));
+    const gaps = new Array(n);
+    if (kind === "uniform") gaps.fill(stride);
+    else if (kind === "notebook") { gaps.fill(stride); gaps[0] = seqStride - (n - 1) * stride; }
+    else {
+      let prev = 0;
+      for (let i = 0; i < n; i++) { const c = Math.floor(seqStride / n * (i + 1)); gaps[i] = c - prev; prev = c; }
+    }
+    return { n: n, gaps: gaps, kind: kind, seqStride: seqStride, stride: stride };
+  };
+
+  /** Online pipeline: FIR -> 60 Hz notch -> standardizer -> 54-sample window -> model.step, round-robin hidden states. */
+  RT.Pipeline = function (model, kind, stride) {
+    this.model = model;
+    this.W = model.windowSize;
+    this.seqStride = Math.trunc(model.cfg.seq_stride_s * model.cfg.fe);
+    this.fir = new PL.filters.FIR(PL.filters.PORTILOOP_FIR);
+    this.notch = new PL.filters.Biquad(PL.filters.PORTILOOP_NOTCH);
+    this.std = new PL.OnlineStandardizer(0.1, 0.001);
+    this.ring = new Float32Array(this.W);
+    this.win = new Float32Array(this.W);
+    this.n = 0;
+    this.last = 0;
+    this.setSchedule(kind || "notebook", stride || 5);
+  };
+  RT.Pipeline.prototype.setSchedule = function (kind, stride) {
+    this.sched = RT.schedule(kind, this.seqStride, stride);
+    this.states = [];
+    for (let k = 0; k < this.sched.n; k++) this.states.push(this.model.zeroState());
+    this.k = 0;
+    this.nextEnd = Math.max(this.W - 1, this.n);
+  };
+  /** Push one raw sample; returns {idx, y, k} when a window was evaluated, otherwise null. */
+  RT.Pipeline.prototype.push = function (raw) {
+    const i = this.n++, W = this.W;
+    const s = this.std.step(this.notch.step(this.fir.step(raw)));
+    this.ring[i % W] = s;
+    this.last = s;
+    if (i !== this.nextEnd) return null;
+    for (let j = 0; j < W; j++) this.win[j] = this.ring[(i - W + 1 + j) % W];
+    const k = this.k;
+    const r = this.model.step(this.win, this.states[k]);
+    this.states[k] = r.h;
+    this.k = (k + 1) % this.sched.n;
+    this.nextEnd = i + this.sched.gaps[this.k];
+    return { idx: i, y: r.y, k: k };
+  };
+
+  /**
+   * Stimulation rule transcribed from stimulation_analysis() in the simulation notebook
+   * (wait_stim and wait_in_spindle, both 100 samples = 0.4 s there; one parameter here).
+   * hwDelay_s (forward pass + stimulus hardware) is added to the decision time.
+   */
+  RT.Stimulator = function (opts) {
+    this.thr = opts.threshold; this.refr = opts.refractory_s; this.hw = opts.hwDelay_s;
+    this.inSpindle = false; this.lastAbove = -Infinity; this.lastStim = -Infinity;
+  };
+  RT.Stimulator.prototype.update = function (t, y) {
+    const above = y > this.thr;
+    let stim = null;
+    if (above && !this.inSpindle && t - this.lastStim >= this.refr) { stim = t + this.hw; this.lastStim = t; this.inSpindle = true; }
+    if (above) this.lastAbove = t;
+    else if (this.inSpindle && t - this.lastAbove >= this.refr) this.inSpindle = false;
+    return stim;
+  };
+
+  /** Paper definitions (section 6.1): TP = first stimulus inside a labelled spindle, FP = any other stimulus. */
+  RT.score = function (spindles, stims, horizon) {
+    const done = spindles.filter((s) => s.end <= horizon);
+    const st = stims.filter((t) => t <= horizon);
+    let tp = 0, within250 = 0;
+    const delays = [];
+    done.forEach(function (s) {
+      for (let j = 0; j < st.length; j++) {
+        if (st[j] >= s.start && st[j] <= s.end) {
+          tp++; delays.push(st[j] - s.start); if (st[j] - s.start <= 0.25) within250++;
+          break;
+        }
+      }
+    });
+    // stimuli inside a spindle that has not ended yet are not counted as false
+    let pending = 0;
+    spindles.forEach(function (s) { if (s.end > horizon) st.forEach(function (t) { if (t >= s.start) pending++; }); });
+    delays.sort((a, b) => a - b);
+    const m = delays.length;
+    const median = m ? (m % 2 ? delays[(m - 1) / 2] : 0.5 * (delays[m / 2 - 1] + delays[m / 2])) : NaN;
+    return { nSpindles: done.length, tp: tp, fp: Math.max(0, st.length - tp - pending), nStims: st.length, delays: delays, median: median, within250: within250 };
+  };
+
+  /** Endless synthetic recording: 60 s chunks of PL.synth.nrem joined by a 0.4 s cross-fade (no spindle is cut). */
+  RT.Source = function (seed, fs) {
+    this.seed = seed; this.fs = fs || PL.FS; this.CH = 60; this.XF = 0.4;
+    this.chunk = -1; this.pos = 0; this.cur = null; this.tail = null; this.spindles = [];
+    this._next();
+  };
+  RT.Source.prototype._next = function () {
+    this.chunk++;
+    const d = PL.synth.nrem({ duration_s: this.CH + this.XF, seed: this.seed * 1000 + this.chunk });
+    const nx = Math.round(this.XF * this.fs), nc = Math.round(this.CH * this.fs);
+    const sig = d.signal.slice(0, nc);
+    if (this.tail) for (let j = 0; j < nx; j++) { const a = (j + 0.5) / nx; sig[j] = (1 - a) * this.tail[j] + a * sig[j]; }
+    this.tail = d.signal.slice(nc, nc + nx);
+    const t0 = this.chunk * this.CH;
+    d.spindles.forEach((s) => this.spindles.push({ start: t0 + s.start, end: t0 + s.end, freq: s.freq, amp: s.amp }));
+    this.cur = sig; this.pos = 0;
+  };
+  RT.Source.prototype.next = function () {
+    if (this.pos >= this.cur.length) this._next();
+    return this.cur[this.pos++];
+  };
+
+  root.RT = RT;
+})(typeof window !== "undefined" ? window : globalThis);
+</script>
+<script>
+(function () {
+  "use strict";
+  const $ = PL.ui.$;
+  const FS = PL.FS;
+
+  /** Call cb(true/false) when the element enters or leaves the viewport. */
+  function watchVisibility(el, cb) {
+    if (!("IntersectionObserver" in window)) { cb(true); return; }
+    new IntersectionObserver(function (entries) { entries.forEach((e) => cb(e.isIntersecting)); }, { threshold: 0.05 }).observe(el);
+  }
+  /** Gaps in the order used in the text: notebook from the second window of a cycle, device as stride_counters. */
+  function gapsList(s) { return s.kind === "notebook" ? s.gaps.slice(1).concat(s.gaps.slice(0, 1)) : s.gaps.slice(); }
+  function fmtTime(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ":" + (s < 10 ? "0" : "") + s; }
+
+  /* ================================================================ interleaved hidden states */
+  (function () {
+    const canvas = $("#ilv-canvas");
+    const W = 54, FPGA_MS = 20;
+    let stride = 5, seq = 42, kind = "notebook", sched = RT.schedule(kind, seq, stride);
+    let now = 0, playing = true, visible = false, raf = null, last = 0;
+    const SPEED = 10; // samples per second of animation (real time is 250)
+
+    function windows(upTo) {
+      // all window ends up to sample `upTo`, with their state index
+      const out = [];
+      let end = W - 1, k = 0;
+      while (end <= upTo) { out.push({ end: end, k: k, idx: out.length }); k = (k + 1) % sched.n; end += sched.gaps[k]; }
+      return out;
+    }
+    function hue(k, n) { return "hsl(" + (Math.round(210 + 360 * k / Math.max(1, n)) % 360) + ", 60%, 52%)"; }
+
+    function readouts() {
+      sched = RT.schedule(kind, seq, stride);
+      const cyc = sched.gaps.reduce((a, b) => a + b, 0);
+      $("#ilv-n").textContent = sched.n;
+      const g = gapsList(sched);
+      $("#ilv-gaps").textContent = g.length > 12 ? g.slice(0, 12).join(", ") + ", …" : g.join(", ");
+      $("#ilv-spacing").textContent = cyc + " (" + (cyc * 4) + " ms)";
+      $("#ilv-rate").textContent = (sched.n * FS / cyc).toFixed(1);
+      const msg = [];
+      if (stride * 4 < FPGA_MS) msg.push("Network stride " + stride + " samples = " + stride * 4 + " ms is shorter than the 20 ms forward pass measured on the FPGA: the hardware could not keep up.");
+      if (cyc !== seq) msg.push("Each state sees windows " + cyc + " samples apart instead of the " + seq + " used in training.");
+      if (sched.n === 1) msg.push("A single hidden state: no virtual parallelization.");
+      if (!msg.length) msg.push("Every hidden state sees windows exactly " + seq + " samples (" + seq * 4 + " ms) apart, as in training.");
+      $("#ilv-status").textContent = msg.join(" ");
+    }
+
+    function draw() {
+      const dpr = window.devicePixelRatio || 1;
+      const cw = canvas.clientWidth || 600, ch = canvas.clientHeight || 300;
+      if (canvas.width !== Math.round(cw * dpr) || canvas.height !== Math.round(ch * dpr)) { canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr); }
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cw, ch);
+      const font = "12px " + (getComputedStyle(document.documentElement).getPropertyValue("--font-sans") || "sans-serif");
+      ctx.font = font;
+      const L = cw < 480 ? 46 : 64, R = 10, top = 62, bottom = ch - 26;
+      const span = Math.max(2 * seq + W + 12, 3 * W);
+      const x1 = Math.max(span, now + 6), x0 = x1 - span;
+      const X = (s) => L + (s - x0) / span * (cw - L - R);
+      const txt = PL.color("text");
+      // signal strip with sample ticks
+      ctx.strokeStyle = PL.color("signal"); ctx.lineWidth = 1.3; ctx.beginPath();
+      for (let s = Math.floor(x0); s <= Math.min(now, x1); s++) {
+        const v = Math.sin(s * 0.33) * 0.6 + Math.sin(s * 0.071 + 1) * 0.4;
+        const px = X(s), py = 24 - v * 10;
+        if (s === Math.floor(x0)) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+      ctx.fillStyle = txt; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillText("EEG samples (250 Hz)", 4, 2);
+      // rows
+      const n = sched.n, rowH = (bottom - top) / n;
+      ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      for (let k = 0; k < n; k++) {
+        const y = top + k * rowH;
+        if (k % 2 === 0) { ctx.fillStyle = PL.color("grid"); ctx.fillRect(L, y, cw - L - R, rowH); }
+        if (rowH >= 11 || k % Math.ceil(11 / rowH) === 0) { ctx.fillStyle = txt; ctx.fillText((cw < 480 ? "h" : "state ") + (k + 1), L - 6, y + rowH / 2); }
+      }
+      const all = windows(Math.floor(now));
+      const vis = all.filter((w) => w.end >= x0 && w.end - W + 1 <= x1);
+      const lastW = all[all.length - 1];
+      vis.forEach(function (w) {
+        // two sub-lanes per row (alternating cycles) so that overlapping windows of one state stay visible
+        const lane = Math.floor(w.idx / n) % 2, h = Math.max(2, rowH * 0.36);
+        const y = top + w.k * rowH + (lane ? rowH * 0.5 : rowH * 0.08) - (rowH - h) / 2;
+        const age = (now - w.end) / span;
+        ctx.globalAlpha = w === lastW ? 1 : Math.max(0.25, 0.85 - age);
+        ctx.fillStyle = hue(w.k, n);
+        const a = X(Math.max(x0, w.end - W + 1)), b = X(w.end + 1);
+        ctx.fillRect(a, y + (rowH - h) / 2, Math.max(1, b - a), h);
+        ctx.globalAlpha = 1;
+        if (w === lastW) { ctx.strokeStyle = PL.color("text"); ctx.lineWidth = 2; ctx.strokeRect(a, y + (rowH - h) / 2, Math.max(1, b - a), h); }
+      });
+      // arcs between consecutive windows of the most recent state
+      if (lastW) {
+        const same = all.filter((w) => w.k === lastW.k && w.end >= x0 - seq);
+        ctx.strokeStyle = PL.color("stim"); ctx.fillStyle = PL.color("stim"); ctx.lineWidth = 1.5;
+        ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+        for (let j = 1; j < same.length; j++) {
+          const a = X(same[j - 1].end + 1), b = X(same[j].end + 1), y = top - 3;
+          if (b < L) continue;
+          ctx.beginPath(); ctx.moveTo(a, y); ctx.quadraticCurveTo((a + b) / 2, y - 12, b, y); ctx.stroke();
+          ctx.fillText((same[j].end - same[j - 1].end) + " samples", (a + b) / 2, y - 7);
+        }
+      }
+      // now cursor and axis
+      ctx.strokeStyle = PL.color("axis"); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(L, bottom + 0.5); ctx.lineTo(cw - R, bottom + 0.5); ctx.stroke();
+      ctx.fillStyle = txt; ctx.textAlign = "center"; ctx.textBaseline = "top";
+      const step = span > 160 ? 50 : 20;
+      for (let s = Math.ceil(x0 / step) * step; s <= x1; s += step) { ctx.fillText(String(s), X(s), bottom + 4); }
+      ctx.textAlign = "left"; ctx.fillText("sample", 4, bottom + 4);
+      ctx.strokeStyle = PL.color("model"); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(X(now), 4); ctx.lineTo(X(now), bottom); ctx.stroke();
+    }
+
+    function frame(ts) {
+      raf = null;
+      const dt = last ? Math.min(0.1, (ts - last) / 1000) : 0; last = ts;
+      now += dt * SPEED;
+      draw();
+      if (playing && visible) raf = requestAnimationFrame(frame);
+    }
+    function kick() { if (!raf && playing && visible) { last = 0; raf = requestAnimationFrame(frame); } }
+
+    now = 2 * 42 + W + 3; // initial frame already shows two cycles
+    PL.ui.bind("#ilv-stride", function (v) { stride = v; readouts(); draw(); });
+    PL.ui.bind("#ilv-seq", function (v) { seq = v; readouts(); draw(); });
+    PL.ui.bind("#ilv-sched", function (v) { kind = v; readouts(); draw(); });
+    $("#ilv-play").addEventListener("click", function () {
+      playing = !playing; this.textContent = playing ? "Pause" : "Play"; kick();
+    });
+    watchVisibility($("#ilv"), function (v) { visible = v; if (v) kick(); });
+    PL.onRedraw(draw);
+    readouts(); draw();
+  })();
+
+  /* ================================================================ latency budget */
+  (function () {
+    const ids = ["fir", "det", "inf", "stim"];
+    const names = { fir: "Filters", det: "Detection", inf: "Forward pass", stim: "Stimulus" };
+    const cols = { fir: "c1", det: "c2", inf: "c4", stim: "c5" };
+    const defaults = { fir: 40, det: 250, inf: 20, stim: 4, dur: 1, freq: 13 };
+    const get = (k) => parseFloat($("#lat-" + k).value);
+    function legend() {
+      $("#lat-legend").innerHTML = ids.map((k) => '<span><i style="background:' + PL.color(cols[k]) + '"></i>' + names[k] + "</span>").join("") +
+        '<span><i style="background:var(--tip)"></i>Spindle after the stimulus</span><span><i style="background:var(--border)"></i>Spindle before the stimulus</span>';
+    }
+    function update() {
+      const d = {}; ids.forEach((k) => (d[k] = get(k)));
+      const total = ids.reduce((a, k) => a + d[k], 0);
+      const dur = get("dur") * 1000, f = get("freq");
+      const scale = Math.max(total, dur) * 1.04;
+      let x = 0, html = "";
+      ids.forEach(function (k) {
+        const w = d[k] / scale * 100;
+        html += '<span style="left:' + x + "%;width:" + w + "%;background:" + PL.color(cols[k]) + '" title="' + names[k] + ": " + d[k] + ' ms">' + (w > 9 ? d[k] : "") + "</span>";
+        x += w;
+      });
+      $("#lat-delays").innerHTML = html;
+      const left = Math.max(0, dur - total);
+      const a = Math.min(total, dur) / scale * 100, b = dur / scale * 100;
+      $("#lat-spindle").innerHTML = '<span class="lost" style="left:0;width:' + a + '%"></span>' +
+        (left > 0 ? '<span class="left" style="left:' + a + "%;width:" + (b - a) + '%">' + (b - a > 14 ? Math.round(left) + " ms" : "") + "</span>" : "") +
+        '<span class="cursor" style="left:calc(' + (total / scale * 100) + '% - 1px)"></span>';
+      $("#lat-delays").setAttribute("aria-label", "Total delay " + total + " ms");
+      $("#lat-spindle").setAttribute("aria-label", "Spindle of " + dur + " ms, " + Math.round(left) + " ms left after the stimulus");
+      $("#lat-total").textContent = total + " ms";
+      $("#lat-left").textContent = Math.round(left) + " ms";
+      $("#lat-frac").textContent = Math.round(100 * left / dur) + " %";
+      $("#lat-cyc").textContent = (left / 1000 * f).toFixed(1);
+      // fraction remaining vs duration
+      const xs = [], ys = [];
+      for (let D = 0.3; D <= 2.5001; D += 0.01) { xs.push(D); ys.push(Math.max(0, 1 - total / 1000 / D) * 100); }
+      PL.plot($("#lat-curve"), {
+        xRange: [0.3, 2.5], yRange: [0, 100], xLabel: "Spindle duration (s)", yLabel: "% left",
+        series: [{ x: xs, y: ys, color: PL.color("model"), width: 2, label: "Spindle left after the stimulus (%)" }],
+        regions: [{ x0: 0.5, x1: 2.5, color: PL.color("label"), label: "Spindle durations, 0.5 to 2.5 s [1]" }],
+        markers: [{ x: dur / 1000, color: PL.color("stim") }],
+      });
+    }
+    ids.concat(["dur", "freq"]).forEach((k) => PL.ui.bind("#lat-" + k, update, k === "dur" ? (v) => v.toFixed(2) : k === "freq" ? (v) => v.toFixed(1) : null));
+    $("#lat-reset").addEventListener("click", function () {
+      Object.keys(defaults).forEach(function (k) { const el = $("#lat-" + k); el.value = defaults[k]; el.dispatchEvent(new Event("input")); });
+    });
+    PL.onRedraw(function () { legend(); update(); });
+    legend(); update();
+  })();
+
+  /* ================================================================ live closed-loop oscilloscope */
+  (function () {
+    const canvas = $("#scope-plot"), histCanvas = $("#scope-hist"), status = $("#scope-status");
+    const VIEW = 10, WARMUP = 5, HW = 0.020 + 0.004, PREROLL = 12.4, BUDGET_MS = 10;
+    const S = { model: null, src: null, pipe: null, stim: null, eT: [], eV: [], oT: [], oY: [], stims: [], statsFrom: WARMUP,
+      playing: false, visible: false, raf: null, last: 0, carry: 0, eff: 0, lastStats: 0, score: null, busy: false };
+    const val = (id) => $(id).value;
+    function thr() { return parseFloat(val("#scope-thr")); }
+    function refr() { return parseFloat(val("#scope-refr")) / 1000; }
+    function now() { return S.pipe ? S.pipe.n / FS : 0; }
+
+    function init() {
+      S.src = new RT.Source(parseInt(val("#scope-seed"), 10));
+      S.pipe = new RT.Pipeline(S.model, val("#scope-sched"), 5);
+      S.stim = new RT.Stimulator({ threshold: thr(), refractory_s: refr(), hwDelay_s: HW });
+      S.eT = []; S.eV = []; S.oT = []; S.oY = []; S.stims = []; S.statsFrom = WARMUP; S.carry = 0; S.eff = 0; S.score = null;
+    }
+    function stepSample() {
+      const o = S.pipe.push(S.src.next());
+      const i = S.pipe.n - 1, t = i / FS;
+      S.eT.push(t); S.eV.push(S.pipe.last);
+      if (o) {
+        S.oT.push(t); S.oY.push(o.y);
+        if (t >= WARMUP) { const s = S.stim.update(t, o.y); if (s !== null) S.stims.push(s); }
+      }
+      if (S.eT.length > (VIEW + 4) * FS) { const cut = 2 * FS; S.eT.splice(0, cut); S.eV.splice(0, cut); const t0 = S.eT[0]; let j = 0; while (j < S.oT.length && S.oT[j] < t0) j++; S.oT.splice(0, j); S.oY.splice(0, j); }
+    }
+    function restartStats() { S.statsFrom = Math.max(WARMUP, now()); S.score = null; stats(); }
+    function stats() {
+      const h = now();
+      const sp = S.src ? S.src.spindles.filter((s) => s.start >= S.statsFrom) : [];
+      const st = S.stims.filter((t) => t >= S.statsFrom);
+      const sc = RT.score(sp, st, h);
+      S.score = sc;
+      $("#scope-time").textContent = fmtTime(h);
+      $("#scope-nsp").textContent = sc.nSpindles;
+      $("#scope-tp").textContent = sc.tp + (sc.nSpindles ? " (" + Math.round(100 * sc.tp / sc.nSpindles) + " %)" : "");
+      $("#scope-fp").textContent = sc.fp;
+      $("#scope-med").textContent = isFinite(sc.median) ? Math.round(sc.median * 1000) + " ms" : "-";
+      $("#scope-250").textContent = sc.tp ? sc.within250 + " of " + sc.tp : "-";
+      drawHist();
+    }
+    function drawHist() {
+      const delays = S.score ? S.score.delays : [];
+      const BW = 0.05, NB = 30, counts = new Array(NB).fill(0);
+      delays.forEach((d) => { const b = Math.min(NB - 1, Math.max(0, Math.floor(d / BW))); counts[b]++; });
+      const ymax = Math.max(3, Math.max.apply(null, counts) + 1);
+      const tr = PL.plot(histCanvas, { xRange: [0, NB * BW], yRange: [0, ymax], xLabel: "Delay from spindle onset to stimulation (s)", yLabel: "Spindles", series: [], legend: false, yTicks: 3 });
+      const ctx = histCanvas.getContext("2d");
+      ctx.fillStyle = PL.color("stim");
+      counts.forEach(function (c, b) {
+        if (!c) return;
+        const p0 = tr.toPx(b * BW, 0), p1 = tr.toPx((b + 1) * BW, c);
+        ctx.fillRect(p0[0] + 1, p1[1], Math.max(1, p1[0] - p0[0] - 2), p0[1] - p1[1]);
+      });
+      if (S.score && isFinite(S.score.median)) {
+        const p = tr.toPx(S.score.median, 0);
+        ctx.strokeStyle = PL.color("text"); ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(p[0], tr.box.t); ctx.lineTo(p[0], tr.box.t + tr.box.h); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = PL.color("text"); ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillText("median", p[0] + 4, tr.box.t + 2);
+      }
+    }
+    function draw() {
+      const h = now(), t1 = Math.max(VIEW, h), t0 = t1 - VIEW;
+      const sig = S.eV.map((v) => 2.25 + 0.24 * Math.max(-4, Math.min(4, v)));
+      const regions = S.src ? S.src.spindles.filter((s) => s.end > t0 && s.start < t1).map((s, i) => ({ x0: s.start, x1: s.end, label: i === 0 ? "Spindle (truth)" : undefined })) : [];
+      const markers = S.stims.filter((t) => t > t0 - 0.1 && t <= h).map((t) => ({ x: t, color: PL.color("stim"), width: 2 }));
+      const series = [{ x: S.eT, y: sig, color: PL.color("signal"), width: 1, label: "EEG (standardized)" }];
+      if (S.oT.length) series.push({ x: S.oT, y: S.oY, color: PL.color("model"), width: 1.7, label: "Network output" });
+      PL.plot(canvas, {
+        xRange: [t0, t1], yRange: [-0.06, 3.3], xLabel: "Time (s)", yLabel: "Output (0 to 1)   EEG",
+        series: series, regions: regions, markers: markers,
+        hlines: [{ y: thr(), label: "threshold " + thr().toFixed(2) }], yTicks: 4,
+      });
+      if (h < WARMUP && S.pipe) {
+        const ctx = canvas.getContext("2d"); ctx.fillStyle = PL.color("text"); ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+        ctx.fillText("warm-up: no stimulation before 5 s", canvas.clientWidth - 18, canvas.clientHeight - 44);
+      }
+    }
+    function statusLine() {
+      if (!S.model) return;
+      const sp = parseFloat(val("#scope-speed"));
+      let s = S.playing ? "Running at " + S.eff.toFixed(1) + "x real time" + (S.eff < sp * 0.85 && S.eff > 0 ? " (your browser cannot reach " + sp + "x; samples are not skipped)" : "") : "Paused";
+      s += ". Schedule: " + gapsList(S.pipe.sched).join(", ") + " samples, " + S.pipe.sched.n + " hidden states. Real network, " + S.model.nParameters.toLocaleString("en-US") + " parameters.";
+      status.textContent = s;
+    }
+    function frame(ts) {
+      S.raf = null;
+      if (!S.playing || !S.visible || S.busy) return;
+      const dt = S.last ? Math.min(0.1, (ts - S.last) / 1000) : 0; S.last = ts;
+      const speed = parseFloat(val("#scope-speed"));
+      S.carry += dt * FS * speed;
+      const target = Math.floor(S.carry), t0 = performance.now();
+      let done = 0;
+      while (done < target) { stepSample(); done++; if ((done & 3) === 0 && performance.now() - t0 > BUDGET_MS) break; }
+      S.carry = Math.min(S.carry - done, 0.25 * FS * speed); // drop a backlog we cannot catch up with
+      if (dt > 0) S.eff = 0.9 * S.eff + 0.1 * (done / FS / dt);
+      draw();
+      if (ts - S.lastStats > 300) { S.lastStats = ts; stats(); statusLine(); }
+      S.raf = requestAnimationFrame(frame);
+    }
+    function kick() { if (!S.raf && S.playing && S.visible) { S.last = 0; S.raf = requestAnimationFrame(frame); } }
+    function preroll(cb) {
+      S.busy = true;
+      $("#scope-play").disabled = true; $("#scope-reset").disabled = true;
+      const N = Math.round(PREROLL * FS);
+      function chunk() {
+        const t0 = performance.now();
+        while (S.pipe.n < N && performance.now() - t0 < 25) stepSample();
+        status.textContent = "Preparing the first " + PREROLL.toFixed(0) + " s of the recording… " + Math.round(100 * S.pipe.n / N) + " %";
+        draw();
+        if (S.pipe.n < N) setTimeout(chunk, 0);
+        else {
+          S.busy = false; $("#scope-play").disabled = false; $("#scope-reset").disabled = false;
+          if (S.pending) { S.pending = false; restart(); return; }
+          stats(); statusLine(); if (cb) cb(); kick();
+        }
+      }
+      chunk();
+    }
+    function restart() { init(); preroll(); }
+
+    // before the model is loaded, show the raw synthetic EEG with its labels so the canvas is never empty
+    (function placeholder() {
+      const d = PL.synth.nrem({ duration_s: VIEW, seed: 4000 });
+      const pre = PL.preprocess(d.signal);
+      PL.plot(canvas, { xRange: [0, VIEW], yRange: [-0.06, 3.3], xLabel: "Time (s)", yLabel: "Output (0 to 1)   EEG",
+        series: [{ x: Array.from(d.t), y: Array.from(pre.standardized, (v) => 2.25 + 0.24 * Math.max(-4, Math.min(4, v))), color: PL.color("signal"), width: 1, label: "EEG (standardized)" }],
+        regions: d.spindles.map((s, i) => ({ x0: s.start, x1: s.end, label: i === 0 ? "Spindle (truth)" : undefined })) });
+      drawHist();
+    })();
+
+    $("#scope-play").addEventListener("click", function () {
+      S.playing = !S.playing; this.textContent = S.playing ? "Pause" : "Play"; statusLine(); kick();
+    });
+    $("#scope-reset").addEventListener("click", function () { if (S.busy) S.pending = true; else restart(); });
+    PL.ui.bind("#scope-thr", function (v) { if (S.stim) { S.stim.thr = v; restartStats(); draw(); } }, (v) => v.toFixed(2));
+    PL.ui.bind("#scope-refr", function (v) { if (S.stim) { S.stim.refr = v / 1000; restartStats(); } });
+    PL.ui.bind("#scope-sched", function (v) { if (S.pipe) { S.pipe.setSchedule(v, 5); restartStats(); statusLine(); } });
+    PL.ui.bind("#scope-seed", function () { if (!S.model) return; if (S.busy) S.pending = true; else restart(); });
+    PL.ui.bind("#scope-speed", function () { statusLine(); });
+    watchVisibility($("#scope"), function (v) { S.visible = v; if (v) kick(); });
+    PL.onRedraw(function () { if (S.model) { draw(); drawHist(); } });
+
+    PL.loadModel().then(function (m) { S.model = m; restart(); })
+      .catch(function (e) { status.textContent = "Could not load the model: " + e.message + " (serve the docs folder over HTTP, see docs/README.md)."; });
+  })();
+})();
+</script>
+</body>
+</html>

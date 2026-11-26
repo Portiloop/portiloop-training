@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>06 · Evaluating a detector · Portiloop tutorials</title>
+  <meta name="description" content="How the Portiloop training code scores a spindle detector, what precision, recall and F1 mean for closed-loop stimulation, how to choose a threshold, sample-level versus event-level scores, test-set evaluation and reporting.">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <style>
+    .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    table.cm { display: table; width: auto; min-width: 260px; margin: 8px 0; font-variant-numeric: tabular-nums; }
+    table.cm td { text-align: right; font-weight: 600; min-width: 6em; }
+    table.cm td.ok { color: var(--tip); }
+    table.cm td.bad { color: var(--danger); }
+    .cm-wrap { overflow-x: auto; }
+    .checklist li { margin: 0.35em 0; }
+    @media (max-width: 480px) { .controls input[type="range"] { width: 120px; } }
+  </style>
+</head>
+<body data-page="06-evaluation" data-root="..">
+<main>
+<article class="content">
+
+  <div class="eyebrow">Tutorial 06 · Training</div>
+  <h1>Evaluating a detector</h1>
+  <p class="lead">Understand exactly how the training code scores a spindle detector, translate precision, recall and F1 into the language of closed-loop experiments, choose a threshold, compare sample-level and event-level scores, evaluate a trained model on its held-out test subjects, and report the results.</p>
+
+  <dl class="meta">
+    <div><dt>Time</dt><dd>40 minutes</dd></div>
+    <div><dt>Level</dt><dd>Beginner to intermediate</dd></div>
+    <div><dt>You need</dt><dd>Tutorial 05 (for the test-set part: a trained checkpoint and the dataset)</dd></div>
+    <div><dt>Runs in browser</dt><dd>Yes: the real pre-trained network, on synthetic EEG</dd></div>
+  </dl>
+
+  <div class="objectives">
+    <h3>In this tutorial you will</h3>
+    <ul>
+      <li>Read the two functions that compute every score you see during training.</li>
+      <li>See why accuracy is misleading when spindles are rare, and why F1 is used.</li>
+      <li>Move the decision threshold of the real network and watch the confusion matrix and the precision/recall curve.</li>
+      <li>Compare sample-level and event-level scores on the same detections.</li>
+      <li>Compute test-set scores for your model, across several subject splits, and report them completely.</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="how-scored">1. How the training code scores a model</h2>
+  <p>At the end of every epoch, <code>run()</code> calls <code>run_inference</code> on the validation subjects (tutorial <a href="05-training.html#validation">05, section 4.5</a>) and then <code>get_metrics</code>. Both are short; here are their essential lines.</p>
+<pre data-file="portiloop_detector_training.py (run_inference, lines 570 to 599, excerpt)"><code class="language-python">            if classification:
+                batch_labels = (batch_labels &gt; THRESHOLD)
+                batch_labels = batch_labels.float()
+            output, h1, h2, max_value = net_copy(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1, h2, max_value)
+            output = output.view(-1)
+            loss_py = criterion(output, batch_labels).mean()
+            loss += loss_py.item()
+            if not classification:
+                output = (output &gt; THRESHOLD)
+                batch_labels = (batch_labels &gt; THRESHOLD)
+            else:
+                output = (output &gt;= 0.5)
+            batch_labels_list.append(batch_labels)
+            output_list.append(output)
+            n += 1
+
+    batch_labels_total = torch.cat(batch_labels_list)
+    output_total = torch.cat(output_list)
+    loss /= n
+    acc = (output_total == batch_labels_total).float().mean()
+    output_total = output_total.float()
+    batch_labels_total = batch_labels_total.float()
+    tp = (batch_labels_total * output_total)
+    tn = ((1 - batch_labels_total) * (1 - output_total))
+    fp = ((1 - batch_labels_total) * output_total)
+    fn = (batch_labels_total * (1 - output_total))
+    return output_total, batch_labels_total, loss, acc, tp, tn, fp, fn</code></pre>
+<pre data-file="portiloop_detector_training.py (get_metrics, lines 626 to 637)"><code class="language-python">def get_metrics(tp, fp, fn):
+    tp_sum = tp.sum().to(torch.float32).item()
+    fp_sum = fp.sum().to(torch.float32).item()
+    fn_sum = fn.sum().to(torch.float32).item()
+    epsilon = 1e-7
+
+    precision = tp_sum / (tp_sum + fp_sum + epsilon)
+    recall = tp_sum / (tp_sum + fn_sum + epsilon)
+
+    f1 = 2 * (precision * recall) / (precision + recall + epsilon)
+
+    return f1, precision, recall</code></pre>
+  <p>In words:</p>
+  <ul>
+    <li><strong>Unit of evaluation: the sample.</strong> Each evaluated position (every labeled sample of the validation subjects, since <code>validation_network_stride</code> = 1) is one decision. Scores are counts of samples, pooled over all subjects and segments; they are not averaged per subject.</li>
+    <li><strong>Fixed threshold.</strong> In classification the network output is turned into a decision with <code>output &gt;= 0.5</code>, hard-coded. Labels are classes via <code>&gt; THRESHOLD</code> (exactly 0/1 in the classification file, so the value does not matter there). In regression both output and label are binarized at <code>THRESHOLD</code> (0.2 for phase <code>full</code> on the command line, 0.5 when the module is imported; see tutorial <a href="05-training.html#globals">05</a>).</li>
+    <li><strong>Loss</strong> is averaged per batch, then over batches. <strong>Accuracy</strong> is the fraction of samples where decision and label agree.</li>
+    <li><strong>The epsilon</strong> (\(10^{-7}\)) avoids a division by zero: a detector that never says "spindle" gets precision 0 rather than an error.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="prf">2. Precision, recall and F1 for neuroscientists</h2>
+  <p>Every evaluated sample falls in one of four cells:</p>
+  <table>
+    <thead><tr><th></th><th>Label: spindle</th><th>Label: no spindle</th></tr></thead>
+    <tbody>
+      <tr><th>Detector says "spindle"</th><td><strong>True positive (TP)</strong>: a stimulation would be delivered during a spindle, as intended.</td><td><strong>False positive (FP)</strong>, a <em>false alarm</em>: a stimulation at the wrong time, outside any spindle.</td></tr>
+      <tr><th>Detector says "no spindle"</th><td><strong>False negative (FN)</strong>, a <em>miss</em>: a spindle that is not stimulated.</td><td><strong>True negative (TN)</strong>: silence when silence is wanted.</td></tr>
+    </tbody>
+  </table>
+  $$\text{precision} = \frac{TP}{TP + FP}\qquad \text{recall} = \frac{TP}{TP + FN}\qquad F_1 = \frac{2\,\text{precision}\cdot\text{recall}}{\text{precision}+\text{recall}}$$
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: what each score protects</span>
+    <p><strong>Precision</strong> answers "when the device stimulates, how often is it really during a spindle?". Low precision means many stimuli land at the wrong time: your experimental condition is diluted, and the extra stimuli may themselves perturb sleep.</p>
+    <p><strong>Recall</strong> (sensitivity, hit rate) answers "of all spindles, how many are caught?". Low recall means a lower stimulation "dose" and a sample of stimulated spindles that may be biased (for example toward the largest ones).</p>
+    <p><strong>F1</strong> is the harmonic mean of the two: it is high only when both are high, and it ignores true negatives entirely, which is what you want when the "nothing happens" class is huge. It is the same score used by MODA and by most spindle-detector comparisons [2, 3].</p>
+  </div>
+  <p>Remember that these are <em>sample</em> scores: a recall of 0.6 means 60% of spindle samples are detected, not 60% of spindles. Section 5 shows the difference.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="accuracy-trap">3. The accuracy trap</h2>
+  <p>Accuracy (the fraction of correct decisions) looks like the natural score, but it is dominated by the true negatives. In the paper's dataset "only about 5% of the signal is labeled as sleep spindles" [1]; a "detector" that always answers "no spindle" is then 95% accurate, and completely useless.</p>
+
+  <div class="widget" id="trap">
+    <div class="widget-title">The accuracy trap</div>
+    <p class="widget-desc">Compare a useless detector that always says "no spindle" with a real one whose precision and recall you set (the defaults are the whole-cohort test scores reported for the Portiloop network in the paper [1]: recall 0.64, precision 0.59). What to try: at 5% prevalence, compare the two accuracies; then raise the prevalence and see when accuracy starts to separate them. F1 does not move with prevalence here, because we fixed precision and recall.</p>
+    <div class="controls">
+      <label for="trap-prev">Spindle prevalence (%) <input type="range" id="trap-prev" min="0.5" max="50" step="0.5" value="5"><output for="trap-prev"></output></label>
+      <label for="trap-r">Detector recall <input type="range" id="trap-r" min="0.05" max="1" step="0.01" value="0.64"><output for="trap-r"></output></label>
+      <label for="trap-p">Detector precision <input type="range" id="trap-p" min="0.05" max="1" step="0.01" value="0.59"><output for="trap-p"></output></label>
+    </div>
+    <canvas class="plot" id="trap-plot" aria-label="Accuracy as a function of spindle prevalence for the two detectors"></canvas>
+    <div class="readout">
+      <div><div class="k">"Always no": accuracy</div><div class="v" id="trap-a0">…</div></div>
+      <div><div class="k">"Always no": F1</div><div class="v">0.00</div></div>
+      <div><div class="k">Detector: accuracy</div><div class="v" id="trap-a1">…</div></div>
+      <div><div class="k">Detector: F1</div><div class="v" id="trap-f1">…</div></div>
+    </div>
+    <div class="status" id="trap-status"></div>
+  </div>
+  <p>The arithmetic: per unit of recording, the detector has \(TP = R\,p\), \(FN = (1-R)\,p\) and \(FP = TP\,(1-P)/P\), where \(p\) is the prevalence, \(R\) the recall and \(P\) the precision; accuracy is \(1 - FN - FP\). With the paper's values and 5% prevalence, the real detector is about 96% accurate, barely more than the useless one. This is why the training code logs accuracy but selects models on F1 and loss.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="threshold">4. The threshold, the confusion matrix and the precision/recall curve</h2>
+  <p>The network outputs a number between 0 and 1. The threshold turns it into a decision, and it sets the trade-off: a low threshold catches more spindles (recall up) but also more noise (precision down). The training code always uses 0.5, but nothing forces you to deploy with 0.5. The paper's supplementary figure for the classification model is annotated "Threshold 0.55 / F1 score 0.61", and for real-time stimulation the authors write that "the best such trade-off is attained at a threshold of 0.84 with our model, yielding a precision and a recall of 0.71 both" [1] (with the event-based definitions of section 5).</p>
+
+  <div class="widget" id="pr">
+    <div class="widget-title">Threshold, confusion matrix and precision/recall curve (real network)</div>
+    <p class="widget-desc">The real pre-trained Portiloop network runs in your browser on three synthetic 45 s recordings (outputs every 5 samples, as on the device; the first 5 s of each recording are skipped while the filters and the standardization settle). The outputs are computed once; moving the threshold only re-counts. What to try: find the threshold that maximizes F1; then find one that gives a precision of at least 0.9 and see what it costs in recall.</p>
+    <div class="controls">
+      <label for="pr-thr">Threshold <input type="range" id="pr-thr" min="0.01" max="0.99" step="0.01" value="0.5"><output for="pr-thr"></output></label>
+      <button class="btn secondary" id="pr-best" type="button">Go to best F1</button>
+    </div>
+    <div class="cm-wrap">
+      <table class="cm" aria-label="Confusion matrix in samples">
+        <thead><tr><th></th><th>Label: spindle</th><th>Label: no spindle</th></tr></thead>
+        <tbody>
+          <tr><th>Output &ge; threshold</th><td class="ok" id="cm-tp">…</td><td class="bad" id="cm-fp">…</td></tr>
+          <tr><th>Output &lt; threshold</th><td class="bad" id="cm-fn">…</td><td class="ok" id="cm-tn">…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="two-col">
+      <canvas class="plot" id="pr-curve" aria-label="Precision as a function of recall, with the current threshold marked"></canvas>
+      <canvas class="plot" id="pr-thrplot" aria-label="Precision, recall and F1 as a function of the threshold"></canvas>
+    </div>
+    <div class="readout">
+      <div><div class="k">Precision</div><div class="v" id="pr-p">…</div></div>
+      <div><div class="k">Recall</div><div class="v" id="pr-r">…</div></div>
+      <div><div class="k">F1</div><div class="v" id="pr-f">…</div></div>
+      <div><div class="k">Accuracy</div><div class="v" id="pr-a">…</div></div>
+    </div>
+    <div class="status" id="pr-status">Loading the model…</div>
+  </div>
+  <div class="callout warning"><span class="callout-title">Choose the threshold on validation data, never on the test set</span>Picking the threshold that maximizes F1 on the test subjects, then reporting that F1, is a form of fitting on the test set: the score will be optimistic. Choose the threshold on the validation subjects (or on a separate pilot recording), freeze it, then evaluate once on the test subjects.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="events">5. Sample-level versus event-level scores</h2>
+  <p>Experimenters think in spindles, not samples. An <strong>event-level</strong> (by-event) evaluation first turns the labels and the detections into events (onset, offset), then matches detected events to labeled ones. The standard criterion in the spindle literature was defined by Warby and colleagues: "The best match is determined by the ED pair with the maximum intersection/union score (max OED) that exceeds the overlap threshold (Toverlap) ... Throughout this study, we used a relaxed overlap threshold value of Toverlap = 0.2, unless stated otherwise" [2]. The intersection over union (IoU) of two events is the duration of their overlap divided by the duration covered by either. The same criterion with a threshold of 0.2 is used by the A7 detector paper ("For performance evaluation, we used an OvT of 0.2" [4]) and by MODA [3]. Kaulen and colleagues, while also reporting 0.2, "recommend future studies to evaluate spindle detectors at larger overlap thresholds (e.g., at 40%)" [5]; the DOSED detector paper reports its event scores at an IoU of 0.3 [6]. Always state the criterion you used.</p>
+  <p>The two levels can disagree strongly. One long detection that covers two spindles gives good sample recall but only one event match; a detection that starts late but overlaps most of a spindle is a true positive by event and a partial miss by sample; many short flickers of the output can each count as a separate false event.</p>
+
+  <div class="widget" id="ev">
+    <div class="widget-title">Sample-level versus event-level, on the same detections</div>
+    <p class="widget-desc">Same recordings and network as above. Top: the EEG with the labeled spindles shaded. Middle lane: labeled spindles, green if matched, orange if missed. Bottom lane: detected events, green if matched, pink if false alarms. What to try: lower the threshold until detections merge; raise the IoU criterion from 0.2 to 0.5 and watch event-level recall drop while sample-level scores do not change; tick the clean-up box (merge detections separated by less than 0.1 s, drop those shorter than 0.3 s: the rule the paper applied to its labels [1]).</p>
+    <div class="controls">
+      <label for="ev-rec">Recording <select id="ev-rec"><option value="0">1</option><option value="1">2</option><option value="2">3</option></select></label>
+      <label for="ev-thr">Threshold <input type="range" id="ev-thr" min="0.05" max="0.95" step="0.01" value="0.5"><output for="ev-thr"></output></label>
+      <label for="ev-iou">IoU criterion <input type="range" id="ev-iou" min="0.05" max="0.9" step="0.05" value="0.2"><output for="ev-iou"></output></label>
+      <label for="ev-clean"><input type="checkbox" id="ev-clean"> Clean up detections</label>
+    </div>
+    <canvas class="plot tall" id="ev-plot" aria-label="Timeline of labeled and detected spindle events with matches highlighted"></canvas>
+    <div class="readout">
+      <div><div class="k">Sample level: P / R / F1</div><div class="v" id="ev-s">…</div></div>
+      <div><div class="k">Event level: P / R / F1</div><div class="v" id="ev-e">…</div></div>
+      <div><div class="k">Events: labeled / detected / matched</div><div class="v" id="ev-n">…</div></div>
+    </div>
+    <div class="status" id="ev-status">Waiting for the model…</div>
+  </div>
+  <p>Scores in both readouts are pooled over the three recordings. Detections are aligned to the labels by removing the 10-sample (40 ms) delay of the input filter, as in the previous widget.</p>
+
+  <h3 id="stimulation-scores">Closed-loop scores: what matters for stimulation</h3>
+  <p>For a stimulation device, an even more relevant question is "did the stimulus arrive during the spindle, and how late?". The paper redefines the counts for its real-time analysis: "(a) True positive: the first stimulus sent within the duration of a spindle, taking all delays into account; (b) False positive: any other stimulus; (c) False negative: any spindle that does not receive a stimulus within its labeled duration" [1]. The simulation notebook <code>notebooks/simulate_Portiloop_1_input_classification.ipynb</code> (function <code>stimulation_analysis</code>) computes, for each labeled spindle, the delay between its onset and the nearest stimulation (plus a constant 64 ms hardware delay), and counts stimulations falling within 0.25 s and 0.5 s of the onset. Tutorial <a href="08-realtime.html">08</a> runs this analysis in your browser.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="test-set">6. Evaluating on the test set</h2>
+  <p>The validation scores logged during training are optimistic: the validation subjects were used to pick the best epoch. The honest estimate comes from the <strong>test subjects</strong>, which training never touches. They exist only if the model was trained with a test set (the default; <code>--no_test_set</code> removes it).</p>
+  <p>The split is reproducible: subjects are split with <code>train_test_split(..., train_size=0.8, random_state=split_i)</code> and the remaining 20% halved into test and validation with the same <code>random_state</code>; in phase <code>full</code>, phase 1 and phase 2 subject lists are split separately, then merged. Calling <code>generate_dataloader</code> with <code>seq_len=None</code> returns a test loader for the same split:</p>
+<pre data-file="portiloop_detector_training.py (generate_dataloader, lines 866 to 877, excerpt)"><code class="language-python">    else:
+        nb_segment_test = len(np.hstack([range(int(s[1]), int(s[2])) for s in test_subject]))
+        batch_size_test = len(list(range(0, (seq_stride // network_stride) * network_stride, network_stride))) * nb_segment_test
+
+        ds_test = SignalDataset(filename=filename,
+                                path=path_dataset,
+                                window_size=window_size,
+                                fe=fe,
+                                seq_len=1,
+                                seq_stride=1,  # just to be sure, fixed value
+                                list_subject=test_subject,
+                                len_segment=len_segment)</code></pre>
+  <ol class="steps">
+    <li><strong>Check that you use the training split.</strong> A checkpoint must be evaluated with the <code>split_idx</code> it was trained with; with another split, some "test" subjects may have been training subjects and the score is meaningless. The command line trains split 0 (even <code>--experiment_index</code>) or 2 (odd); <code>train_custom.py</code> uses <code>--split</code>.</li>
+    <li><strong>Run this script</strong> from the repository root (it needs the dataset and the checkpoint in <code>portiloop_software/dataset/</code>; it runs on the CPU). It loads the checkpoint, builds the test loader, collects the raw network outputs with the GRU state carried along each segment (the same loop as <code>run_inference</code>, but keeping the output before thresholding), and computes scores at several thresholds, plus the training code's own scores for comparison:
+<pre data-file="evaluate_test.py"><code class="language-python">import numpy as np
+import torch
+import torch.nn as nn
+from portiloop_software.portiloop_python.ANN import portiloop_detector_training as pdt
+
+cfg = pdt.get_final_model_config_dict(split_i=0)   # the split MUST be the one used for training
+cfg["experiment_name"] = "my_variant"              # checkpoint file name in the dataset folder
+# if you changed the architecture for training, set the same keys here (hidden_size, nb_channel, ...)
+fe = cfg["fe"]
+window = int(cfg["window_size_s"] * fe)             # 54 samples
+seq_stride = int(cfg["seq_stride_s"] * fe)          # 42 samples
+net = pdt.get_trained_model(cfg, pdt.path_dataset)  # loads the weights on cfg["device_inference"] ('cpu')
+
+_, _, _, test_loader, batch_size_test, test_subjects = pdt.generate_dataloader(
+    window_size=window, fe=fe, seq_len=None, seq_stride=seq_stride, distribution_mode=None,
+    batch_size=None, nb_batch_per_epoch=None, classification=True,
+    split_i=cfg["split_idx"], network_stride=1)
+print("test subjects:", list(test_subjects[:, 0]))
+
+def raw_outputs(loader, net, batch_size, hidden_size, nb_rnn_layers):
+    """Same loop as run_inference, but keeps the network output before thresholding."""
+    net = net.eval()
+    h = torch.zeros((nb_rnn_layers, batch_size, hidden_size))
+    ys, labels = [], []
+    with torch.no_grad():
+        for x1, x2, x3, lab in loader:
+            y, h, _, _ = net(x1.float(), x2.float(), x3.float(), h, None)
+            ys.append(y.view(-1)); labels.append(lab.float())
+    return torch.cat(ys).numpy(), (torch.cat(labels) &gt; pdt.THRESHOLD).numpy()
+
+y, truth = raw_outputs(test_loader, net, batch_size_test, cfg["hidden_size"], cfg["nb_rnn_layers"])
+for thr in [0.3, 0.5, 0.7]:   # report the threshold chosen on VALIDATION data
+    det = y &gt;= thr
+    tp = np.sum(det &amp; truth); fp = np.sum(det &amp; ~truth); fn = np.sum(~det &amp; truth)
+    p = tp / (tp + fp + 1e-7); r = tp / (tp + fn + 1e-7)
+    print(f"threshold {thr:.1f}: precision {p:.3f}  recall {r:.3f}  F1 {2 * p * r / (p + r + 1e-7):.3f}")
+
+# the training code's own metrics (threshold 0.5), for comparison
+_, _, loss, acc, tp, tn, fp, fn = pdt.run_inference(test_loader, nn.BCELoss(reduction="none"), net, "cpu",
+                                                    cfg["hidden_size"], cfg["nb_rnn_layers"], True, batch_size_test)
+f1, precision, recall = pdt.get_metrics(tp, fp, fn)
+print(f"run_inference + get_metrics: F1 {f1:.3f}  precision {precision:.3f}  recall {recall:.3f}  accuracy {acc.item():.3f}")</code></pre>
+    </li>
+    <li><strong>Read the output.</strong> We tested this script on the synthetic practice dataset with the model of the short CPU run of tutorial <a href="05-training.html#cli-output">05</a> (2 epochs of 10 batches, so a very poor model); the numbers below only show the format, they say nothing about real performance. The two lines at threshold 0.5 must agree, which checks that the raw-output loop reproduces <code>run_inference</code>:
+<pre data-file="console (format only: barely trained model, synthetic data)"><code>test subjects: ['syn-p1-002', 'syn-p2-014', 'syn-p1-020']
+threshold 0.3: precision 0.070  recall 1.000  F1 0.131
+threshold 0.5: precision 0.120  recall 0.893  F1 0.211
+threshold 0.7: precision 1.000  recall 0.023  F1 0.044
+run_inference + get_metrics: F1 0.211  precision 0.120  recall 0.893  accuracy 0.530</code></pre></li>
+  </ol>
+  <div class="callout note"><span class="callout-title">Module globals when importing</span>When the training module is imported, <code>TEST_SET</code> is <code>True</code> and <code>PHASE</code> is <code>'full'</code> (tutorial <a href="05-training.html#globals">05</a>). With <code>TEST_SET = False</code> there is no test subject list and <code>generate_dataloader(seq_len=None, ...)</code> fails. To evaluate a <code>p1</code> or <code>p2</code> model, set the phase globals first (the <code>set_phase</code> helper of <code>docs/tools/train_custom.py</code> does it).</div>
+
+  <h3 id="notebook">The simulation notebook</h3>
+  <p>The notebook <code>notebooks/simulate_Portiloop_1_input_classification.ipynb</code> does the same on the test set, but the way the device runs: its <code>simulate()</code> function builds the test loader with a network stride of 5 samples (8 interleaved hidden states, 20 ms between outputs) instead of 1, keeps the raw outputs (its own copy of <code>run_inference</code> has the thresholding commented out), applies <code>THRESHOLD</code> (0.5) and calls <code>get_metrics</code>:</p>
+<pre data-file="notebooks/simulate_Portiloop_1_input_classification.ipynb (simulate, excerpt)"><code class="language-python">    _, _, _, test_loader, batch_size_test, test_subject = generate_dataloader(window_size=window_size, fe=fe, seq_len=None, seq_stride=seq_stride,
+                                                                              distribution_mode=None, batch_size=None, nb_batch_per_epoch=None,
+                                                                              classification=classification, split_i=split_idx,
+                                                                              network_stride=stride_between_runs)
+    ...
+    f1_test, precision_test, recall_test = get_metrics(tp, fp, fn)</code></pre>
+  <p>Its cell 8 (the cell you edit, tutorial <a href="08-realtime.html#notebook">08</a>) pairs the ten released checkpoints with splits 0 to 9, <code>exp_name = [f"pareto_search_15_35_v4_{i}" for i in [0,11,12,3,14,15,16,7,18,9]]</code>, and loops over the splits; note that the loop ends with <code>break</code>, so as distributed it evaluates only the first one (<code>pareto_search_15_35_v4_0</code> on split 0). Remove the <code>break</code> to evaluate all ten. The notebook is covered in tutorial <a href="08-realtime.html">08</a>.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="splits">7. Variability across splits</h2>
+  <p>A test set of 10% of the subjects is small, so the test score depends on which subjects it contains. Train one model per split (<code>split_idx</code> 0, 1, 2, ...; see the SLURM array in tutorial <a href="05-training.html#cluster">05</a>), evaluate each on its own test subjects, and report the mean and the standard deviation across splits. The notebook already contains (commented out) the lines to do so:</p>
+<pre data-file="notebooks/simulate_Portiloop_1_input_classification.ipynb (cell 8, commented code)"><code class="language-python"># res = np.array(res)
+# std_f1_test, std_precision_test, std_recall_test = np.std(res, axis=0)
+# mean_f1_test, mean_precision_test, mean_recall_test = np.mean(res, axis=0)</code></pre>
+  <div class="callout neuro"><span class="callout-title">For neuroscientists</span>Think of each split as one replication of the experiment with a different random assignment of participants. One split is an anecdote; the mean and spread over ten splits is the result. Also report the scores per phase (younger and older adults): the paper's F1 differs between the two (0.64 and 0.55, below).</div>
+
+  <!-- ============================================================ -->
+  <h2 id="paper">8. How the paper evaluated and reported</h2>
+  <p>The Portiloop paper [1] describes its protocol as follows (section 6, "Validation and performance"): "we choose to use only 10% of subjects as our validation set (for model selection), and another 10% of subjects as our test set (for final model evaluation)"; "we shuffle all subjects 10 times and compute a different training/validation/test split of the dataset each time (sets are thus made of separate subjects)"; "for each split, we use the training set to train 3 models, the validation set being used to estimate their f1-score. We select the best of these 3 models by its best f1-score on the validation set. We then report the performance of this model in terms of its f1-score on the test set"; and "we report the average test f1-score in Table 1, with the corresponding standard deviation being indicated in parenthesis."</p>
+  <p>Table 1 of the paper gives, for the final 1-input network (row 6), mean (standard deviation) over the ten splits:</p>
+  <table>
+    <thead><tr><th>Cohort</th><th>Recall</th><th>Precision</th><th>F1</th></tr></thead>
+    <tbody>
+      <tr><td>Phase 1 (younger)</td><td>0.7 (0.04)</td><td>0.59 (0.05)</td><td>0.64 (0.03)</td></tr>
+      <tr><td>Phase 2 (older)</td><td>0.54 (0.09)</td><td>0.58 (0.05)</td><td>0.55 (0.05)</td></tr>
+      <tr><td>Whole cohort</td><td>0.64 (0.05)</td><td>0.59 (0.05)</td><td>0.61 (0.03)</td></tr>
+    </tbody>
+  </table>
+  <p>The paper states that these metrics describe detection "on average over all data points", that is, sample-level scores like those of section 1. The same table lists the experts' inter-rater agreement (whole cohort F1 0.72 (0.12)) and offline detectors whose values are "taken from [28]", the MODA paper [3], which evaluates by event with an overlap threshold of 0.2. Sample-level and event-level F1 are different quantities (section 5), so compare rows of such tables with care, and in your own work state which one you report.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="checklist">9. A reporting checklist</h2>
+  <ul class="checklist">
+    <li><strong>Data:</strong> dataset and annotation source (for example MODA on MASS [3, 7]), phases or age groups, number of subjects in training, validation and test, and how subjects were assigned (per subject, random seed or <code>split_idx</code>).</li>
+    <li><strong>Labels:</strong> how labels were obtained (consensus threshold, 0.2 or 0.35 in MODA), and any post-processing of events (merging, minimum and maximum duration).</li>
+    <li><strong>Model:</strong> architecture and number of parameters (25,679 for the published network), configuration (or a link to it), code version (git commit).</li>
+    <li><strong>Training:</strong> sampling (balanced or natural), loss, optimizer and learning rate, number of epochs, early-stopping rule, and which checkpoint was kept (best F1 or best loss).</li>
+    <li><strong>Threshold:</strong> its value and how it was chosen (on validation data, never on the test set).</li>
+    <li><strong>Unit of evaluation:</strong> sample-level or event-level; for event-level, the matching rule and IoU threshold; the evaluation stride (every sample, or every 5 samples as on the device).</li>
+    <li><strong>Scores:</strong> precision, recall and F1 (not accuracy alone), on the test set, as mean and standard deviation over splits, overall and per phase or group.</li>
+    <li><strong>For closed-loop use:</strong> the stimulation-level scores and the distribution of stimulation delays relative to spindle onset (tutorial <a href="08-realtime.html">08</a>).</li>
+    <li><strong>Generalization:</strong> if you apply the model to your own recordings (tutorial <a href="09-your-data.html">09</a>), say whether you validated it on manually scored data from your setup.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">Exercises</h2>
+  <details class="exercise"><summary>Best threshold versus 0.5</summary><p>In the threshold widget, press "Go to best F1". How much F1 is gained relative to 0.5, and how do precision and recall change? Would you use this threshold in an experiment where extra stimuli are costly?</p></details>
+  <details class="solution"><summary>Answer</summary><p>The gain depends on the synthetic recordings; read it from the readouts. The important point is the direction: moving the threshold trades precision against recall. If off-target stimuli are costly (for example because they could wake the participant or blur the contrast with a sham condition), choose a threshold above the F1 optimum, on validation data, and accept a lower recall.</p></details>
+
+  <details class="exercise"><summary>Accuracy of "always no"</summary><p>With 10% spindle samples, what are the accuracy, precision, recall and F1 of a detector that never says "spindle", using the formulas of <code>get_metrics</code>?</p></details>
+  <details class="solution"><summary>Answer</summary><p>Accuracy 0.90; TP = 0 and FP = 0, so precision = 0 / (0 + 0 + 10<sup>-7</sup>) = 0; recall = 0; F1 = 0. The epsilon is what makes precision 0 instead of an error.</p></details>
+
+  <details class="exercise"><summary>How strict should the event match be?</summary><p>In the event-level widget, keep the threshold at 0.5 and raise the IoU criterion from 0.2 to 0.6. Which score changes and which does not? Why might a detector used for stimulation care less about the IoU than an offline spindle-density analysis?</p></details>
+  <details class="solution"><summary>Answer</summary><p>Event-level precision and recall drop as matches require more overlap; sample-level scores do not change, because they do not use events. A stimulation device needs the onset to be detected early enough, not the whole spindle to be outlined; an offline analysis of spindle duration or density needs accurate boundaries, which a strict IoU rewards.</p></details>
+
+  <!-- ============================================================ -->
+  <h2 id="references">References</h2>
+  <ol class="refs">
+    <li>Valenchon N, Bouteiller Y, Jourde HR, L'Heureux X, Sobral M, Coffey EBJ, Beltrame G (2022). The Portiloop: a deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a> (sections 5.1, 6, 6.1, Table 1 and S1 File).</li>
+    <li>Warby SC, Wendt SL, Welinder P, et al. (2014). Sleep-spindle detection: crowdsourcing and evaluating performance of experts, non-experts and automated methods. <em>Nature Methods</em> 11(4): 385 to 392. <a href="https://doi.org/10.1038/nmeth.2855">doi:10.1038/nmeth.2855</a> (Online Methods, "By-Event Performance Analysis").</li>
+    <li>Lacourse K, Yetton B, Mednick S, Warby SC (2020). Massive online data annotation, crowdsourcing to generate high quality sleep spindle annotations from EEG data. <em>Scientific Data</em> 7: 190. <a href="https://doi.org/10.1038/s41597-020-0533-4">doi:10.1038/s41597-020-0533-4</a></li>
+    <li>Lacourse K, Delfrate J, Beaudry J, Peppard P, Warby SC (2019). A sleep spindle detection algorithm that emulates human expert spindle scoring. <em>Journal of Neuroscience Methods</em> 316: 3 to 11. <a href="https://doi.org/10.1016/j.jneumeth.2018.08.014">doi:10.1016/j.jneumeth.2018.08.014</a></li>
+    <li>Kaulen L, Schwabedal JTC, Schneider J, Ritter P, Bialonski S (2022). Advanced sleep spindle identification with neural networks. <em>Scientific Reports</em> 12: 7686. <a href="https://doi.org/10.1038/s41598-022-11210-y">doi:10.1038/s41598-022-11210-y</a></li>
+    <li>Chambon S, Thorey V, Arnal PJ, Mignot E, Gramfort A (2019). DOSED: a deep learning approach to detect multiple sleep micro-events in EEG signal. <em>Journal of Neuroscience Methods</em> 321: 64 to 78. <a href="https://doi.org/10.1016/j.jneumeth.2019.03.017">doi:10.1016/j.jneumeth.2019.03.017</a></li>
+    <li>O'Reilly C, Gosselin N, Carrier J, Nielsen T (2014). Montreal Archive of Sleep Studies: an open-access resource for instrument benchmarking and exploratory research. <em>Journal of Sleep Research</em> 23(6): 628 to 635. <a href="https://doi.org/10.1111/jsr.12169">doi:10.1111/jsr.12169</a></li>
+  </ol>
+
+</article>
+</main>
+
+<script src="../assets/js/portiloop.js"></script>
+<script src="../assets/js/nav.js"></script>
+<script>
+/* ---------- Widget: the accuracy trap ---------- */
+(function () {
+  const $ = PL.ui.$;
+  function detAcc(p, R, P) {
+    const tp = R * p, fn = (1 - R) * p, fp = tp * (1 - P) / P;
+    if (fp > 1 - p) return NaN; // impossible combination: more false alarms than non-spindle time
+    return 1 - fn - fp;
+  }
+  function draw() {
+    const prev = parseFloat($("#trap-prev").value) / 100, R = parseFloat($("#trap-r").value), P = parseFloat($("#trap-p").value);
+    const xs = [], a0 = [], a1 = [];
+    for (let q = 0.5; q <= 50.001; q += 0.5) { xs.push(q); a0.push(1 - q / 100); a1.push(detAcc(q / 100, R, P)); }
+    const f1 = 2 * P * R / (P + R);
+    PL.plot($("#trap-plot"), {
+      xRange: [0, 50], yRange: [0, 1.02], xLabel: "Spindle prevalence (% of samples)", yLabel: "score",
+      series: [
+        { x: xs, y: a0, color: PL.color("c1"), width: 2.2, label: "accuracy, always \"no\"" },
+        { x: xs, y: a1, color: PL.color("model"), width: 2.2, label: "accuracy, detector" },
+        { x: [0, 50], y: [f1, f1], color: PL.color("c3"), width: 1.6, dash: [6, 4], label: "F1, detector" },
+      ],
+      markers: [{ x: prev * 100, color: PL.color("stim"), label: (prev * 100).toFixed(1) + " %" }],
+    });
+    const acc1 = detAcc(prev, R, P);
+    $("#trap-a0").textContent = (1 - prev).toFixed(3);
+    $("#trap-a1").textContent = isNaN(acc1) ? "impossible" : acc1.toFixed(3);
+    $("#trap-f1").textContent = f1.toFixed(2);
+    $("#trap-status").textContent = isNaN(acc1) ? "This precision is impossible at this prevalence: there would be more false alarms than non-spindle samples." :
+      "At this prevalence the useful detector beats the useless one by " + ((acc1 - (1 - prev)) * 100).toFixed(1) + " accuracy points.";
+  }
+  [["#trap-prev", (v) => v.toFixed(1)], ["#trap-r", (v) => v.toFixed(2)], ["#trap-p", (v) => v.toFixed(2)]].forEach(([id, f]) => PL.ui.bind(id, draw, f));
+  PL.onRedraw(draw); draw();
+})();
+
+/* ---------- Shared data: real network on 3 synthetic recordings ---------- */
+const EVAL = (function () {
+  const SEEDS = [4, 6, 8], DUR = 45, SKIP = 5 * PL.FS, DELAY = 10;
+  const recs = [];
+  let ready = null;
+  function load(onProgress) {
+    if (ready) return ready;
+    ready = PL.loadModel().then(async (model) => {
+      for (let k = 0; k < SEEDS.length; k++) {
+        onProgress("Running the network on recording " + (k + 1) + " of " + SEEDS.length + "…");
+        await new Promise((r) => setTimeout(r, 0));
+        const d = PL.synth.nrem({ duration_s: DUR, seed: SEEDS[k] });
+        const pre = PL.preprocess(d.signal);
+        const out = model.runStream(pre.standardized, { networkStride: 5 });
+        const keep = [];
+        for (let i = 0; i < out.idx.length; i++) if (out.idx[i] >= SKIP) keep.push(i);
+        recs.push({
+          d, std: pre.standardized, stride: out.networkStride,
+          idx: Int32Array.from(keep, (i) => out.idx[i]),
+          y: Float32Array.from(keep, (i) => out.y[i]),
+          lab: Uint8Array.from(keep, (i) => d.label[out.idx[i] - DELAY]),
+        });
+      }
+      return { recs, model };
+    });
+    return ready;
+  }
+  return { load, recs, SKIP, DELAY, DUR };
+})();
+
+/* ---------- Widget: threshold, confusion matrix, PR curve ---------- */
+(function () {
+  const $ = PL.ui.$;
+  let Y = null, L = null, curve = null;
+  function counts(thr) {
+    let tp = 0, fp = 0, fn = 0, tn = 0;
+    for (let i = 0; i < Y.length; i++) { const d = Y[i] >= thr, t = L[i]; if (d && t) tp++; else if (d) fp++; else if (t) fn++; else tn++; }
+    return { tp, fp, fn, tn };
+  }
+  function build() {
+    const ys = [], ls = [];
+    EVAL.recs.forEach((r) => { ys.push(...r.y); ls.push(...r.lab); });
+    Y = Float32Array.from(ys); L = Uint8Array.from(ls);
+    curve = [];
+    for (let k = 1; k <= 99; k++) { const thr = k / 100, m = PL.metrics.prf(counts(thr)); curve.push({ thr, ...m }); }
+  }
+  function draw() {
+    if (!Y) return;
+    const thr = parseFloat($("#pr-thr").value);
+    const c = counts(thr), m = PL.metrics.prf(c);
+    $("#cm-tp").textContent = c.tp; $("#cm-fp").textContent = c.fp; $("#cm-fn").textContent = c.fn; $("#cm-tn").textContent = c.tn;
+    $("#pr-p").textContent = m.precision.toFixed(2); $("#pr-r").textContent = m.recall.toFixed(2); $("#pr-f").textContent = m.f1.toFixed(2);
+    $("#pr-a").textContent = ((c.tp + c.tn) / Y.length).toFixed(3);
+    const pts = curve.filter((p) => p.precision > 0);
+    PL.plot($("#pr-curve"), {
+      xRange: [0, 1], yRange: [0, 1.02], xLabel: "Recall", yLabel: "Precision", title: "Precision/recall curve",
+      series: [
+        { x: pts.map((p) => p.recall), y: pts.map((p) => p.precision), color: PL.color("c1"), width: 2 },
+        { x: [m.recall], y: [m.precision], color: PL.color("stim"), points: true, radius: 6, label: "threshold " + thr.toFixed(2) },
+      ],
+    });
+    PL.plot($("#pr-thrplot"), {
+      xRange: [0, 1], yRange: [0, 1.02], xLabel: "Threshold", yLabel: "score", title: "Scores versus threshold",
+      series: [
+        { x: curve.map((p) => p.thr), y: curve.map((p) => p.precision), color: PL.color("c4"), width: 1.6, dash: [5, 3], label: "precision" },
+        { x: curve.map((p) => p.thr), y: curve.map((p) => p.recall), color: PL.color("c5"), width: 1.6, dash: [2, 2], label: "recall" },
+        { x: curve.map((p) => p.thr), y: curve.map((p) => p.f1), color: PL.color("c3"), width: 2.4, label: "F1" },
+      ],
+      markers: [{ x: thr, color: PL.color("stim") }],
+    });
+  }
+  PL.ui.bind("#pr-thr", draw, (v) => v.toFixed(2));
+  $("#pr-best").addEventListener("click", () => {
+    if (!curve) return;
+    const b = curve.reduce((a, p) => (p.f1 > a.f1 ? p : a), curve[0]);
+    const el = $("#pr-thr"); el.value = b.thr; el.dispatchEvent(new Event("input"));
+  });
+  PL.onRedraw(draw);
+  EVAL.load((msg) => { $("#pr-status").textContent = msg; }).then(({ model }) => {
+    build(); draw();
+    const spin = L.reduce((a, v) => a + v, 0);
+    $("#pr-status").textContent = "Pre-trained model (" + model.nParameters + " parameters) run locally on " + Y.length + " output samples, " +
+      (100 * spin / L.length).toFixed(1) + "% of them labeled spindle.";
+  }).catch((e) => { $("#pr-status").textContent = "Could not load the model: " + e.message + " (serve the docs folder over HTTP)."; });
+})();
+
+/* ---------- Widget: sample-level versus event-level ---------- */
+(function () {
+  const $ = PL.ui.$, FS = PL.FS;
+  function detMask(r, thr) {
+    // per-sample detection: each output holds for `stride` samples, then shift by the filter delay
+    const n = r.d.signal.length, m = new Uint8Array(n);
+    for (let k = 0; k < r.idx.length; k++) {
+      if (r.y[k] < thr) continue;
+      for (let j = r.idx[k] - r.stride + 1; j <= r.idx[k]; j++) { const s = j - EVAL.DELAY; if (s >= 0) m[s] = 1; }
+    }
+    return m;
+  }
+  function clean(ev) {
+    const out = [];
+    for (const e of ev) {
+      const last = out[out.length - 1];
+      if (last && e.start - last.end < 0.1 * FS) last.end = e.end; else out.push({ start: e.start, end: e.end });
+    }
+    return out.filter((e) => e.end - e.start >= 0.3 * FS);
+  }
+  function match(det, truth, thr) {
+    const used = new Array(truth.length).fill(false), detOk = new Array(det.length).fill(false);
+    det.forEach((d, i) => {
+      let best = -1, bestIou = 0;
+      truth.forEach((t, j) => {
+        if (used[j]) return;
+        const inter = Math.max(0, Math.min(d.end, t.end) - Math.max(d.start, t.start));
+        const uni = Math.max(d.end, t.end) - Math.min(d.start, t.start);
+        const iou = uni > 0 ? inter / uni : 0;
+        if (iou > bestIou) { bestIou = iou; best = j; }
+      });
+      if (best >= 0 && bestIou >= thr) { used[best] = true; detOk[i] = true; }
+    });
+    return { detOk, truthOk: used };
+  }
+  function analyse(r, thr, iou, doClean) {
+    const n = r.d.signal.length, lo = EVAL.SKIP - EVAL.DELAY;
+    const m = detMask(r, thr), lab = r.d.label;
+    let det = PL.metrics.toEvents(m.subarray(lo)).map((e) => ({ start: e.start + lo, end: e.end + lo }));
+    if (doClean) det = clean(det);
+    det = det.filter((e) => e.start > lo); // drop events cut by the start of the analysed window
+    const truth = PL.metrics.toEvents(lab.subarray(lo, n)).map((e) => ({ start: e.start + lo, end: e.end + lo })).filter((e) => e.start > lo);
+    const mm = match(det, truth, iou);
+    return { det, truth, ...mm };
+  }
+  function fmt(m) { return m.precision.toFixed(2) + " / " + m.recall.toFixed(2) + " / " + m.f1.toFixed(2); }
+  function draw() {
+    if (!EVAL.recs.length) return;
+    const thr = parseFloat($("#ev-thr").value), iou = parseFloat($("#ev-iou").value), doClean = $("#ev-clean").checked;
+    let s = { tp: 0, fp: 0, fn: 0, tn: 0 }, nT = 0, nD = 0, nM = 0, res = [];
+    EVAL.recs.forEach((r) => {
+      const c = PL.metrics.confusion(Array.from(r.y, (v) => v >= thr), r.lab);
+      s.tp += c.tp; s.fp += c.fp; s.fn += c.fn; s.tn += c.tn;
+      const a = analyse(r, thr, iou, doClean); res.push(a);
+      nT += a.truth.length; nD += a.det.length; nM += a.detOk.filter(Boolean).length;
+    });
+    const ev = PL.metrics.prf({ tp: nM, fp: nD - nM, fn: nT - nM });
+    $("#ev-s").textContent = fmt(PL.metrics.prf(s));
+    $("#ev-e").textContent = fmt(ev);
+    $("#ev-n").textContent = nT + " / " + nD + " / " + nM;
+    const k = parseInt($("#ev-rec").value, 10), r = EVAL.recs[k], a = res[k];
+    const series = [{ x: Array.from(r.d.t), y: Array.from(r.std, (v) => Math.max(-4, Math.min(4, v)) * 0.32 + 1.6), color: PL.color("signal"), width: 1, label: "EEG" }];
+    const seen = {};
+    const seg = (e, y, color, label) => {
+      series.push({ x: [e.start / FS, e.end / FS], y: [y, y], color, width: 9, label: seen[label] ? undefined : label });
+      seen[label] = true;
+    };
+    a.truth.forEach((e, j) => seg(e, 0.05, a.truthOk[j] ? PL.color("c3") : PL.color("c2"), a.truthOk[j] ? "matched" : "missed spindle"));
+    a.det.forEach((e, i) => seg(e, -0.65, a.detOk[i] ? PL.color("c3") : PL.color("stim"), a.detOk[i] ? "matched" : "false alarm"));
+    PL.plot($("#ev-plot"), {
+      xRange: [EVAL.SKIP / FS, EVAL.DUR], yRange: [-1.1, 3.1], xLabel: "Time (s); middle lane: labels, bottom lane: detections", yTicks: 1,
+      regions: r.d.spindles.map((sp) => ({ x0: sp.start, x1: sp.end })), series,
+    });
+    $("#ev-status").textContent = "Recording " + (k + 1) + ": " + a.truth.length + " labeled spindles, " + a.det.length + " detected events.";
+  }
+  ["#ev-thr", "#ev-iou"].forEach((id) => PL.ui.bind(id, draw, (v) => v.toFixed(2)));
+  PL.ui.bind("#ev-rec", draw); PL.ui.bind("#ev-clean", draw);
+  PL.onRedraw(draw);
+  EVAL.load(() => {}).then(draw).catch((e) => { $("#ev-status").textContent = "Could not load the model: " + e.message; });
+})();
+</script>
+</body>
+</html>

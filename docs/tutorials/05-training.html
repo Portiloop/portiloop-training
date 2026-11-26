@@ -1,0 +1,1039 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>05 · Training a new model · Portiloop tutorials</title>
+  <meta name="description" content="Step by step: train the Portiloop sleep spindle detector, understand every option of the training loop, and train your own variant on a GPU or a SLURM cluster.">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <style>
+    canvas.plot.batch-strip { height: 96px; }
+    .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .kv { font-variant-numeric: tabular-nums; }
+    .flagtable td:first-child { white-space: nowrap; }
+    .widget .controls select { max-width: 100%; }
+    @media (max-width: 480px) { .controls input[type="range"] { width: 120px; } }
+  </style>
+</head>
+<body data-page="05-training" data-root="..">
+<main>
+<article class="content">
+
+  <div class="eyebrow">Tutorial 05 · Training</div>
+  <h1>Training a new model</h1>
+  <p class="lead">Run the reference training of the Portiloop spindle detector, understand what happens in every epoch (sampling, loss, validation, model selection, early stopping), find the files it writes, and train your own variant on a workstation or on a SLURM cluster.</p>
+
+  <dl class="meta">
+    <div><dt>Time</dt><dd>45 minutes to read; training itself takes hours on a GPU</dd></div>
+    <div><dt>Level</dt><dd>Intermediate</dd></div>
+    <div><dt>You need</dt><dd>Tutorial 02 (installation and data); a CUDA GPU recommended</dd></div>
+    <div><dt>Runs in browser</dt><dd>4 widgets, including a toy training</dd></div>
+  </dl>
+
+  <div class="objectives">
+    <h3>In this tutorial you will</h3>
+    <ul>
+      <li>Launch the reference training from the command line and know what every flag does.</li>
+      <li>Understand, in experimental terms, how training examples are built and drawn, how the loss is computed and how the "best" model is chosen.</li>
+      <li>Train a toy spindle detector in your browser and watch the learning curves.</li>
+      <li>Know which files are written where, and what resuming really does.</li>
+      <li>Train your own variant with a small, tested script, on your machine or on a cluster.</li>
+    </ul>
+  </div>
+
+  <div class="callout note"><span class="callout-title">Where everything lives</span>All training code is in one file, <a href="https://github.com/Portiloop/portiloop-training/blob/main/portiloop_software/portiloop_python/ANN/portiloop_detector_training.py"><code>portiloop_software/portiloop_python/ANN/portiloop_detector_training.py</code></a>. Code excerpts on this page are copied from it verbatim (line numbers refer to the current <code>main</code> branch). If your clone is older than the ONNX export commit, run <code>git pull</code> first: several behaviours described here were fixed recently (saving of the best model, the <code>onnx</code> dependency, W&amp;B offline mode, <code>max_duration</code>, run names, the checkpoint contents and LDS).</div>
+
+  <!-- ============================================================ -->
+  <h2 id="prerequisites">1. Before you start</h2>
+
+  <ol class="steps">
+    <li><strong>Install the package in editable mode</strong> (tutorial <a href="02-installation.html">02</a>). From the repository root:
+<pre data-file="terminal"><code class="language-bash">pip install -e .</code></pre>
+      This installs PyTorch, <code>wandb</code>, <code>scikit-learn</code> (used for the subject split) and <code>onnx</code> (used to export the best model during training). Without this step, running the training script fails immediately with <code>ModuleNotFoundError: No module named 'portiloop_software'</code>, because the script imports its helpers through the package name.</li>
+    <li><strong>Put the dataset in place.</strong> The training reads its data from <code>portiloop_software/dataset/</code>, a path computed from the location of the script itself:
+<pre data-file="portiloop_detector_training.py (line 31)"><code class="language-python">path_dataset = Path(__file__).absolute().parent.parent.parent / 'dataset'</code></pre>
+      For the default run (phase <code>full</code>, classification) you need these four files of the practice dataset (<code>dataset.zip</code> or the generator, tutorial <a href="02-installation.html">02</a>), or of your own data converted to the same format:
+      <ul>
+        <li><code>dataset_classification_full_big_250_matlab_standardized_envelope_pf.txt</code> (the EEG, its envelope, a power-features ratio and the label, 4 comma-separated columns, 250 Hz);</li>
+        <li><code>subject_sequence_full_big.txt</code>, <code>subject_sequence_p1_big.txt</code>, <code>subject_sequence_p2_big.txt</code> (one line per subject: subject ID, first segment, end segment, exclusive).</li>
+      </ul>
+      Regression training (<a href="#regression">section 8</a>) uses <code>dataset_regression_full_big_250_matlab_standardized_envelope_pf.txt</code> instead.</li>
+    <li><strong>Check your GPU.</strong> The published configuration trains and validates on <code>'cuda'</code>:
+<pre data-file="terminal"><code class="language-bash">python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"</code></pre>
+      If this prints <code>False</code>, the reference command stops at the very beginning of <code>run()</code> with
+<pre data-file="console"><code>AssertionError: CUDA unavailable</code></pre>
+      raised by these lines:
+<pre data-file="portiloop_detector_training.py (lines 962 to 963)"><code class="language-python">    if device_val.startswith("cuda") or device_train.startswith("cuda"):
+        assert torch.cuda.is_available(), "CUDA unavailable"</code></pre>
+    </li>
+  </ol>
+
+  <h3 id="devices">Choosing the device (GPU or CPU)</h3>
+  <p>Three keys of the configuration dictionary control where computations happen:</p>
+  <table>
+    <thead><tr><th>Key</th><th>Published value</th><th>Used for</th></tr></thead>
+    <tbody>
+      <tr><td><code>device_train</code></td><td><code>'cuda'</code></td><td>The network and every training batch (forward pass, loss, gradient step).</td></tr>
+      <tr><td><code>device_val</code></td><td><code>'cuda'</code></td><td>The validation pass at the end of each epoch (<code>run_inference</code>).</td></tr>
+      <tr><td><code>device_inference</code></td><td><code>'cpu'</code></td><td>Only for loading a trained model afterwards (<code>get_trained_model</code>, tutorials <a href="08-realtime.html">08</a> and <a href="09-your-data.html">09</a>); not used by training.</td></tr>
+    </tbody>
+  </table>
+  <p>Valid values are any PyTorch device string: <code>'cuda'</code> (first GPU), <code>'cuda:1'</code> (second GPU), or <code>'cpu'</code>. The command-line entry point has no flag for this; either edit <code>get_final_model_config_dict()</code> or, better, use the small script of <a href="#custom">section 7</a>, which has a <code>--device</code> option.</p>
+
+  <div class="callout warning"><span class="callout-title">How slow is CPU training?</span>On our test machine (a 20-thread desktop CPU, no GPU) one batch of 256 training sequences took about 2.5 s (24 to 33 s for 10 batches, measured with the script of section 7 on the synthetic practice dataset). One epoch of the published configuration is 1000 batches, so a CPU epoch would take roughly 40 minutes and 150 epochs several days. Use the CPU only to check that everything runs (a few batches), and train on a GPU. We have not measured GPU training times, so we do not quote any.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="wandb">2. Set up Weights &amp; Biases (W&amp;B)</h2>
+  <p>The training logs its learning curves to <a href="https://wandb.ai">Weights &amp; Biases</a>, a web service that plots metrics while the job runs (useful when the job is on a cluster). The logger is created at the start of <code>run()</code>:</p>
+<pre data-file="portiloop_detector_training.py (lines 468 to 473)"><code class="language-python">        # Credentials come from your own W&amp;B login (`wandb login`) or the WANDB_API_KEY environment variable.
+        # Runs go to your default W&amp;B entity unless WANDB_ENTITY is set (e.g. to a lab team name).
+        # Without an account: WANDB_MODE=offline (curves saved locally in ./wandb, upload later with `wandb sync`)
+        # or WANDB_MODE=disabled (nothing recorded).
+        self.wandb_run = wandb.init(project=project_name, entity=os.environ.get("WANDB_ENTITY"), id=experiment_name,
+                                    resume="allow", config=c_dict, reinit=True)</code></pre>
+  <ol class="steps">
+    <li><strong>Create a free account</strong> at <a href="https://wandb.ai">wandb.ai</a>, then log in once on the machine that trains:
+<pre data-file="terminal"><code class="language-bash">wandb login          # paste the API key shown on https://wandb.ai/authorize</code></pre>
+      The key is stored in <code>~/.netrc</code>. On a cluster you can instead export <code>WANDB_API_KEY</code> in your job script; never commit a key to a repository.</li>
+    <li><strong>Optional: log to your lab's team.</strong> <code>export WANDB_ENTITY=my-lab-team</code>. Without it, runs go to your personal account.</li>
+    <li><strong>Know where to look.</strong> The project name is <code>f"{PHASE}-dataset-public"</code>, so the reference run appears in project <code>full-dataset-public</code>; the run ID is the experiment name (<code>id=experiment_name</code>).</li>
+  </ol>
+
+  <div class="callout tip"><span class="callout-title">Training without an account</span>
+    <p>Two modes work without any W&amp;B account (we tested both with wandb 0.31.0, no credentials and an empty home folder):</p>
+<pre data-file="terminal"><code class="language-bash">export WANDB_MODE=offline     # curves recorded locally in ./wandb, upload later with `wandb sync`
+export WANDB_MODE=disabled    # nothing recorded; watch the console instead</code></pre>
+    <p>In offline mode the run data go to <code>./wandb/offline-run-&lt;date&gt;_&lt;time&gt;-&lt;experiment name&gt;</code>, and at the end wandb prints the command to upload them once you have an account (<code>wandb sync wandb/offline-run-...</code>), for example from a login node of a cluster whose compute nodes have no internet. Training, checkpoints and ONNX export are identical in all three modes (online, offline, disabled). In offline mode you will also see the harmless debug line <code>W&amp;B restore of ... skipped: UsageError: No API key configured</code> (see <a href="#resume">resuming</a>).</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="cli">3. Run the reference training</h2>
+  <p>From the repository root, this command retrains the published architecture on random subject split 0, with a held-out test set:</p>
+<pre data-file="terminal"><code class="language-bash">python portiloop_software/portiloop_python/ANN/portiloop_detector_training.py --phase full --experiment_index 0</code></pre>
+
+  <h3 id="flags">Every flag explained</h3>
+  <table class="flagtable">
+    <thead><tr><th>Flag</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>--phase p1|p2|full</code></td><td><code>full</code></td><td>Which part of the MODA annotations to use. MODA was annotated in two phases: "phase 1 consisted of 100 younger subjects (mean age of 24.1 years old) and phase 2 consisted of 80 older subjects (mean age of 62.0 years old)" [3]. <code>full</code> uses both. The phase selects the data files, the W&amp;B project name and the label threshold <code>THRESHOLD</code> (0.2, 0.35 and 0.2).</td></tr>
+      <tr><td><code>--experiment_index N</code></td><td><code>0</code></td><td>Chooses the subject split: even N gives split 0, odd N gives split 2 (<code>possible_split = [0, 2]</code>). It also sets the default experiment name, <code>sanity_check_final_model_N</code>.</td></tr>
+      <tr><td><code>--test_set</code> / <code>--no_test_set</code></td><td>test set on</td><td>With a test set, 80% of subjects train, 10% validate and 10% are kept aside for the final evaluation (tutorial <a href="06-evaluation.html">06</a>). With <code>--no_test_set</code>, the whole 20% is used for validation and <code>_no_test</code> is appended to the name.</td></tr>
+      <tr><td><code>--classification</code> / <code>--regression</code></td><td>classification</td><td>Classification learns 0/1 labels with a binary cross-entropy loss; regression learns the graded expert-agreement score with a mean squared error loss (<a href="#regression">section 8</a>). Regression appends <code>_regression</code> to the name.</td></tr>
+      <tr><td><code>--ablation 0|1|2</code></td><td><code>0</code></td><td>Input ablation study from the paper (<a href="#regression">section 8</a>). A non-zero value appends <code>_ablation1</code> or <code>_ablation2</code> to the name.</td></tr>
+      <tr><td><code>--output_file PATH</code></td><td>none</td><td>Write the log to this file instead of the console (useful on clusters).</td></tr>
+      <tr><td><code>--experiment_name NAME</code></td><td>none</td><td>Name of the run: the W&amp;B run ID and the checkpoint file names. Without it, the name is <code>sanity_check_final_model_&lt;experiment_index&gt;</code>. The suffixes below are appended in any case.</td></tr>
+      <tr><td><code>--max_split</code></td><td><code>10</code></td><td>Parsed but <strong>unused</strong>: only one split is trained per call.</td></tr>
+    </tbody>
+  </table>
+  <p>Here is how the flags are turned into the configuration (lines 1428 to 1441, then line 1450):</p>
+<pre data-file="portiloop_detector_training.py (excerpt of the __main__ block)"><code class="language-python">    possible_split = [0, 2]
+    split_idx = possible_split[exp_index % 2]
+    classification = args.classification
+    TEST_SET = args.test_set
+    logging.debug(f"classification: {classification}")
+    config_dict = get_final_model_config_dict(exp_index, split_idx)
+    if exp_name is not None:
+        config_dict['experiment_name'] = exp_name
+    config_dict['distribution_mode'] = 0 if classification else 1
+    config_dict['classification'] = classification
+    config_dict['experiment_name'] += "_regression" if not classification else ""
+    config_dict['experiment_name'] += "_no_test" if not TEST_SET else ""
+    config_dict['experiment_name'] += f"_ablation{ABLATION}" if ABLATION else ""
+    seed()  # reset the seed
+    ...
+    run(config_dict=config_dict, wandb_project=WANDB_PROJECT_RUN, save_model=True, unique_name=False)</code></pre>
+
+  <div class="callout warning"><span class="callout-title">Same name, same files</span>The name decides where checkpoints are written and which W&amp;B run is resumed. With the defaults, <code>--experiment_index 0</code> and <code>1</code> get different names (<code>sanity_check_final_model_0</code> and <code>_1</code>), but the phase is <em>not</em> part of the name: <code>--phase p1</code> and <code>--phase full</code> with the same index write the same checkpoint files (in different W&amp;B projects). Give such runs their own <code>--experiment_name</code>; a second run with an existing name resumes from, then overwrites, the existing checkpoints (<a href="#resume">section 6</a>).</div>
+
+  <h3 id="cli-output">What you should see</h3>
+  <p>The script sets the root logger to <code>DEBUG</code>, so it prints its own messages and some debug lines from libraries. The excerpt below was captured from a short CPU run (2 epochs of 10 batches) of the script of section 7 on the synthetic practice dataset of tutorial <a href="02-installation.html">02</a>, with the root logger set to <code>DEBUG</code> as the command-line entry point does; a full run prints the same lines, with larger numbers and much longer times. The <code>wandb:</code> lines appear only when W&amp;B is enabled.</p>
+<pre data-file="console (captured on the synthetic practice dataset; lines shortened with ...)"><code>DEBUG: classification: True                       &lt;- command line only
+DEBUG: config_dict: {'experiment_name': 'smoke_dbg', 'device_train': 'cpu', 'device_val': 'cpu', ...}
+wandb: Tracking run with wandb version ...          &lt;- when W&amp;B is enabled
+DEBUG: W&amp;B restore of smoke_dbg skipped: ...     &lt;- online or offline mode
+DEBUG: Create new model
+DEBUG: Subjects in training : ['syn-p2-001' 'syn-p1-005' 'syn-p2-013' ... ]
+DEBUG: Subjects in validation : ['syn-p2-003' 'syn-p2-005' 'syn-p1-008' 'syn-p1-016']
+DEBUG: Subjects in test : ['syn-p1-002' 'syn-p2-014' 'syn-p1-020']
+DEBUG: total number of spindles in this dataset : 184700
+DEBUG: total number of spindles in this dataset : 26372
+DEBUG: Validation dataloader batch size: 504
+DEBUG: epoch: 0
+DEBUG: proba: 0.5
+DEBUG: Training time for 1 epoch : 32.70228576660156 s
+DEBUG: Validation time for 1 epoch : 43.11477971076965 s
+DEBUG: epoch: 1
+DEBUG: proba: 0.5
+DEBUG: Training time for 1 epoch : 23.826173782348633 s
+DEBUG: Validation time for 1 epoch : 34.9319429397583 s
+DEBUG: Delete logger
+DEBUG: Logger deleted</code></pre>
+  <ul>
+    <li><code>W&amp;B restore of ... skipped</code> means W&amp;B had no checkpoint to give back (normal, see <a href="#resume">section 6</a>). <code>Create new model</code> means no local checkpoint with this name was found either (<code>Use checkpoint model</code> otherwise).</li>
+    <li><code>total number of spindles in this dataset</code> counts spindle <em>samples</em> (not events), once for the training set and once for the validation set.</li>
+    <li><code>Validation dataloader batch size</code> is 42 times the number of validation segments (explained in <a href="#validation">section 4.5</a>). It is printed with <code>print()</code>, so it appears even when logging goes to a file.</li>
+    <li>Harmless warnings you may also see: a PyTorch warning about <code>pin_memory</code> on a CPU-only machine, and a W&amp;B warning that a boolean <code>reinit</code> is deprecated.</li>
+  </ul>
+  <p>In W&amp;B, each epoch logs <code>loss_train</code>, <code>accuracy_train</code>, <code>loss_validation</code>, <code>accuracy_validation</code>, <code>f1_validation</code>, <code>precision_validation</code>, <code>recall_validation</code> and <code>loss_early_stopping</code>; the run summary holds the scores of the two best models (<code>best_model_f1_score_validation</code>, <code>best_model_on_loss_loss_validation</code>, and so on) and <code>best_epoch</code>, <code>best_epoch_early_stopping</code>.</p>
+
+  <div class="callout tip"><span class="callout-title">Read the curves correctly</span><code>accuracy_train</code> is measured on the class-balanced training batches (about half spindles, <a href="#sampler">section 4.2</a>), whereas <code>accuracy_validation</code> is measured on the natural validation recordings (a small fraction of spindles). The two are not comparable; and validation accuracy is a poor score anyway (tutorial <a href="06-evaluation.html#accuracy-trap">06</a>). Watch <code>f1_validation</code> and <code>loss_validation</code>.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="epoch">4. What happens inside one epoch</h2>
+  <p>Training a network means adjusting its 25,679 weights so that its output (a number between 0 and 1) is close to 1 during spindles and close to 0 elsewhere. The training loop repeats the same cycle: show the network a batch of examples, measure how wrong it is (the <em>loss</em>), nudge every weight in the direction that reduces the error (a <em>gradient step</em>), and, every 1000 batches, test it on recordings it never trains on (<em>validation</em>).</p>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: the three data sets</span>The <strong>training set</strong> is what the network learns from, like the practice recordings of a scorer in training. The <strong>validation set</strong> is a set of other subjects used to decide when the network is good enough and which version to keep, like the inter-rater check you run before letting a new scorer work alone. The <strong>test set</strong> is touched only once, at the very end, to report performance (tutorial <a href="06-evaluation.html">06</a>). Subjects never appear in two sets, so the scores measure generalization to new people, not memorization of known recordings.</div>
+
+  <h3 id="dataset">4.1 The training examples (<code>SignalDataset</code>)</h3>
+  <p>The data file is cut into segments of 145 s; only 115 s of each segment carry labels (the rest, including a 15 s lead-in, has a negative label and is used only as past context). A training example is built around one <strong>labeled sample</strong>: the network receives a <em>sequence</em> of <code>seq_len</code> = 50 short windows of <code>window_size</code> = 54 samples (216 ms), spaced <code>seq_stride</code> = 42 samples (168 ms) apart, the last window ending exactly on the labeled sample. Its target is the label of that last sample.</p>
+<pre data-file="portiloop_detector_training.py (lines 66 to 87, excerpt)"><code class="language-python">        # list of indices that can be sampled:
+        self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
+                        if not (self.data[3][idx + self.window_size - 1] &lt; 0  # that are not ending in an unlabeled zone
+                                or idx &lt; self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
+    ...
+        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
+        ...
+        label = torch.tensor(self.data[3][idx + self.window_size - 1], dtype=torch.float)
+
+        return signal_seq, envelope_seq, ratio_pf, label</code></pre>
+  <p>The window length and spacing are given in seconds in the configuration and converted with <code>int()</code>, which truncates: <code>int(0.218 * 250) = 54</code> and <code>int(0.170 * 250) = 42</code>. The convolutional layers look inside each window; the recurrent layer (GRU) carries information from one window to the next (tutorial <a href="04-network.html">04</a>). One example therefore spans \((50-1)\times 42 + 54 = 2112\) samples, about 8.4 s of EEG.</p>
+
+  <div class="widget" id="seq">
+    <div class="widget-title">Anatomy of one training example</div>
+    <p class="widget-desc">Each bar below the EEG is one window fed to the network; the orange bar is the last window, which ends on the labeled sample (pink line). Bars are drawn on staggered lanes so that overlapping windows remain visible. What to try: reduce the spacing below the window length and see the windows overlap; set the sequence length to 1 to see what a network without memory would get.</p>
+    <div class="controls">
+      <label for="seq-len">Sequence length (windows) <input type="range" id="seq-len" min="1" max="50" step="1" value="50"><output for="seq-len"></output></label>
+      <label for="seq-stride">Spacing (samples) <input type="range" id="seq-stride" min="10" max="60" step="1" value="42"><output for="seq-stride"></output></label>
+      <label for="seq-win">Window (samples) <input type="range" id="seq-win" min="20" max="120" step="1" value="54"><output for="seq-win"></output></label>
+    </div>
+    <canvas class="plot tall" id="seq-plot" aria-label="Synthetic EEG with the windows of one training example drawn below it"></canvas>
+    <div class="readout">
+      <div><div class="k">Context seen</div><div class="v" id="seq-ctx">…</div></div>
+      <div><div class="k">Window length</div><div class="v" id="seq-wms">…</div></div>
+      <div><div class="k">Spacing</div><div class="v" id="seq-sms">…</div></div>
+      <div><div class="k">Overlap</div><div class="v" id="seq-ov">…</div></div>
+    </div>
+  </div>
+
+  <h3 id="sampler">4.2 Drawing examples: class balancing (<code>RandomSampler</code>)</h3>
+  <p>Spindles are rare: in the paper's words, "only about 5% of the signal is labeled as sleep spindles" [1]. If examples were drawn uniformly, a batch of 256 would contain only about a dozen spindle examples, and a network could reach a low loss by almost always answering "no spindle". The training sampler therefore draws each example from the spindle class or the non-spindle class with probability 0.5, <strong>with replacement</strong>:</p>
+<pre data-file="portiloop_detector_training.py (lines 178 to 193)"><code class="language-python">        proba = 0.5
+        if self.distribution_mode == 1:
+            proba = 1
+        logging.debug(f"proba: {proba}")
+
+        while cur_iter &lt; self.length:
+            cur_iter += 1
+            sample_class = np.random.choice([0, 1], p=[1 - proba, proba])
+            if sample_class:  # sample true
+                idx_file = randint(0, self.nb_true - 1)
+                idx_res = self.idx_true[idx_file]
+            else:  # sample false
+                idx_file = randint(0, self.nb_false - 1)
+                idx_res = self.idx_false[idx_file]
+
+            yield idx_res</code></pre>
+  <p><code>distribution_mode = 0</code> (classification) gives this 50/50 balancing. <code>distribution_mode = 1</code> puts every example in the "true" list (see <code>get_class_idxs</code>) and sets <code>proba = 1</code>: examples are then drawn uniformly, with the natural spindle proportion. Regression requires mode 1. The authors report that "classifiers benefit highly from oversampling (i.e., sampling 50% of spindles and 50% of non-spindles from the dataset during training)" [1].</p>
+  <p>Note that before the first epoch, <code>get_class_idxs</code> loops over every training example in Python to sort them into the two lists; on the full dataset this takes a noticeable time, and the job looks idle meanwhile.</p>
+
+  <div class="widget" id="bal">
+    <div class="widget-title">Why balance the classes?</div>
+    <p class="widget-desc">Synthetic recordings; for every time point, one feature: the log of the sigma-band (11 to 16 Hz) amplitude. A one-feature logistic classifier (the simplest possible "network") is trained twice: on batches drawn naturally and on 50/50 batches, then both are tested on the natural recordings at the usual 0.5 threshold. What to try: draw a few batches and count the pink squares; lower the spindle rate and watch the decision boundaries and the precision/recall readouts move.</p>
+    <div class="controls">
+      <label for="bal-rate">Spindles per minute <input type="range" id="bal-rate" min="1" max="14" step="1" value="6"><output for="bal-rate"></output></label>
+      <label for="bal-norm"><input type="checkbox" id="bal-norm"> Normalize each histogram</label>
+      <button class="btn secondary" id="bal-draw" type="button">Draw new batches</button>
+    </div>
+    <canvas class="plot batch-strip" id="bal-strip" aria-label="Two batches of 40 examples, natural and balanced; pink squares are spindle examples"></canvas>
+    <canvas class="plot" id="bal-plot" aria-label="Histograms of the sigma feature for spindle and non-spindle time points, with the two decision boundaries"></canvas>
+    <div class="readout">
+      <div><div class="k">Spindle prevalence</div><div class="v" id="bal-prev">…</div></div>
+      <div><div class="k">Natural sampling: P / R / F1</div><div class="v" id="bal-nat">…</div></div>
+      <div><div class="k">Balanced sampling: P / R / F1</div><div class="v" id="bal-bal">…</div></div>
+    </div>
+    <div class="status" id="bal-status"></div>
+  </div>
+  <p>The lesson of the widget: balancing does not create information, it moves the operating point. The balanced classifier behaves as if spindles were as common as non-spindles, so its 0.5 boundary sits lower: more spindles caught (recall up), more false alarms (precision down). You can recover the other trade-off by changing the threshold afterwards, which is exactly what tutorial <a href="06-evaluation.html#threshold">06</a> does with the real network.</p>
+
+  <h3 id="loss">4.3 The loss and the optimizer</h3>
+  <p>For classification the loss is the <strong>binary cross-entropy</strong> (<code>nn.BCELoss</code>), averaged over the batch. For one example with label \(y \in \{0,1\}\) and network output \(p\):</p>
+  $$\mathcal{L}(p, y) = -\big[\,y \log p + (1-y)\log(1-p)\,\big]$$
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: what the loss rewards</span>The cross-entropy is small when the network is confidently right and very large when it is confidently wrong: answering 0.01 during a true spindle costs \(-\log 0.01 \approx 4.6\), answering 0.4 costs only 0.9. It is a graded "surprise" score, which is why it is used for training even though you will finally judge the detector with precision, recall and F1. A loss of \(\log 2 \approx 0.69\) means the network is no better than answering 0.5 everywhere.</div>
+  <p>The weights are updated with <strong>AdamW</strong> [4] (<code>optim.AdamW(net.parameters(), lr=lr_adam, weight_decay=adam_w)</code>): an adaptive gradient method with learning rate <code>lr_adam</code> = 0.0005 and decoupled weight decay <code>adam_w</code> = 0.01, which slowly shrinks weights that the data do not support. Dropout (<code>dropout</code> = 0.5) sets a random half of the activations after the second and third convolutional layers to zero at every training step (the first layer has no dropout, <code>first_layer_dropout</code> = False), so the network cannot rely on any single feature; dropout is switched off for validation. One gradient step is taken per batch:</p>
+<pre data-file="portiloop_detector_training.py (lines 1046 to 1081, excerpt)"><code class="language-python">                optimizer.zero_grad()
+                if classification:
+                    batch_labels = (batch_labels &gt; THRESHOLD)
+                    batch_labels = batch_labels.float()
+
+                output, _, _, _ = net(batch_samples_input1, batch_samples_input2, batch_samples_input3, h1_zero, h2_zero)
+                output = output.view(-1)
+                loss = criterion(output, batch_labels)
+                ...
+                loss = loss.mean()
+
+                loss_train += loss.item()
+                loss.backward()
+                optimizer.step()</code></pre>
+  <p>Each training sequence starts with an empty GRU memory (<code>h1_zero</code>): during training, the network only knows the 8.4 s contained in the sequence.</p>
+
+  <h3 id="epoch-size">4.4 What an "epoch" means here</h3>
+  <p>Usually an epoch is one pass over the whole training set. Here it is simply <code>nb_batch_per_epoch</code> = 1000 batches of <code>batch_size</code> = 256 sequences, that is 256,000 examples drawn with replacement (<code>self.length = nb_batch * batch_size</code> in <code>RandomSampler</code>). Some examples are seen several times in an epoch, many are not seen at all. "Epoch" here only means "how often we validate".</p>
+
+  <h3 id="validation">4.5 Validation: whole recordings, with memory</h3>
+  <p>After the 1000 batches, the network is evaluated on the validation subjects, the way the Portiloop will use it: a window ends on every labeled sample (<code>validation_network_stride</code> = 1), and the GRU state is carried from one window to the next window 42 samples later, across the whole 115 s labeled segment. <code>ValidationSampler</code> builds batches in which each row is one "stream" (one validation segment, one of the 42 possible phase offsets), and successive batches advance every stream by 42 samples:</p>
+<pre data-file="portiloop_detector_training.py (lines 215 to 225)"><code class="language-python">    def __iter__(self):
+        seed()
+        batches_per_segment = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
+        cursor_batch = 0
+        while cursor_batch &lt; batches_per_segment:
+            for i in range(self.nb_segment):
+                for j in range(0, (self.seq_stride // self.network_stride) * self.network_stride, self.network_stride):
+                    cur_idx = i * self.len_segment + j + cursor_batch * self.seq_stride
+                    yield cur_idx
+            cursor_batch += 1</code></pre>
+  <p>That is why the validation batch size is 42 times the number of validation segments. Inside <code>run_inference</code>, the hidden state returned for one batch is fed into the next (<code>output, h1, h2, max_value = net_copy(..., h1, h2, max_value)</code>), so each stream remembers its own past, exactly like one of the interleaved hidden states of the real-time device (tutorial <a href="08-realtime.html">08</a>). The validation loss, accuracy, precision, recall and F1 are then computed over every evaluated sample, with the output thresholded at 0.5 (details in tutorial <a href="06-evaluation.html#how-scored">06</a>).</p>
+
+  <h3 id="best">4.6 Keeping the best models (and their ONNX export)</h3>
+  <p>After each validation, two independent "best so far" checks are made. Each one first updates its record of the best scores, then overwrites its checkpoint:</p>
+  <table>
+    <thead><tr><th>Criterion</th><th>File written in the dataset folder</th><th>ONNX copy</th></tr></thead>
+    <tbody>
+      <tr><td>Highest validation F1 so far</td><td><code>&lt;experiment_name&gt;</code></td><td><code>&lt;experiment_name&gt;.onnx</code></td></tr>
+      <tr><td>Lowest validation loss so far</td><td><code>&lt;experiment_name&gt;_on_loss</code></td><td><code>&lt;experiment_name&gt;_on_loss.onnx</code></td></tr>
+    </tbody>
+  </table>
+<pre data-file="portiloop_detector_training.py (lines 1108 to 1130)"><code class="language-python">        if f1_validation &gt; best_model_f1_score_validation:
+            best_model = copy.deepcopy(net)
+            best_epoch = epoch
+            best_model_f1_score_validation = f1_validation
+            best_model_precision_validation = precision_validation
+            best_model_recall_validation = recall_validation
+            best_model_loss_validation = loss_validation
+            best_model_accuracy = accuracy_validation
+            # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
+            if save_model:
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': best_model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'recall_validation_factor': recall_validation_factor,
+                    'precision_validation_factor': precision_validation_factor,
+                    'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
+                    'best_model_f1_score_validation': best_model_f1_score_validation,
+                }, path_dataset / experiment_name, _use_new_zipfile_serialization=False)
+                if config_dict["RNN"] and not config_dict["envelope_input"] and not config_dict["power_features_input"]:
+                    from portiloop_software.portiloop_python.ANN.onnx_export import export_spindle_model_to_onnx
+                    export_spindle_model_to_onnx(best_model, path_dataset / f"{experiment_name}.onnx", window_size=window_size)
+                updated_model = True</code></pre>
+  <p>The ONNX export is automatic only for 1-input recurrent models (<code>RNN</code> true, no envelope input, no power-features input), which is the published architecture. It produces a single-step model with inputs <code>x</code> of shape (1, 1, 1, 54) and <code>h</code> (1, 7), outputs <code>y</code> and <code>h_out</code>, opset 11, ready for deployment (tutorial <a href="10-deployment.html">10</a>). The classification models published with the paper are the F1 files (<code>get_trained_model</code> loads <code>&lt;name&gt;</code> for classification and <code>&lt;name&gt;_on_loss</code> for regression).</p>
+
+  <h3 id="early-stopping">4.7 Early stopping and the time limit</h3>
+  <p>The validation loss is noisy from one epoch to the next, so the code smooths it with an exponential moving average (EMA) before deciding to stop. With smoothing factor \(\alpha\) = <code>early_stopping_smoothing_factor</code> = 0.1:</p>
+  $$\mathrm{EMA}_e = \alpha \cdot \mathrm{loss}_e + (1-\alpha)\cdot \mathrm{EMA}_{e-1}$$
+<pre data-file="portiloop_detector_training.py (lines 1155 to 1163 and 1188 to 1190)"><code class="language-python">        loss_early_stopping = loss_validation if loss_early_stopping is None and early_stopping_smoothing_factor == 1 else loss_validation if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
+                1.0 - early_stopping_smoothing_factor)
+
+        if loss_early_stopping &lt; best_loss_early_stopping:
+            best_loss_early_stopping = loss_early_stopping
+            early_stopping_counter = 0
+            best_epoch_early_stopping = epoch
+        else:
+            early_stopping_counter += 1
+        ...
+        if early_stopping_counter &gt; nb_epoch_early_stopping_stop or time.time() - _t_run_start &gt; max_duration:
+            logging.debug("Early stopping.")
+            break</code></pre>
+  <p>Training stops when the smoothed loss has not improved for more than <code>nb_epoch_early_stopping_stop</code> epochs (the <em>patience</em>), or after <code>nb_epoch_max</code> = 150 epochs, or when the whole run has lasted more than <code>max_duration</code> = 257,400 s (about 71.5 hours; the clock <code>_t_run_start</code> is set once at the start of <code>run()</code>). Early stopping only decides <em>when to stop</em>; the models you keep are the two checkpoints of section 4.6. With the published patience of 100 and a maximum of 150 epochs, early stopping can only trigger if the smoothed loss stopped improving before about epoch 49. The supplementary table of the paper lists "epochs before early stopping 20" for the final model [1], so the value in the current code (100) differs from the one reported.</p>
+
+  <div class="widget" id="es">
+    <div class="widget-title">Early stopping on a noisy validation curve</div>
+    <p class="widget-desc">A synthetic validation-loss curve: it decreases, then rises once the network starts to overfit, with epoch-to-epoch noise. The widget applies the exact rule of the code (EMA, counter, maximum 150 epochs) and the two checkpoint rules. What to try: set the smoothing factor to 1 (no smoothing) with a small patience and increase the noise: training stops on a random bump. Then set the values of the current code (0.1 and 100) and move the overfitting onset; the default patience of 20 is the value reported in the paper.</p>
+    <div class="controls">
+      <label for="es-alpha">Smoothing factor α <input type="range" id="es-alpha" min="0.02" max="1" step="0.01" value="0.1"><output for="es-alpha"></output></label>
+      <label for="es-pat">Patience (epochs) <input type="range" id="es-pat" min="1" max="120" step="1" value="20"><output for="es-pat"></output></label>
+      <label for="es-noise">Noise <input type="range" id="es-noise" min="0" max="3" step="0.1" value="1"><output for="es-noise"></output></label>
+      <label for="es-over">Overfitting starts at epoch <input type="range" id="es-over" min="10" max="200" step="1" value="45"><output for="es-over"></output></label>
+      <label for="es-seed">Run <input type="range" id="es-seed" min="1" max="20" step="1" value="3"><output for="es-seed"></output></label>
+    </div>
+    <canvas class="plot tall" id="es-plot" aria-label="Validation loss, its moving average and the epochs where training stops and models are saved"></canvas>
+    <div class="readout">
+      <div><div class="k">Training stops after epoch</div><div class="v" id="es-stop">…</div></div>
+      <div><div class="k">Best F1 file from epoch</div><div class="v" id="es-f1">…</div></div>
+      <div><div class="k">_on_loss file from epoch</div><div class="v" id="es-loss">…</div></div>
+      <div><div class="k">Lowest smoothed loss at epoch</div><div class="v" id="es-best">…</div></div>
+    </div>
+  </div>
+
+
+  <!-- ============================================================ -->
+  <h2 id="toy">5. Try it: train a tiny spindle detector in your browser</h2>
+  <p>This widget runs a complete, miniature version of the training loop in your browser, on synthetic NREM recordings generated and preprocessed with the same filters as the Portiloop (tutorial <a href="03-preprocessing.html">03</a>). Six recordings of 60 s are the "training subjects", three others the "validation subjects". Each example is one 54-sample window of standardized EEG, labeled by its last sample (delayed by the 10-sample filter latency). The model is a small two-layer perceptron (54 inputs, 16 hidden units, 1 output), trained with binary cross-entropy and AdamW (weight decay 0.01), with balanced or natural sampling, 40 batches per epoch, and validated on every 5th sample of the validation recordings.</p>
+  <div class="callout note"><span class="callout-title">This is a toy</span>It is not the Portiloop network: no convolutions, no GRU memory (one window only), synthetic data, a few seconds of training. It shows the <em>dynamics</em> of training (curves, effect of the learning rate, batch size and sampling), not the performance you will get on real EEG.</div>
+
+  <div class="widget" id="toy-w">
+    <div class="widget-title">Train a tiny spindle detector</div>
+    <p class="widget-desc">What to try: (1) train with the defaults and watch the validation F1 rise from chance; (2) set the learning rate to 0.0005, then to 0.03; (3) compare balanced and natural sampling: look at precision and recall at 0.5, then at the best-threshold F1. Training takes a few seconds and never leaves your computer.</p>
+    <div class="controls">
+      <label for="toy-lr">Learning rate <select id="toy-lr"><option>0.0005</option><option>0.001</option><option selected>0.003</option><option>0.01</option><option>0.03</option></select></label>
+      <label for="toy-bs">Batch size <select id="toy-bs"><option>16</option><option>32</option><option selected>64</option><option>128</option><option>256</option></select></label>
+      <label for="toy-samp">Sampling <select id="toy-samp"><option value="bal" selected>Balanced 50/50</option><option value="nat">Natural</option></select></label>
+      <label for="toy-ep">Epochs <input type="range" id="toy-ep" min="5" max="60" step="1" value="30"><output for="toy-ep"></output></label>
+      <button class="btn" id="toy-go" type="button">Train</button>
+      <button class="btn secondary" id="toy-stop" type="button" disabled>Stop</button>
+    </div>
+    <div class="two-col">
+      <canvas class="plot" id="toy-loss" aria-label="Training and validation loss per epoch"></canvas>
+      <canvas class="plot" id="toy-f1" aria-label="Validation precision, recall and F1 per epoch"></canvas>
+    </div>
+    <canvas class="plot" id="toy-trace" aria-label="A validation recording with the toy model output"></canvas>
+    <div class="readout">
+      <div><div class="k">Epoch</div><div class="v" id="toy-e">0</div></div>
+      <div><div class="k">Val. F1 at 0.5</div><div class="v" id="toy-f">…</div></div>
+      <div><div class="k">Precision / recall</div><div class="v" id="toy-pr">…</div></div>
+      <div><div class="k">Best F1 (threshold)</div><div class="v" id="toy-best">…</div></div>
+    </div>
+    <div class="status" id="toy-status">Press Train. (Add <code>?autotrain=1</code> to the page address to start automatically.)</div>
+  </div>
+  <p>What we observed when testing this widget (seeds fixed, learning rate 0.003, batch 64, 30 epochs): validation F1 at threshold 0.5 rose from about 0.17 after the first epoch to about 0.62 with balanced sampling (precision 0.52, recall 0.76) and about 0.74 with natural sampling (precision 0.93, recall 0.61). After choosing the best threshold on the validation recordings, both reached about 0.75, at a threshold near 0.85 for the balanced model and 0.3 to 0.4 for the natural one. Balancing moved the operating point; the threshold moved it back.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="disk">6. On the hard drive, and resuming</h2>
+  <div class="callout disk"><span class="callout-title">On the hard drive</span>
+    <ul>
+      <li><strong>Read:</strong> <code>portiloop_software/dataset/dataset_classification_&lt;phase&gt;_big_250_matlab_standardized_envelope_pf.txt</code> (or <code>dataset_regression_...</code>) and the <code>subject_sequence_*_big.txt</code> files. The whole data file is loaded into memory twice (once for the training set, once for the validation set).</li>
+      <li><strong>Written, in the same folder</strong> <code>portiloop_software/dataset/</code>:
+        <ul>
+          <li><code>&lt;name&gt;</code>: checkpoint of the best-F1 model (PyTorch file without extension);</li>
+          <li><code>&lt;name&gt;_on_loss</code>: checkpoint of the lowest-validation-loss model;</li>
+          <li><code>&lt;name&gt;.onnx</code> and <code>&lt;name&gt;_on_loss.onnx</code>: the same two models exported to ONNX (1-input recurrent models only).</li>
+        </ul>
+        On our smoke test the checkpoints were about 310 KB each and the ONNX files about 105 KB.</li>
+      <li><strong>Written in the current working directory:</strong> <code>wandb/</code>, with one sub-folder per run (logs, config, and, in offline runs, the data to upload later with <code>wandb sync</code>).</li>
+      <li><strong>Log file:</strong> wherever <code>--output_file</code> points, if given.</li>
+    </ul>
+    <p>Each checkpoint is a Python dictionary with seven keys: <code>epoch</code>, <code>model_state_dict</code> (the weights), <code>optimizer_state_dict</code> (AdamW's internal state, needed to resume), <code>recall_validation_factor</code> and <code>precision_validation_factor</code> (the validation recall and precision of that epoch), <code>best_model_f1_score_validation</code> (best validation F1 so far) and <code>best_model_on_loss_loss_validation</code> (lowest validation loss so far). In the best-F1 file, the stored F1 is the F1 of the saved epoch; in the <code>_on_loss</code> file, the stored loss is the loss of the saved epoch (we checked both on a smoke test: the stored best F1 equals the value returned by <code>run()</code>).</p>
+  </div>
+<pre data-file="python: inspect a checkpoint"><code class="language-python">import torch
+ckpt = torch.load("portiloop_software/dataset/sanity_check_final_model_0", map_location="cpu", weights_only=False)
+print(list(ckpt.keys()))
+print("saved at epoch", ckpt["epoch"])</code></pre>
+
+  <h3 id="resume">Resuming an interrupted run</h3>
+  <p>At the start of <code>run()</code> the code tries to restore a previous run with the same experiment name:</p>
+<pre data-file="portiloop_detector_training.py (lines 985 to 1000, excerpt, and lines 529 to 534)"><code class="language-python">    try:
+        logger.restore(classification)
+        file_exp = experiment_name
+        file_exp += "" if classification else "_on_loss"
+        checkpoint = torch.load(path_dataset / file_exp)
+        logging.warning(f"Use checkpoint model: resuming from {path_dataset / file_exp} (epoch {checkpoint['epoch']}). Use a new experiment name to start from scratch.")
+        net.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        first_epoch = checkpoint['epoch'] + 1
+        ...
+    except (ValueError, FileNotFoundError):
+        #    net = PortiloopNetwork(config_dict).to(device=device_train)
+        logging.debug("Create new model")
+
+# LoggerWandb.restore
+    def restore(self, classif):
+        name = self.experiment_name if classif else self.experiment_name + "_on_loss"
+        try:
+            self.wandb_run.restore(name, root=path_dataset)
+        except Exception as e:  # nothing to restore, no credentials (WANDB_MODE=offline) or no network
+            logging.debug(f"W&amp;B restore of {name} skipped: {type(e).__name__}: {e}")</code></pre>
+  <p>What this means in practice:</p>
+  <ul>
+    <li><strong>First, W&amp;B is asked</strong> for a file with the checkpoint's name. The code never uploads checkpoints to W&amp;B (the <code>wandb_run.save</code> lines in <code>LoggerWandb.log</code> are commented out), so this normally fails; the failure, whatever its cause (no file, no credentials in offline mode, no network), is caught and logged as <code>W&amp;B restore of ... skipped</code>. In disabled mode the call does nothing.</li>
+    <li><strong>Then the local file</strong> <code>&lt;dataset folder&gt;/&lt;name&gt;</code> is loaded if it exists. This happens in every W&amp;B mode, with a real account too (clones older than November 2026 skipped the local file when an online W&amp;B restore failed, so online runs always started from scratch). Tested in offline mode: a second run with the same name printed <code>WARNING: Use checkpoint model: resuming from .../smoke_off (epoch 1). Use a new experiment name to start from scratch.</code> then <code>DEBUG: epoch: 2</code>. If you see this line and did not mean to continue an earlier run, stop the job (<kbd>Ctrl</kbd>+<kbd>C</kbd>) and choose another <code>--experiment_name</code>.</li>
+    <li>Resuming restarts from the <em>best-F1 checkpoint</em> (from <code>&lt;name&gt;_on_loss</code> in regression), not from the last epoch; the early-stopping counter and moving average start again from zero; the loop runs another <code>nb_epoch_max</code> epochs (<code>range(first_epoch, first_epoch + nb_epoch_max)</code>); and the remembered validation loss of the best-F1 model is not restored, so until F1 improves again the summary reports it as 1.0 (seen in our test).</li>
+  </ul>
+  <div class="callout tip"><span class="callout-title">Protect finished models</span>Because a second run with the same name resumes from your checkpoints (announced only by the <code>WARNING: Use checkpoint model</code> line) and then overwrites them, even if you changed hyperparameters such as the learning rate, copy finished models elsewhere, or give each run its own name (<code>unique_name=True</code> appends a nanosecond timestamp to the name, which also disables resuming).</div>
+
+  <!-- ============================================================ -->
+  <h2 id="custom">7. Train your own variant</h2>
+  <p>To study a variant (another GRU size, fewer filters, another split, the CPU), do not edit the training file: import it, copy the published configuration, change a few keys and call <code>run()</code>. The script <a href="https://github.com/Portiloop/portiloop-training/blob/main/docs/tools/train_custom.py"><code>docs/tools/train_custom.py</code></a> does exactly that, with command-line options. Its core:</p>
+<pre data-file="docs/tools/train_custom.py (excerpt)"><code class="language-python">from portiloop_software.portiloop_python.ANN import portiloop_detector_training as pdt
+
+def make_config(args):
+    """Start from the published model and change only what we want to study."""
+    config = pdt.get_final_model_config_dict(index=0, split_i=args.split)
+    config["experiment_name"] = args.name
+    config["hidden_size"] = args.hidden_size        # size of the GRU memory (published: 7)
+    config["nb_channel"] = args.nb_channel          # convolution filters per layer (published: 31)
+    config["device_train"] = args.device            # 'cuda', 'cuda:1', or 'cpu'
+    config["device_val"] = args.device
+    config["nb_epoch_max"] = args.epochs            # published: 150
+    config["nb_batch_per_epoch"] = args.batches_per_epoch  # published: 1000
+    config["lr_adam"] = args.lr                     # published: 0.0005
+    config["classification"] = not args.regression
+    config["distribution_mode"] = 1 if args.regression else 0  # regression requires 1 (no class balancing)
+    config["reg_balancing"] = args.reg_balancing    # regression only: 'none' (published), 'lds' or 'sr'
+    return config
+...
+best_loss, best_f1, best_epoch_es = pdt.run(config, wandb_project=project, save_model=True, unique_name=args.unique)</code></pre>
+  <ol class="steps">
+    <li><strong>Check the configuration</strong> (no GPU, data or W&amp;B needed). This builds the network, runs one dummy forward pass and lists the data files:
+<pre data-file="terminal"><code class="language-bash">python docs/tools/train_custom.py --check --name my_variant_h10 --hidden-size 10</code></pre>
+<pre data-file="console (real output on a machine without GPU and without the dataset)"><code>experiment name      : my_variant_h10
+window               : 54 samples = 216 ms
+sequence             : 50 windows, 42 samples (0.168 s) apart -&gt; 8.4 s of context
+trainable parameters : 30875
+dummy forward pass   : output shape (2, 1), values in [0, 1]: True
+train / val device   : cuda / cuda (CUDA available here: False)
+module globals       : PHASE=full TEST_SET=True THRESHOLD=0.2
+dataset folder       : .../portiloop_software/dataset
+  MISSING  dataset_classification_full_big_250_matlab_standardized_envelope_pf.txt
+  MISSING  subject_sequence_full_big.txt
+  MISSING  subject_sequence_p1_big.txt
+  MISSING  subject_sequence_p2_big.txt</code></pre>
+      With the defaults (no option) the parameter count is 25,679, the published model.</li>
+    <li><strong>Smoke test on the CPU</strong> (a few minutes; the model will be poor, the point is to see the whole loop run and the files appear):
+<pre data-file="terminal"><code class="language-bash">WANDB_MODE=offline python docs/tools/train_custom.py --device cpu --epochs 2 --batches-per-epoch 20 --name smoke_test</code></pre></li>
+    <li><strong>Real training on the GPU</strong>:
+<pre data-file="terminal"><code class="language-bash">python docs/tools/train_custom.py --name my_variant_h10 --hidden-size 10 --split 0</code></pre>
+      At the end the script prints the best validation F1, the validation loss of that model and <code>best_epoch_early_stopping</code> (the three values returned by <code>run()</code>), and where the checkpoints are.</li>
+  </ol>
+  <p>Other options: <code>--nb-channel</code>, <code>--lr</code>, <code>--epochs</code>, <code>--batches-per-epoch</code>, <code>--split</code> (any integer; the command line only uses 0 and 2), <code>--phase</code>, <code>--no-test-set</code>, <code>--regression</code>, <code>--reg-balancing</code>, <code>--dataset-dir</code> (data folder; checkpoints are written there too), <code>--project</code> (W&amp;B project) and <code>--unique</code>. Remember that changing the architecture changes the parameter count and the computation time on the device (tutorials <a href="07-hyperparameter-search.html">07</a> and <a href="10-deployment.html">10</a>).</p>
+
+  <h3 id="globals">Module globals: <code>PHASE</code>, <code>TEST_SET</code>, <code>THRESHOLD</code></h3>
+  <p>Some settings are not in the configuration dictionary but are global variables of the module. When the file is run as a script, the <code>__main__</code> block sets them from the flags. When it is <strong>imported</strong> (as in the script above, or in a notebook), the <code>else:</code> branch at the bottom sets them instead:</p>
+<pre data-file="portiloop_detector_training.py (lines 1451 to 1464)"><code class="language-python">else:
+    ABLATION = 0
+    PHASE = 'full'
+    TEST_SET = True
+
+    threshold_list = {'p1': 0.2, 'p2': 0.35, 'full': 0.5}  # full = p1 + p2
+    THRESHOLD = threshold_list[PHASE]
+    # WANDB_PROJECT_RUN = f"tests_yann"
+
+    filename_regression_dataset = f"dataset_regression_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+    filename_classification_dataset = f"dataset_classification_{PHASE}_big_250_matlab_standardized_envelope_pf.txt"
+    subject_list = f"subject_sequence_{PHASE}_big.txt"
+    subject_list_p1 = f"subject_sequence_p1_big.txt"
+    subject_list_p2 = f"subject_sequence_p2_big.txt"</code></pre>
+  <p>So an imported module uses <code>THRESHOLD = 0.5</code> for phase <code>full</code>, while the command line uses <code>{'p1': 0.2, 'p2': 0.35, 'full': 0.2}</code>. <code>THRESHOLD</code> turns labels into classes (<code>batch_labels &gt; THRESHOLD</code>) and, in regression, also binarizes the network output for the metrics. Consequences:</p>
+  <ul>
+    <li><strong>Classification:</strong> the labels of the classification file are exactly 0 or 1, so any threshold strictly between 0 and 1 gives the same classes. The difference does not matter.</li>
+    <li><strong>Regression:</strong> labels are graded (0 to 1 in steps of 0.05). A threshold of 0.5 instead of 0.2 changes which samples count as spindles in the validation metrics and in the class lists, so scores are not comparable with command-line runs. The thresholds 0.2 and 0.35 are the MODA consensus thresholds: "an optimum required consensus GCt between experts of 0.2 in phase 1 and 0.35 in phase 2" [3].</li>
+  </ul>
+  <p>To change them, assign module attributes <em>before</em> calling <code>run()</code>. Since the file names are computed from <code>PHASE</code> at import time, set them too; <code>train_custom.py</code> has a helper that copies the command-line values:</p>
+<pre data-file="docs/tools/train_custom.py (excerpt)"><code class="language-python">def set_phase(phase="full", test_set=True, threshold=None):
+    pdt.PHASE = phase
+    pdt.TEST_SET = test_set
+    pdt.THRESHOLD = CLI_THRESHOLDS[phase] if threshold is None else threshold
+    pdt.filename_classification_dataset = f"dataset_classification_{phase}_big_250_matlab_standardized_envelope_pf.txt"
+    pdt.filename_regression_dataset = f"dataset_regression_{phase}_big_250_matlab_standardized_envelope_pf.txt"
+    pdt.subject_list = f"subject_sequence_{phase}_big.txt"</code></pre>
+  <p>The same applies to <code>pdt.path_dataset</code> (the data and output folder) and <code>pdt.ABLATION</code>.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="regression">8. Regression mode, and the ablation flag</h2>
+  <h3>Regression: learning the experts' agreement</h3>
+  <p>MODA labels come from several experts; the regression file keeps their graded agreement per sample (0 to 1 in steps of 0.05) instead of a binary label. With <code>--regression</code>:</p>
+  <ul>
+    <li>the data file is <code>dataset_regression_full_big_...txt</code> (it exists for phase <code>full</code>);</li>
+    <li>the loss is the mean squared error (<code>nn.MSELoss</code>) and the network output is read as a predicted agreement score;</li>
+    <li>class balancing is off (<code>distribution_mode = 1</code>; the code asserts it: <code>assert classification or distribution_mode == 1</code>);</li>
+    <li>metrics binarize both output and label at <code>THRESHOLD</code> (see above); the paper reports that for its regressor "the optimal threshold is 0.27 for phase 1, 0.23 for phase 2 and 0.26 for the whole cohort" [1];</li>
+    <li>the deployed model is the <code>_on_loss</code> checkpoint.</li>
+  </ul>
+  <p>The configuration key <code>reg_balancing</code> (not exposed on the command line) chooses a reweighting of the regression loss: <code>'none'</code> (published), <code>'lds'</code> (label distribution smoothing, after Yang et al. [5], who define it as follows: "LDS convolves a symmetric kernel with the empirical density distribution to extract a kernel-smoothed version that accounts for the overlap in information of data samples of nearby labels") or <code>'sr'</code> (<code>SurpriseReweighting</code>, a custom scheme that adapts per-bin weights to the running loss). The paper reports that "all the balancing techniques we tried for regression (including oversampling, Label Distribution Smoothing [42] and a custom version of the latter) actually hinder training" [1].</p>
+  <div class="callout note"><span class="callout-title">How LDS is computed</span>With <code>'lds'</code>, the labels of all training examples are binned into 100 bins between 0 and 1, the histogram is smoothed with a Gaussian kernel, and each example's loss is multiplied by the inverse of the square root of the smoothed frequency of its bin, so rare agreement levels count more:
+<pre data-file="portiloop_detector_training.py (lines 674 to 682)"><code class="language-python">    labels = dataset.data[3][np.asarray(dataset.indices) + dataset.window_size - 1]
+    logging.debug(f"Computing the label distribution of {len(labels)} samples (kernel_std: {kernel_std})")
+    dist = np.bincount(label_bin_indices(labels, nb_bins), minlength=nb_bins).astype(np.float64)
+    bins = np.linspace(0.0, 1.0, nb_bins + 1)
+    lds = gaussian_filter1d(input=dist, sigma=kernel_std, axis=-1, order=0, mode='reflect', truncate=4.0)
+    weights = np.sqrt(lds) if reweight == 'inv_sqrt' else lds
+    weights = weights / np.sum(weights)
+    logging.debug(f"dist: {dist}")
+    return weights, dist, lds, bins</code></pre>
+  <code>run()</code> creates it with <code>kernel_std=0.01</code> (in bins), which in practice means almost no smoothing: the weights follow the raw histogram. To try it: <code>python docs/tools/train_custom.py --regression --reg-balancing lds</code> (needs the regression data file).</div>
+
+  <h3>Ablation (<code>--ablation</code>)</h3>
+  <p>The global <code>ABLATION</code> replaces one input by the other at the start of <code>forward()</code>: <code>1</code> copies the envelope sequence into the signal input, <code>2</code> copies the signal into the envelope input.</p>
+<pre data-file="portiloop_detector_training.py (lines 407 to 410)"><code class="language-python">        if ABLATION == 1:
+            x1 = copy.deepcopy(x2)
+        elif ABLATION == 2:
+            x2 = copy.deepcopy(x1)</code></pre>
+  <p>This was designed for the 2-input network of the paper. With the published 1-input configuration (<code>envelope_input</code> false), <code>--ablation 1</code> trains the network on the envelope instead of the EEG, and <code>--ablation 2</code> has no effect. A non-zero ablation value adds <code>_ablation1</code> or <code>_ablation2</code> to the experiment name, so ablation runs do not overwrite the reference run.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="cluster">9. Running on a SLURM cluster</h2>
+  <p>The authors trained on a SLURM cluster; their example job scripts are in the release file <a href="https://github.com/nicolasvalenchon/Portiloop/releases/download/v0.0.2/scripts.zip"><code>scripts.zip</code></a> (1.9 KB). Its <code>train.sh</code> requests one V100 GPU, 6 CPU cores, 32 GB of memory and 12 hours (<code>#SBATCH --gres=gpu:v100l:1</code>, <code>--mem=32000M</code>, <code>--time=00-12:00</code>), copies the code to the node's local disk (<code>$SLURM_TMPDIR</code>), creates a virtual environment, runs <code>pip install .</code>, and launches the training with <code>--experiment_name=$EXPERIMENT_NAME --experiment_index=$SLURM_ARRAY_TASK_ID</code>. One detail matters if you reuse it as is: the checkpoints are written inside <code>$SLURM_TMPDIR</code>, which is deleted when the job ends (and with a single array index the name it passes, <code>run_v5_CLASSIFIER_BALANCING_TEST_0</code>, is the same for every submission).</p>
+  <p>Below is an adapted, commented version (account name, module names and paths depend on your cluster; this one follows the conventions of the Digital Research Alliance of Canada clusters used by the authors). Each array task trains one subject split under its own name, and the checkpoints are written directly to persistent storage, so they survive a job that hits its time limit; resubmitting the same task resumes from them (<a href="#resume">section 6</a>).</p>
+<pre data-file="train_portiloop.sh"><code class="language-bash">#!/bin/bash
+#SBATCH --job-name=portiloop-train
+#SBATCH --account=def-yourpi            # your allocation
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=6
+#SBATCH --gres=gpu:1                    # one GPU of any type (the authors used gpu:v100l:1)
+#SBATCH --mem=32000M                    # the data file is loaded twice in memory
+#SBATCH --time=1-00:00                  # wall time, enforced by SLURM
+#SBATCH --array=0-9                     # 10 tasks = 10 subject splits (split = task index)
+#SBATCH --output=%x_%A_%a.out           # one log file per task
+
+set -euo pipefail
+REPO=$HOME/portiloop-training           # your clone (git pull first)
+DATA=$HOME/portiloop-data               # the 4 dataset files (tutorial 02)
+SPLIT=$SLURM_ARRAY_TASK_ID
+NAME=portiloop_split${SPLIT}            # unique name per task: no shared files or W&amp;B run IDs
+OUT=$SCRATCH/portiloop_runs/$NAME       # persistent folder for this task
+
+# One folder per task holding links to the data: run() writes its checkpoints next to the data.
+mkdir -p "$OUT"
+ln -sf "$DATA"/* "$OUT"/
+
+# Python environment on the node's local disk (fast), code installed in editable mode.
+module load python/3.11                 # check `module avail python` on your cluster
+virtualenv --no-download "$SLURM_TMPDIR/venv"
+source "$SLURM_TMPDIR/venv/bin/activate"
+pip install --no-index --upgrade pip    # --no-index: use the cluster's wheelhouse (Alliance clusters)
+pip install -e "$REPO"
+
+# W&amp;B: online if compute nodes have internet and you ran `wandb login` on a login node;
+# otherwise offline: curves are kept in $OUT/wandb, upload them later with `wandb sync` from a login node.
+export WANDB_MODE=${WANDB_MODE:-offline}
+export WANDB_DIR=$OUT                   # keep the wandb/ folder with the results
+
+cd "$OUT"
+python "$REPO/docs/tools/train_custom.py" \
+    --name "$NAME" --split "$SPLIT" --dataset-dir "$OUT" --device cuda</code></pre>
+  <p>Submit with <code>sbatch train_portiloop.sh</code>, follow with <code>squeue -u $USER</code>, and read the logs in <code>portiloop-train_&lt;job&gt;_&lt;task&gt;.out</code>. If <code>pip install</code> cannot reach the internet on compute nodes, build the environment once on a login node and only <code>source</code> it in the job.</p>
+  <div class="callout neuro"><span class="callout-title">Why ten splits?</span>A single split gives one number that depends on which subjects happened to land in the validation and test sets. The paper shuffled "all subjects 10 times" and reports the mean and standard deviation [1]. Training one model per split (the array above) is the equivalent of reporting a group mean with its spread rather than a single subject. Tutorial <a href="06-evaluation.html#splits">06</a> explains how to evaluate and report them.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="troubleshooting">10. Troubleshooting</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>Cause</th><th>What to do</th></tr></thead>
+    <tbody>
+      <tr><td><code>AssertionError: CUDA unavailable</code></td><td>The configuration asks for <code>'cuda'</code> and PyTorch sees no GPU (no GPU, CPU-only PyTorch build, or a job submitted without <code>--gres=gpu</code>).</td><td>Check with <code>python -c "import torch; print(torch.cuda.is_available())"</code>; install a CUDA build of PyTorch; or use <code>--device cpu</code> for tests (<a href="#custom">section 7</a>).</td></tr>
+      <tr><td><code>torch.OutOfMemoryError: CUDA out of memory</code></td><td>A batch does not fit in GPU memory, typically after enlarging the network or <code>batch_size</code>, or another process uses the GPU.</td><td>Check <code>nvidia-smi</code>; reduce <code>batch_size</code> or <code>nb_channel</code>; the validation batch (42 times the number of validation segments, processed with <code>device_val</code>) can also be large: set <code>device_val</code> to <code>'cpu'</code> if only validation fails.</td></tr>
+      <tr><td>Process killed, or <code>MemoryError</code> while loading</td><td>The text dataset is read by pandas and held in memory twice.</td><td>Request more RAM (the authors used 32 GB).</td></tr>
+      <tr><td>Loss becomes <code>nan</code>, or <code>AssertionError: loss is nan or inf</code></td><td>Learning rate too high, or missing values in the data file.</td><td>Lower <code>lr_adam</code> (for example by a factor of 10); check the data file for empty or non-numeric fields.</td></tr>
+      <tr><td><code>UsageError</code>, <code>AuthenticationError</code> or <code>CommError</code> from wandb, at <code>wandb.init</code></td><td>Online mode without valid credentials, or no internet on the node. (The same errors inside <code>restore()</code> are caught and only logged.)</td><td>Run <code>wandb login</code>, or use <code>WANDB_MODE=offline</code> or <code>disabled</code> (<a href="#wandb">section 2</a>).</td></tr>
+      <tr><td><code>ModuleNotFoundError: No module named 'portiloop_software'</code></td><td>The package is not installed in the active environment.</td><td><code>pip install -e .</code> from the repository root, in the environment you run.</td></tr>
+      <tr><td><code>ModuleNotFoundError: No module named 'onnx'</code> after the first validation</td><td>An old installation without the <code>onnx</code> dependency.</td><td><code>git pull</code> then <code>pip install -e .</code> (or <code>pip install onnx</code>).</td></tr>
+      <tr><td><code>FileNotFoundError: ... dataset_classification_full_big_...txt</code> or <code>subject_sequence_..._big.txt</code></td><td>Data not in <code>portiloop_software/dataset/</code> of the checkout you run (for example a non-editable install, or the files in a sub-folder after unzipping).</td><td>Move the files up so they sit directly in that folder, or pass <code>--dataset-dir</code> to <code>train_custom.py</code>.</td></tr>
+      <tr><td><code>TypeError</code> about <code>delim_whitespace</code></td><td>pandas 3 removed this argument, and your copy of the code predates the fix.</td><td><code>git pull</code> (the code now uses <code>sep=r"\s+"</code>), or install <code>"pandas&lt;3"</code>.</td></tr>
+      <tr><td><code>IndexError</code> on <code>[:, 0]</code> with your own subject lists</td><td>A split with a single subject: <code>.squeeze()</code> turns the array into one dimension.</td><td>Use at least 10 subjects per phase list so that validation and test sets get two or more subjects.</td></tr>
+      <tr><td>A run starts at a later epoch, or two runs overwrite each other's checkpoints</td><td>A checkpoint with the same experiment name already exists in the dataset folder (see <a href="#flags">section 3</a>).</td><td>Use <code>--experiment_name</code> (command line), <code>--name</code> or <code>--unique</code> (<code>train_custom.py</code>), or move old checkpoints away.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">Exercises</h2>
+  <details class="exercise"><summary>How much EEG does the published network see during training?</summary><p>Using the configuration values, compute the number of samples and seconds spanned by one training example, and the overlap between two consecutive windows.</p></details>
+  <details class="solution"><summary>Answer</summary><p>\((50-1)\times 42 + 54 = 2112\) samples, that is 8.45 s at 250 Hz (the configuration stores <code>time_in_past</code> = 8.5). The windows are 54 samples long and start every 42 samples, so consecutive windows overlap by 12 samples (48 ms). You can check this in the first widget.</p></details>
+
+  <details class="exercise"><summary>Balanced or natural sampling?</summary><p>In the toy trainer, train once with balanced and once with natural sampling (same learning rate and batch size). Compare precision and recall at 0.5, then the best-threshold F1. Which choice gives more stimulations, and what would you change before using the balanced model in a closed-loop experiment?</p></details>
+  <details class="solution"><summary>Answer</summary><p>The balanced model has higher recall and lower precision at 0.5: it would stimulate more often, including more false alarms. After moving the threshold (to the best value found on the validation recordings) both reach a similar F1. Before an experiment, choose the threshold on validation data according to what matters more in your protocol, missed spindles or stimulations outside spindles (tutorial <a href="06-evaluation.html#threshold">06</a>).</p></details>
+
+  <details class="exercise"><summary>When does the published configuration stop early?</summary><p>With <code>nb_epoch_max</code> = 150, <code>nb_epoch_early_stopping_stop</code> = 100 and the rule <code>early_stopping_counter &gt; nb_epoch_early_stopping_stop</code>, what is the last epoch at which the smoothed loss can reach its minimum for early stopping to happen before epoch 150? Check your answer in the early-stopping widget with patience 100.</p></details>
+  <details class="solution"><summary>Answer</summary><p>Epochs are numbered 0 to 149. If the last improvement is at epoch \(b\), the counter reaches 101 at epoch \(b + 101\), so early stopping happens only if \(b + 101 \le 149\), that is \(b \le 48\). Otherwise training runs the full 150 epochs.</p></details>
+
+  <!-- ============================================================ -->
+  <h2 id="references">References</h2>
+  <ol class="refs">
+    <li>Valenchon N, Bouteiller Y, Jourde HR, L'Heureux X, Sobral M, Coffey EBJ, Beltrame G (2022). The Portiloop: a deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a> (quotes from sections 5.1 and 6, and S1 File, Table II).</li>
+    <li>O'Reilly C, Gosselin N, Carrier J, Nielsen T (2014). Montreal Archive of Sleep Studies: an open-access resource for instrument benchmarking and exploratory research. <em>Journal of Sleep Research</em> 23(6): 628 to 635. <a href="https://doi.org/10.1111/jsr.12169">doi:10.1111/jsr.12169</a></li>
+    <li>Lacourse K, Yetton B, Mednick S, Warby SC (2020). Massive online data annotation, crowdsourcing to generate high quality sleep spindle annotations from EEG data. <em>Scientific Data</em> 7: 190. <a href="https://doi.org/10.1038/s41597-020-0533-4">doi:10.1038/s41597-020-0533-4</a></li>
+    <li>Loshchilov I, Hutter F (2019). Decoupled weight decay regularization. <em>International Conference on Learning Representations (ICLR)</em>. <a href="https://arxiv.org/abs/1711.05101">arXiv:1711.05101</a></li>
+    <li>Yang Y, Zha K, Chen YC, Wang H, Katabi D (2021). Delving into deep imbalanced regression. <em>Proceedings of the 38th International Conference on Machine Learning</em>, PMLR 139: 11842 to 11851. <a href="https://proceedings.mlr.press/v139/yang21m.html">proceedings.mlr.press/v139/yang21m.html</a></li>
+  </ol>
+
+</article>
+</main>
+
+<script src="../assets/js/portiloop.js"></script>
+<script src="../assets/js/nav.js"></script>
+<script>
+/* ---------- Widget: anatomy of one training example ---------- */
+(function () {
+  const $ = PL.ui.$, FS = PL.FS;
+  const d = PL.synth.nrem({ duration_s: 14, seed: 5 });
+  const z = PL.preprocess(d.signal).standardized;
+  const sig = Array.from(z, (v) => Math.max(-4, Math.min(4, v)) * 0.42 + 2.3);
+  const tt = Array.from(d.t);
+  function draw() {
+    const L = parseInt($("#seq-len").value, 10), S = parseInt($("#seq-stride").value, 10), Wn = parseInt($("#seq-win").value, 10);
+    const end = Math.round(13.4 * FS);
+    const first = end - (L - 1) * S - Wn + 1;
+    const x0 = Math.max(0, first / FS - 0.4);
+    const series = [{ x: tt, y: sig, color: PL.color("signal"), width: 1, label: "EEG (standardized)" }];
+    for (let i = 0; i < L; i++) {
+      const e = end - (L - 1 - i) * S, s = e - Wn + 1, lane = i % 4, y = 0.25 - lane * 0.45;
+      const last = i === L - 1;
+      series.push({ x: [s / FS, e / FS], y: [y, y], color: last ? PL.color("model") : PL.color("c1"), width: last ? 5 : 3, label: last ? "Last window" : (i === 0 ? "Windows" : undefined) });
+    }
+    PL.plot($("#seq-plot"), {
+      xRange: [x0, 14], yRange: [-1.6, 4.3], xLabel: "Time (s)", yTicks: 1,
+      regions: d.spindles.map((s) => ({ x0: s.start, x1: s.end, label: "Spindle" })),
+      series, markers: [{ x: end / FS, color: PL.color("stim"), label: "labeled sample" }],
+    });
+    const ctx = ((L - 1) * S + Wn) / FS;
+    $("#seq-ctx").textContent = ctx.toFixed(2) + " s";
+    $("#seq-wms").textContent = (Wn / FS * 1000).toFixed(0) + " ms";
+    $("#seq-sms").textContent = (S / FS * 1000).toFixed(0) + " ms";
+    $("#seq-ov").textContent = Wn > S ? ((Wn - S) / FS * 1000).toFixed(0) + " ms" : "none (gap " + ((S - Wn) / FS * 1000).toFixed(0) + " ms)";
+  }
+  ["#seq-len", "#seq-stride", "#seq-win"].forEach((id) => PL.ui.bind(id, draw));
+  PL.onRedraw(draw); draw();
+})();
+
+/* ---------- Widget: why balance the classes ---------- */
+(function () {
+  const $ = PL.ui.$, FS = PL.FS;
+  let feat = null, lab = null, R = PL.rng(99), fits = null;
+  function build(rate) {
+    const f = [], l = [];
+    for (const seed of [31, 32, 33, 34]) {
+      const d = PL.synth.nrem({ duration_s: 60, seed: seed, spindleRate_per_min: rate });
+      const env = PL.filters.sigmaEnvelope(d.signal, FS, 0.2).envelope;
+      for (let i = 2 * FS; i < env.length; i += 5) { f.push(Math.log(env[i] + 1)); l.push(d.label[Math.max(0, i - 25)]); }
+    }
+    feat = Float64Array.from(f); lab = Uint8Array.from(l);
+  }
+  function fit(balanced) {
+    const pos = [], neg = [];
+    for (let i = 0; i < lab.length; i++) (lab[i] ? pos : neg).push(i);
+    let mu = 0, sd = 0; for (const v of feat) mu += v; mu /= feat.length; for (const v of feat) sd += (v - mu) ** 2; sd = Math.sqrt(sd / feat.length);
+    const rr = PL.rng(balanced ? 7 : 8), n = 3000, xs = new Float64Array(n), ys = new Float64Array(n);
+    for (let k = 0; k < n; k++) {
+      let i;
+      if (balanced) { const L = rr.uniform() < 0.5 ? pos : neg; i = L[Math.floor(rr.uniform() * L.length)]; }
+      else i = Math.floor(rr.uniform() * feat.length);
+      xs[k] = (feat[i] - mu) / sd; ys[k] = lab[i];
+    }
+    let w = 0, b = 0;
+    for (let it = 0; it < 400; it++) {
+      let gw = 0, gb = 0;
+      for (let k = 0; k < n; k++) { const p = 1 / (1 + Math.exp(-(w * xs[k] + b))); gw += (p - ys[k]) * xs[k]; gb += p - ys[k]; }
+      w -= 1.0 * gw / n; b -= 1.0 * gb / n;
+    }
+    const boundary = mu + sd * (-b / w);
+    const c = PL.metrics.confusion(Array.from(feat, (v) => v >= boundary), lab);
+    return { boundary, m: PL.metrics.prf(c), share: balanced ? 0.5 : pos.length / lab.length };
+  }
+  function drawStrip() {
+    const cv = $("#bal-strip"), dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 600, H = cv.clientHeight || 96;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    const prev = lab.reduce((a, v) => a + v, 0) / lab.length, n = 40, labelW = Math.min(150, W * 0.32);
+    const cell = Math.max(3, Math.min(16, (W - labelW - 8) / n - 2));
+    ctx.font = "12px " + (getComputedStyle(document.documentElement).getPropertyValue("--font-sans") || "sans-serif");
+    ctx.textBaseline = "middle"; ctx.textAlign = "left";
+    [["Natural batch", prev], ["Balanced batch", 0.5]].forEach(([name, p], row) => {
+      const y = 16 + row * 40;
+      ctx.fillStyle = PL.color("text"); ctx.fillText(name, 0, y + cell / 2);
+      let cnt = 0;
+      for (let k = 0; k < n; k++) {
+        const s = R.uniform() < p; if (s) cnt++;
+        ctx.fillStyle = s ? PL.color("stim") : PL.color("grid");
+        ctx.fillRect(labelW + k * (cell + 2), y, cell, cell);
+      }
+      ctx.fillStyle = PL.color("text"); ctx.fillText(cnt + " / " + n + " spindles", labelW, y + cell + 10);
+    });
+  }
+  function draw() {
+    if (!feat) return;
+    const norm = $("#bal-norm").checked;
+    let lo = Infinity, hi = -Infinity; for (const v of feat) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const nb = 50, w = (hi - lo) / nb, hp = new Float64Array(nb), hn = new Float64Array(nb);
+    for (let i = 0; i < feat.length; i++) { const k = Math.min(nb - 1, Math.floor((feat[i] - lo) / w)); (lab[i] ? hp : hn)[k]++; }
+    const sp = hp.reduce((a, v) => a + v, 0), sn = hn.reduce((a, v) => a + v, 0);
+    const xs = Array.from({ length: nb }, (_, k) => lo + (k + 0.5) * w);
+    const yp = Array.from(hp, (v) => (norm ? v / sp : v)), yn = Array.from(hn, (v) => (norm ? v / sn : v));
+    PL.plot($("#bal-plot"), {
+      xLabel: "log sigma amplitude (feature)", yLabel: norm ? "fraction of class" : "count",
+      series: [
+        { x: xs, y: yn, color: PL.color("c1"), width: 2, step: true, label: "Non-spindle" },
+        { x: xs, y: yp, color: PL.color("stim"), width: 2, step: true, label: "Spindle" },
+      ],
+      markers: [
+        { x: fits.nat.boundary, color: PL.color("c3"), label: "natural" },
+        { x: fits.bal.boundary, color: PL.color("c4"), label: "balanced" },
+      ],
+    });
+    const f = (m) => m.precision.toFixed(2) + " / " + m.recall.toFixed(2) + " / " + m.f1.toFixed(2);
+    $("#bal-prev").textContent = (100 * sp / (sp + sn)).toFixed(1) + " %";
+    $("#bal-nat").textContent = f(fits.nat.m);
+    $("#bal-bal").textContent = f(fits.bal.m);
+  }
+  function recompute(rate) {
+    build(rate);
+    fits = { nat: fit(false), bal: fit(true) };
+    drawStrip(); draw();
+    $("#bal-status").textContent = "Decision boundaries: green line for natural sampling, purple line for balanced sampling (where the classifier output equals 0.5).";
+  }
+  PL.ui.bind("#bal-rate", (v) => recompute(v));
+  PL.ui.bind("#bal-norm", draw);
+  $("#bal-draw").addEventListener("click", drawStrip);
+  PL.onRedraw(() => { drawStrip(); draw(); });
+  recompute(parseFloat($("#bal-rate").value));
+})();
+
+/* ---------- Widget: early stopping ---------- */
+(function () {
+  const $ = PL.ui.$;
+  const NMAX = 150;
+  function simulate(alpha, patience, noise, over, seed) {
+    const R = PL.rng(1000 + seed);
+    const loss = [], f1 = [], ema = [];
+    let e2 = null, bestEs = 1, counter = 0, bestEpochEs = 0, bestF1 = 0, bestF1Ep = null, bestLoss = 1, bestLossEp = null, stop = NMAX - 1;
+    for (let e = 0; e < NMAX; e++) {
+      const over_ = Math.max(0, e - over);
+      const l = 0.30 + 0.30 * Math.exp(-e / 10) + 0.00004 * over_ * over_ + 0.012 * noise * R.gaussian();
+      const f = 0.45 + 0.22 * (1 - Math.exp(-e / 12)) - 0.0009 * over_ + 0.012 * noise * R.gaussian();
+      loss.push(l); f1.push(f);
+      if (f > bestF1) { bestF1 = f; bestF1Ep = e; }
+      if (l < bestLoss) { bestLoss = l; bestLossEp = e; }
+      e2 = e2 === null ? l : l * alpha + e2 * (1 - alpha);
+      ema.push(e2);
+      if (e2 < bestEs) { bestEs = e2; counter = 0; bestEpochEs = e; } else counter++;
+      if (counter > patience) { stop = e; break; }
+    }
+    return { loss, f1, ema, stop, bestF1Ep, bestLossEp, bestEpochEs };
+  }
+  function draw() {
+    const r = simulate(parseFloat($("#es-alpha").value), parseInt($("#es-pat").value, 10), parseFloat($("#es-noise").value),
+      parseInt($("#es-over").value, 10), parseInt($("#es-seed").value, 10));
+    const ep = r.loss.map((_, i) => i);
+    PL.plot($("#es-plot"), {
+      xRange: [0, NMAX], yRange: [0.2, 0.75], xLabel: "Epoch", yLabel: "validation loss",
+      regions: r.stop < NMAX - 1 ? [{ x0: r.stop, x1: NMAX, color: "rgba(128,128,128,0.12)", label: "not trained" }] : [],
+      series: [
+        { x: ep, y: r.loss, color: PL.color("c1"), width: 1, label: "loss_validation" },
+        { x: ep, y: r.ema, color: PL.color("model"), width: 2.4, label: "loss_early_stopping (EMA)" },
+      ],
+      markers: [
+        { x: r.bestF1Ep, color: PL.color("c3"), label: "best F1" },
+        { x: r.bestLossEp, color: PL.color("c4"), label: "_on_loss" },
+        { x: r.stop, color: PL.color("stim"), label: r.stop < NMAX - 1 ? "stop" : "max epochs" },
+      ],
+    });
+    $("#es-stop").textContent = r.stop + (r.stop < NMAX - 1 ? "" : " (max)");
+    $("#es-f1").textContent = r.bestF1Ep;
+    $("#es-loss").textContent = r.bestLossEp;
+    $("#es-best").textContent = r.bestEpochEs;
+  }
+  [["#es-alpha", (v) => v.toFixed(2)], ["#es-pat"], ["#es-noise", (v) => v.toFixed(1)], ["#es-over"], ["#es-seed"]].forEach(([id, fmt]) => PL.ui.bind(id, draw, fmt));
+  PL.onRedraw(draw); draw();
+})();
+</script>
+<script id="tiny-core-src">
+/* Tiny in-browser trainer (a toy): one window of standardized EEG -> MLP (16 ReLU units) -> P(spindle).
+   Self-contained so it can also be tested in Node (see the tutorial source). */
+var PLTiny = (function () {
+  "use strict";
+  const W = 54, DELAY = 10, WARM = 500; // window, FIR delay (samples), skip the first 2 s (standardizer warm-up)
+  function buildSet(PL, seeds, dur, stride, rate) {
+    const X = [], y = [], ends = [];
+    for (const s of seeds) {
+      const d = PL.synth.nrem({ duration_s: dur, seed: s, spindleRate_per_min: rate });
+      const z = PL.preprocess(d.signal).standardized;
+      for (let end = Math.max(W - 1, WARM); end < z.length; end += stride) {
+        const w = new Float32Array(W);
+        for (let k = 0; k < W; k++) w[k] = Math.max(-6, Math.min(6, z[end - W + 1 + k]));
+        X.push(w); y.push(d.label[end - DELAY]); ends.push(end);
+      }
+    }
+    const pos = [], neg = [];
+    y.forEach((v, i) => (v ? pos : neg).push(i));
+    return { X, y, pos, neg, ends };
+  }
+  function Model(H, seed, PL) {
+    const R = PL.rng(seed);
+    this.H = H;
+    this.W1 = new Float32Array(H * W).map(() => R.gaussian() * Math.sqrt(2 / W));
+    this.b1 = new Float32Array(H);
+    this.W2 = new Float32Array(H).map(() => R.gaussian() * Math.sqrt(1 / H));
+    this.b2 = new Float32Array(1);
+    this.params = [this.W1, this.b1, this.W2, this.b2];
+    this.m = this.params.map((p) => new Float32Array(p.length));
+    this.v = this.params.map((p) => new Float32Array(p.length));
+    this.t = 0;
+    this.h = new Float32Array(H);
+  }
+  Model.prototype.forward = function (x) {
+    const H = this.H, h = this.h;
+    let z = this.b2[0];
+    for (let j = 0; j < H; j++) {
+      let s = this.b1[j]; const o = j * W;
+      for (let k = 0; k < W; k++) s += this.W1[o + k] * x[k];
+      h[j] = s > 0 ? s : 0; z += this.W2[j] * h[j];
+    }
+    return 1 / (1 + Math.exp(-z));
+  };
+  const bce = (p, t) => { const q = Math.min(1 - 1e-7, Math.max(1e-7, p)); return -(t * Math.log(q) + (1 - t) * Math.log(1 - q)); };
+  /* one AdamW step (decoupled weight decay) on a batch of example indices; returns the batch loss */
+  Model.prototype.trainBatch = function (set, idx, lr, wd) {
+    const H = this.H;
+    const g = this.params.map((p) => new Float32Array(p.length));
+    let loss = 0;
+    for (const i of idx) {
+      const x = set.X[i], t = set.y[i];
+      const p = this.forward(x);
+      loss += bce(p, t);
+      const dz = (p - t) / idx.length;
+      g[3][0] += dz;
+      for (let j = 0; j < H; j++) {
+        g[2][j] += dz * this.h[j];
+        if (this.h[j] > 0) {
+          const dh = dz * this.W2[j]; g[1][j] += dh; const o = j * W;
+          for (let k = 0; k < W; k++) g[0][o + k] += dh * x[k];
+        }
+      }
+    }
+    this.t++;
+    const b1 = 0.9, b2 = 0.999, eps = 1e-8, c1 = 1 - Math.pow(b1, this.t), c2 = 1 - Math.pow(b2, this.t);
+    this.params.forEach((P, n) => {
+      const m = this.m[n], v = this.v[n], G = g[n];
+      for (let i = 0; i < P.length; i++) {
+        P[i] -= lr * wd * P[i];
+        m[i] = b1 * m[i] + (1 - b1) * G[i];
+        v[i] = b2 * v[i] + (1 - b2) * G[i] * G[i];
+        P[i] -= lr * (m[i] / c1) / (Math.sqrt(v[i] / c2) + eps);
+      }
+    });
+    return loss / idx.length;
+  };
+  Model.prototype.evaluate = function (set, thr) {
+    let loss = 0, tp = 0, fp = 0, fn = 0, tn = 0;
+    const out = new Float32Array(set.X.length);
+    for (let i = 0; i < set.X.length; i++) {
+      const p = this.forward(set.X[i]); out[i] = p; const t = set.y[i];
+      loss += bce(p, t);
+      const d = p >= thr;
+      if (d && t) tp++; else if (d) fp++; else if (t) fn++; else tn++;
+    }
+    const P = tp / (tp + fp + 1e-7), Rc = tp / (tp + fn + 1e-7);
+    return { loss: loss / set.X.length, precision: P, recall: Rc, f1: 2 * P * Rc / (P + Rc + 1e-7), acc: (tp + tn) / set.X.length, out };
+  };
+  function bestThreshold(out, y) {
+    let best = { f1: 0, thr: 0.5 };
+    for (let thr = 0.05; thr < 0.96; thr += 0.05) {
+      let tp = 0, fp = 0, fn = 0;
+      for (let i = 0; i < out.length; i++) { const d = out[i] >= thr; if (d && y[i]) tp++; else if (d) fp++; else if (y[i]) fn++; }
+      const P = tp / (tp + fp + 1e-7), Rc = tp / (tp + fn + 1e-7), f1 = 2 * P * Rc / (P + Rc + 1e-7);
+      if (f1 > best.f1) best = { f1, thr };
+    }
+    return best;
+  }
+  function sampleBatch(set, bs, balanced, R) {
+    const idx = new Array(bs);
+    for (let b = 0; b < bs; b++) {
+      if (balanced) {
+        const list = R.uniform() < 0.5 ? set.pos : set.neg; // 50/50, with replacement
+        idx[b] = list[Math.floor(R.uniform() * list.length)];
+      } else idx[b] = Math.floor(R.uniform() * set.X.length);
+    }
+    return idx;
+  }
+  return { W, buildSet, Model, sampleBatch, bestThreshold, bce };
+})();
+if (typeof module !== "undefined") module.exports = PLTiny;
+</script>
+<script>
+/* ---------- Widget: train a tiny spindle detector ---------- */
+(function () {
+  const $ = PL.ui.$, FS = PL.FS;
+  const TRAIN_SEEDS = [101, 102, 103, 104, 105, 106], VAL_SEEDS = [201, 202, 203], DUR = 60, NB = 40;
+  let train = null, val = null, running = false, stopFlag = false, hist = [], model = null, valTrace = null;
+  PL.ui.bind("#toy-ep", () => {});
+  const frame = () => new Promise((r) => (typeof requestAnimationFrame === "function" && !document.hidden ? requestAnimationFrame(() => r()) : setTimeout(r, 0)));
+  function drawCurves() {
+    const ep = hist.map((h) => h.e + 1);
+    const nE = parseInt($("#toy-ep").value, 10);
+    PL.plot($("#toy-loss"), {
+      xRange: [0, nE], yRange: [0, 0.9], xLabel: "Epoch", yLabel: "BCE loss", title: "Loss",
+      series: [
+        { x: ep, y: hist.map((h) => h.train), color: PL.color("c1"), width: 2, label: "train" },
+        { x: ep, y: hist.map((h) => h.val), color: PL.color("model"), width: 2, label: "validation" },
+      ],
+    });
+    PL.plot($("#toy-f1"), {
+      xRange: [0, nE], yRange: [0, 1], xLabel: "Epoch", yLabel: "score", title: "Validation (threshold 0.5)",
+      series: [
+        { x: ep, y: hist.map((h) => h.f1), color: PL.color("c3"), width: 2.4, label: "F1" },
+        { x: ep, y: hist.map((h) => h.p), color: PL.color("c4"), width: 1.2, dash: [4, 3], label: "precision" },
+        { x: ep, y: hist.map((h) => h.r), color: PL.color("c5"), width: 1.2, dash: [2, 2], label: "recall" },
+      ],
+    });
+  }
+  function drawTrace() {
+    const cv = $("#toy-trace");
+    if (!valTrace) { PL.plot(cv, { xRange: [0, 20], yRange: [-0.1, 1.1], xLabel: "Time (s), first validation recording", series: [] }); return; }
+    PL.plot(cv, {
+      xRange: [2, 22], yRange: [-0.15, 2.4], xLabel: "Time (s), first validation recording", yTicks: 2,
+      regions: valTrace.spindles.map((s) => ({ x0: s.start + 10 / FS, x1: s.end + 10 / FS, label: "Spindle label (shifted by the filter delay)" })),
+      series: [
+        { x: valTrace.t, y: valTrace.sig, color: PL.color("signal"), width: 1, label: "EEG" },
+        { x: valTrace.tx, y: valTrace.out, color: PL.color("model"), width: 1.8, label: "toy model output" },
+      ],
+      hlines: [{ y: 0.5, label: "0.5" }],
+    });
+  }
+  async function go() {
+    if (running) return;
+    running = true; stopFlag = false;
+    $("#toy-go").disabled = true; $("#toy-stop").disabled = false;
+    const status = $("#toy-status");
+    if (!train) {
+      status.textContent = "Generating and preprocessing 9 synthetic recordings…";
+      await frame();
+      train = PLTiny.buildSet(PL, TRAIN_SEEDS, DUR, 2, 6);
+      val = PLTiny.buildSet(PL, VAL_SEEDS, DUR, 5, 6);
+    }
+    const lr = parseFloat($("#toy-lr").value), bs = parseInt($("#toy-bs").value, 10);
+    const balanced = $("#toy-samp").value === "bal", nE = parseInt($("#toy-ep").value, 10);
+    model = new PLTiny.Model(16, 7, PL);
+    const R = PL.rng(11);
+    hist = []; valTrace = null; drawTrace();
+    const t0 = performance.now();
+    let last = null;
+    for (let e = 0; e < nE && !stopFlag; e++) {
+      let tl = 0;
+      for (let b = 0; b < NB; b++) tl += model.trainBatch(train, PLTiny.sampleBatch(train, bs, balanced, R), lr, 0.01);
+      last = model.evaluate(val, 0.5);
+      hist.push({ e, train: tl / NB, val: last.loss, f1: last.f1, p: last.precision, r: last.recall });
+      $("#toy-e").textContent = e + 1;
+      $("#toy-f").textContent = last.f1.toFixed(2);
+      $("#toy-pr").textContent = last.precision.toFixed(2) + " / " + last.recall.toFixed(2);
+      status.textContent = "Training… epoch " + (e + 1) + " of " + nE + " (" + (balanced ? "balanced" : "natural") + " sampling, " + NB + " batches of " + bs + " per epoch)";
+      drawCurves();
+      await frame();
+    }
+    if (last) {
+      const best = PLTiny.bestThreshold(last.out, val.y);
+      $("#toy-best").textContent = best.f1.toFixed(2) + " (" + best.thr.toFixed(2) + ")";
+      // output trace on the first validation recording (every 5th sample)
+      const n0 = val.ends.findIndex((v, i) => i > 0 && v < val.ends[i - 1]);
+      const nFirst = n0 < 0 ? val.ends.length : n0;
+      const d = PL.synth.nrem({ duration_s: DUR, seed: VAL_SEEDS[0], spindleRate_per_min: 6 });
+      const z = PL.preprocess(d.signal).standardized;
+      valTrace = {
+        t: Array.from(d.t), sig: Array.from(z, (v) => Math.max(-4, Math.min(4, v)) * 0.18 + 1.75),
+        tx: val.ends.slice(0, nFirst).map((v) => v / FS), out: Array.from(last.out.subarray(0, nFirst)), spindles: d.spindles,
+      };
+      drawTrace();
+      const secs = ((performance.now() - t0) / 1000).toFixed(1);
+      status.textContent = (stopFlag ? "Stopped" : "Done") + " after " + hist.length + " epochs in " + secs + " s. Final validation: F1 " + last.f1.toFixed(3) +
+        " (precision " + last.precision.toFixed(3) + ", recall " + last.recall.toFixed(3) + ") at threshold 0.5; best F1 " + best.f1.toFixed(3) + " at threshold " + best.thr.toFixed(2) + ".";
+    }
+    running = false; $("#toy-go").disabled = false; $("#toy-stop").disabled = true;
+  }
+  $("#toy-go").addEventListener("click", go);
+  $("#toy-stop").addEventListener("click", () => { stopFlag = true; });
+  PL.onRedraw(() => { drawCurves(); drawTrace(); });
+  drawCurves(); drawTrace();
+  if (/[?&]autotrain=1/.test(location.search)) go();
+})();
+</script>
+</body>
+</html>

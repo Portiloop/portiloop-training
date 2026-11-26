@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>00 · Template page · Portiloop tutorials</title>
+  <meta name="description" content="One sentence describing this tutorial for search engines and link previews.">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <!-- KaTeX (only if the page has equations) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <!-- Prism syntax highlighting (colors come from style.css) -->
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+</head>
+<body data-page="00-template" data-root="..">
+<main>
+<article class="content">
+
+  <div class="eyebrow">Tutorial 00 · Group name</div>
+  <h1>Template page</h1>
+  <p class="lead">One or two sentences: what the reader will be able to do at the end, in plain language for a neuroscientist.</p>
+
+  <dl class="meta">
+    <div><dt>Time</dt><dd>20 minutes</dd></div>
+    <div><dt>Level</dt><dd>Beginner</dd></div>
+    <div><dt>You need</dt><dd>Tutorial 02 completed</dd></div>
+    <div><dt>Runs in browser</dt><dd>Yes, nothing to install</dd></div>
+  </dl>
+
+  <div class="objectives">
+    <h3>In this tutorial you will</h3>
+    <ul>
+      <li>Learn one thing</li>
+      <li>Do another thing</li>
+    </ul>
+  </div>
+
+  <h2 id="section-one">A section</h2>
+  <p>Body text. Inline <code>code</code>, a <a href="https://doi.org/10.1371/journal.pone.0270696">citation link</a> [1], and math \(F_1 = \frac{2PR}{P+R}\).</p>
+  $$F_1 = \frac{2\,\mathrm{precision}\cdot\mathrm{recall}}{\mathrm{precision}+\mathrm{recall}}$$
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists</span>Connect the engineering concept to physiology or experimental practice.</div>
+  <div class="callout note"><span class="callout-title">Note</span>Neutral information.</div>
+  <div class="callout tip"><span class="callout-title">Tip</span>A shortcut or good practice.</div>
+  <div class="callout warning"><span class="callout-title">Warning</span>Something that commonly goes wrong.</div>
+  <div class="callout danger"><span class="callout-title">Known issue</span>A bug in the current code and its workaround.</div>
+  <div class="callout disk"><span class="callout-title">On the hard drive</span>Which files are read or written, and where (like Brainstorm's "On the hard drive" sections).</div>
+
+  <ol class="steps">
+    <li><strong>Step title.</strong> What to do, then the command:
+<pre data-file="terminal"><code class="language-bash">pip install -e .</code></pre></li>
+    <li><strong>Next step.</strong> Explanation.</li>
+  </ol>
+
+<pre data-file="portiloop_software/portiloop_python/ANN/portiloop_detector_training.py (excerpt)"><code class="language-python">def get_metrics(tp, fp, fn):
+    precision = tp_sum / (tp_sum + fp_sum + epsilon)</code></pre>
+
+  <h2 id="interactive">An interactive widget</h2>
+  <div class="widget" id="demo">
+    <div class="widget-title">The real Portiloop network on synthetic EEG</div>
+    <p class="widget-desc">What to try: move the threshold and watch detections change.</p>
+    <div class="controls">
+      <label for="demo-thr">Threshold <input type="range" id="demo-thr" min="0.05" max="0.95" step="0.01" value="0.5"><output for="demo-thr"></output></label>
+      <label for="demo-seed">Recording <input type="range" id="demo-seed" min="1" max="20" step="1" value="3"><output for="demo-seed"></output></label>
+    </div>
+    <canvas class="plot tall" id="demo-plot" aria-label="EEG trace with model output"></canvas>
+    <div class="readout">
+      <div><div class="k">Precision</div><div class="v" id="demo-p">…</div></div>
+      <div><div class="k">Recall</div><div class="v" id="demo-r">…</div></div>
+      <div><div class="k">F1</div><div class="v" id="demo-f">…</div></div>
+    </div>
+    <div class="status" id="demo-status">Loading model…</div>
+  </div>
+
+  <details class="exercise"><summary>Find the threshold that maximizes F1</summary><p>Question text.</p></details>
+  <details class="solution"><summary>Answer</summary><p>Answer text.</p></details>
+
+  <h2 id="references">References</h2>
+  <ol class="refs">
+    <li>Valenchon N, Bouteiller Y, Jourde HR, et al. (2022). The Portiloop: a deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a></li>
+  </ol>
+
+</article>
+</main>
+
+<script src="../assets/js/portiloop.js"></script>
+<script src="../assets/js/nav.js"></script>
+<script>
+(function () {
+  const $ = PL.ui.$;
+  let model = null, data = null, out = null;
+  function compute(seed) {
+    data = PL.synth.nrem({ duration_s: 30, seed: seed });
+    const pre = PL.preprocess(data.signal);
+    data.std = pre.standardized;
+    out = model.runStream(pre.standardized);
+  }
+  function draw() {
+    if (!model) return;
+    const thr = parseFloat($("#demo-thr").value);
+    const t = Array.from(out.idx, (i) => i / PL.FS);
+    const regions = data.spindles.map((s) => ({ x0: s.start, x1: s.end, label: "Spindle (ground truth)" }));
+    const sig = Array.from(data.std, (v) => v * 0.6 + 3); // offset the EEG above the model output
+    PL.plot($("#demo-plot"), {
+      xRange: [0, 30], yRange: [-0.2, 6], xLabel: "Time (s)", regions,
+      series: [
+        { x: Array.from(data.t), y: sig, color: PL.color("signal"), width: 1, label: "Standardized EEG" },
+        { x: t, y: Array.from(out.y), color: PL.color("model"), width: 1.6, label: "Network output" },
+      ],
+      hlines: [{ y: thr, label: "threshold" }],
+    });
+    const lab = Array.from(out.idx, (i) => data.label[Math.max(0, i - 10)]); // 10-sample FIR delay
+    const c = PL.metrics.confusion(Array.from(out.y, (v) => v >= thr), lab);
+    const m = PL.metrics.prf(c);
+    $("#demo-p").textContent = m.precision.toFixed(2);
+    $("#demo-r").textContent = m.recall.toFixed(2);
+    $("#demo-f").textContent = m.f1.toFixed(2);
+  }
+  PL.ui.bind("#demo-thr", draw, (v) => v.toFixed(2));
+  PL.ui.bind("#demo-seed", (v) => { if (model) { compute(v); draw(); } });
+  PL.onRedraw(draw);
+  PL.loadModel().then((m) => {
+    model = m; compute(parseInt($("#demo-seed").value, 10)); draw();
+    $("#demo-status").textContent = "Pre-trained model loaded (" + m.nParameters + " parameters), running locally in your browser.";
+  }).catch((e) => { $("#demo-status").textContent = "Could not load the model: " + e.message + " (serve the docs folder over HTTP, see docs/README.md)."; });
+})();
+</script>
+</body>
+</html>

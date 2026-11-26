@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portiloop tutorials</title>
+  <meta name="description" content="Interactive tutorials for neuroscientists: train, evaluate and deploy deep-learning sleep spindle detectors for closed-loop stimulation with the open-source Portiloop.">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <style>
+    .hero-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .paths { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 1.2em 0; }
+    .path { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--bg-elev); }
+    .path h3 { margin: 0 0 6px; font-size: 1rem; }
+    .path p { margin: 0 0 8px; color: var(--fg-muted); font-size: 0.92em; }
+    .path .route { display: flex; flex-wrap: wrap; gap: 6px; }
+    .path .route a { font-size: 13px; font-weight: 600; text-decoration: none; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+    .group-title { margin: 1.6em 0 0.2em; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--fg-muted); font-weight: 650; border: 0; padding: 0; }
+    pre.bib { font-size: 12.5px; }
+  </style>
+</head>
+<body data-page="index" data-root=".">
+<main>
+<article class="content">
+
+  <section class="hero">
+    <div class="eyebrow">Portiloop · training tutorials</div>
+    <h1>Train your own real-time sleep spindle detector</h1>
+    <p class="lead">A hands-on course for neuroscientists. You will learn how the Portiloop turns raw EEG into a closed-loop stimulation decision in a fraction of a second, how its neural network is trained on expert-annotated sleep recordings, and how to train, evaluate and deploy a model of your own. Every concept comes with a simulation you can play with directly in this page.</p>
+  </section>
+
+  <div class="widget" id="hero">
+    <div class="widget-title">The published Portiloop network, running in your browser</div>
+    <p class="widget-desc">Synthetic NREM sleep EEG goes through the Portiloop filters and the pre-trained network (25,679 parameters, the model of the PLOS ONE paper). Shaded bands are the spindles we planted in the signal; the orange trace is the network's spindle probability, computed on the fly from past samples only. Press <em>New recording</em> to draw another night.</p>
+    <canvas class="plot tall" id="hero-plot" aria-label="Synthetic EEG with spindle probability"></canvas>
+    <div class="controls">
+      <button class="btn" id="hero-new" type="button">New recording</button>
+      <span class="muted small" id="hero-status">Loading the model…</span>
+    </div>
+  </div>
+
+  <h2 id="paths">Choose your path</h2>
+  <div class="paths">
+    <div class="path">
+      <h3>I want to understand how it works</h3>
+      <p>Physiology, signal processing and the network, without installing anything.</p>
+      <div class="route"><a href="tutorials/01-introduction.html">01</a><a href="tutorials/03-preprocessing.html">03</a><a href="tutorials/04-network.html">04</a><a href="tutorials/08-realtime.html">08</a></div>
+    </div>
+    <div class="path">
+      <h3>I want to detect spindles in my recordings</h3>
+      <p>Use the pre-trained model offline on your own EEG.</p>
+      <div class="route"><a href="tutorials/02-installation.html">02</a><a href="tutorials/03-preprocessing.html">03</a><a href="tutorials/09-your-data.html">09</a></div>
+    </div>
+    <div class="path">
+      <h3>I want to train a new model</h3>
+      <p>Retrain, change the architecture, evaluate it properly.</p>
+      <div class="route"><a href="tutorials/02-installation.html">02</a><a href="tutorials/05-training.html">05</a><a href="tutorials/06-evaluation.html">06</a><a href="tutorials/07-hyperparameter-search.html">07</a></div>
+    </div>
+    <div class="path">
+      <h3>I want to run it in closed loop</h3>
+      <p>Simulate stimulation timing and export the model for a device.</p>
+      <div class="route"><a href="tutorials/08-realtime.html">08</a><a href="tutorials/10-deployment.html">10</a></div>
+    </div>
+  </div>
+
+  <h2 id="tutorials">All tutorials</h2>
+  <div id="cards"></div>
+
+  <h2 id="how">How these tutorials work</h2>
+  <ul>
+    <li><strong>Interactive widgets</strong> (boxes marked ▶) run entirely in your browser. Nothing is uploaded: even when you load your own file in tutorial 09, it stays on your computer.</li>
+    <li><strong>The network in the widgets is the real one.</strong> Its weights were exported from the published PyTorch checkpoint and checked against PyTorch to within 10<sup>-6</sup> (see <code>docs/tools/</code> in the repository).</li>
+    <li><strong>The EEG in the widgets is synthetic</strong>: a didactic signal with planted spindles, so that the ground truth is known exactly. It is not a physiological model, and numbers measured on it (F1 scores, delays) are illustrations, not results.</li>
+    <li><strong>Code blocks</strong> are taken from the repository or tested against it. Commands assume you are at the root of a clone of <a href="https://github.com/Portiloop/portiloop-training">Portiloop/portiloop-training</a>.</li>
+    <li>Callouts marked <em>On the hard drive</em> tell you which files are read and written, and where.</li>
+  </ul>
+
+  <h2 id="cite">Citing the Portiloop</h2>
+  <p>If these tutorials or the Portiloop software help your research, please cite:</p>
+  <p>Valenchon N, Bouteiller Y, Jourde HR, L’Heureux X, Sobral M, Coffey EBJ, Beltrame G (2022). The Portiloop: A deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a></p>
+<pre class="bib"><code>@article{valenchon2022portiloop,
+  title   = {The Portiloop: A deep learning-based open science tool for closed-loop brain stimulation},
+  author  = {Valenchon, Nicolas and Bouteiller, Yann and Jourde, Hugo R. and L'Heureux, Xavier and
+             Sobral, Milo and Coffey, Emily B. J. and Beltrame, Giovanni},
+  journal = {PLOS ONE},
+  volume  = {17},
+  number  = {8},
+  pages   = {e0270696},
+  year    = {2022},
+  doi     = {10.1371/journal.pone.0270696}
+}</code></pre>
+
+</article>
+</main>
+
+<script src="assets/js/portiloop.js"></script>
+<script src="assets/js/nav.js"></script>
+<script>
+(function () {
+  // tutorial cards, generated from the shared table of contents in nav.js
+  const blurbs = {
+    "01-introduction": ["What spindles are, why stimulate them in closed loop, and what makes real-time detection hard.", ["Concepts", "Interactive"]],
+    "02-installation": ["Install the software, get the synthetic practice dataset, understand every file, and find real annotated databases.", ["Setup", "Data"]],
+    "03-preprocessing": ["The Portiloop filters and online standardization, and why training must match the device.", ["Signal processing", "Interactive"]],
+    "04-network": ["Convolutions, a recurrent memory and a probability: the detector layer by layer.", ["Deep learning", "Interactive"]],
+    "05-training": ["Run the reference training, then train your own variant. Includes a model you train in the browser.", ["Python", "GPU", "Interactive"]],
+    "06-evaluation": ["Precision, recall, thresholds, event-level scores and honest reporting.", ["Statistics", "Interactive"]],
+    "07-hyperparameter-search": ["Find architectures that are both accurate and small enough for the device.", ["Optimization", "Interactive"]],
+    "08-realtime": ["Stream EEG through the network as the device does, and time the stimulations.", ["Closed loop", "Interactive"]],
+    "09-your-data": ["Preprocess your EEG and detect spindles with the pre-trained model, even in this browser.", ["Python", "MATLAB", "Interactive"]],
+    "10-deployment": ["Export to ONNX, inspect and quantize the weights, prepare a model for hardware.", ["Hardware", "Interactive"]],
+  };
+  let html = "";
+  (window.PL_TOC || []).forEach(function (g) {
+    html += '<h3 class="group-title">' + g.group + '</h3><div class="cards">';
+    g.items.forEach(function (it) {
+      const b = blurbs[it[0]] || ["", []];
+      html += '<a class="card" href="tutorials/' + it[0] + '.html"><div class="num">TUTORIAL ' + it[0].slice(0, 2) + "</div><h3>" + it[1] + "</h3><p>" + b[0] + '</p><div class="tags">' +
+        b[1].map(function (t) { return '<span class="tag">' + t + "</span>"; }).join("") + "</div></a>";
+    });
+    html += "</div>";
+  });
+  document.getElementById("cards").innerHTML = html;
+
+  // hero demo
+  const $ = PL.ui.$;
+  let model = null, data = null, out = null, seed = 7;
+  function compute() {
+    data = PL.synth.nrem({ duration_s: 20, seed: seed, spindleRate_per_min: 9 });
+    data.std = PL.preprocess(data.signal).standardized;
+    out = model.runStream(data.std);
+  }
+  function draw() {
+    if (!model) return;
+    PL.plot($("#hero-plot"), {
+      xRange: [1, 20], yRange: [-0.15, 4.6], xLabel: "Time (s)", yTicks: 4,
+      regions: data.spindles.map((s) => ({ x0: s.start, x1: s.end, label: "Planted spindle" })),
+      series: [
+        { x: Array.from(data.t), y: Array.from(data.std, (v) => 0.45 * v + 2.9), color: PL.color("signal"), width: 1, label: "EEG (standardized)" },
+        { x: Array.from(out.idx, (i) => i / PL.FS), y: Array.from(out.y), color: PL.color("model"), width: 1.8, label: "Spindle probability" },
+      ],
+      hlines: [{ y: 0.5, label: "threshold 0.5" }],
+    });
+  }
+  $("#hero-new").addEventListener("click", function () { if (!model) return; seed += 1; compute(); draw(); });
+  PL.onRedraw(draw);
+  PL.loadModel("assets/models/portiloop_spindle_v4_0.json").then(function (m) {
+    model = m; compute(); draw();
+    $("#hero-status").textContent = "Running locally: " + m.nParameters.toLocaleString("en") + " parameters, one decision every 20 ms of signal.";
+  }).catch(function (e) {
+    $("#hero-status").textContent = "Could not load the model (" + e.message + "). If you opened this file directly from disk, serve the docs folder over HTTP instead (see docs/README.md).";
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,915 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>04 · Inside the network · Portiloop tutorials</title>
+  <meta name="description" content="Layer by layer tour of the Portiloop spindle detector (PortiloopNetwork): 1D convolutions as learned filters, the GRU memory, every configuration key, parameter counting, with live widgets running the real pre-trained network.">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <style>
+    .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); margin: 10px 0; }
+    .scroll-x svg { display: block; max-width: none; }
+    .scroll-x svg.wide { width: 100%; min-width: 760px; height: auto; }
+    .grid-controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 10px 14px; margin: 10px 0; font-size: 13.5px; }
+    .grid-controls label { display: grid; grid-template-columns: minmax(0, 1fr) minmax(70px, 110px) 4.4em; align-items: center; gap: 8px; color: var(--fg-muted); margin: 3px 0; }
+    .grid-controls label span { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12.5px; }
+    .grid-controls input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
+    .grid-controls input[type="checkbox"] { justify-self: start; accent-color: var(--accent); }
+    .grid-controls output { font-variant-numeric: tabular-nums; color: var(--fg); font-weight: 600; text-align: right; }
+    .grid-controls fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px 8px; margin: 0; min-width: 0; }
+    .grid-controls legend { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-muted); padding: 0 4px; }
+    .presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+    .msg { font-size: 14px; border-radius: 8px; padding: 8px 12px; margin: 6px 0; }
+    .msg.bad { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
+    .msg.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn); }
+    .msg.ok { background: var(--tip-bg); color: var(--tip); border: 1px solid var(--tip); }
+    table.layers td:nth-child(3), table.layers th:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
+    table.layers td { font-size: 0.92em; }
+    table.layers tr.total td { font-weight: 700; border-top: 2px solid var(--border); }
+    .kgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; margin: 10px 0; }
+    .kcard { border: 1px solid var(--border); border-radius: 8px; padding: 4px; background: var(--bg); cursor: pointer; font: inherit; color: inherit; text-align: left; }
+    .kcard:hover, .kcard:focus { border-color: var(--accent); outline: none; }
+    .kcard.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+    .kcard canvas { display: block; width: 100%; height: 74px; }
+    .kcard .lab { font-size: 11.5px; color: var(--fg-muted); display: flex; justify-content: space-between; padding: 0 2px; }
+    canvas.heat { display: block; width: 100%; height: 190px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 640px) { .two-col { grid-template-columns: 1fr; } .kgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; } .kcard canvas { height: 54px; } .kcard .lab { font-size: 10.5px; } }
+    .eq-small { font-size: 0.95em; }
+    .keytable td code { white-space: normal; }
+    .keytable td:nth-child(5) { min-width: 300px; }
+    .keytable td:first-child { min-width: 130px; }
+    .badge { display: inline-block; font-size: 11.5px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-sunk); color: var(--fg-muted); white-space: nowrap; }
+    .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+    table, .scroll-x { position: relative; } /* keeps KaTeX hidden MathML inside scrolling tables */
+  </style>
+</head>
+<body data-page="04-network" data-root="..">
+<main>
+<article class="content">
+
+  <div class="eyebrow">Tutorial 04 · Understanding the pipeline</div>
+  <h1>Inside the network</h1>
+  <p class="lead">Open the Portiloop spindle detector and look at every layer: what it computes, why it is there, how big it is, and which line of the configuration controls it. The widgets run the real pre-trained network in your browser, so you can watch it listen to EEG.</p>
+
+  <dl class="meta">
+    <div><dt>Time</dt><dd>45 to 60 minutes</dd></div>
+    <div><dt>Level</dt><dd>Intermediate, no ML background assumed</dd></div>
+    <div><dt>You need</dt><dd><a href="03-preprocessing.html">Tutorial 03</a> (what the input looks like)</dd></div>
+    <div><dt>Runs in browser</dt><dd>Yes; the Python snippets need <a href="02-installation.html">Tutorial 02</a></dd></div>
+  </dl>
+
+  <div class="objectives">
+    <h3>In this tutorial you will</h3>
+    <ul>
+      <li>Follow one 0.216 s window of EEG through the five stages of <code>PortiloopNetwork</code>: convolution, rectification, pooling, recurrent memory and output.</li>
+      <li>Understand 1D convolutions as a bank of learned FIR filters, and see what the 31 learned first-layer filters of the published model actually respond to.</li>
+      <li>Understand how the GRU (a gated recurrent unit) carries about 8.5 s of context across windows.</li>
+      <li>Read every key of the configuration dictionary and know what it changes.</li>
+      <li>Compute tensor shapes and the exact number of parameters of any architecture, and check them with PyTorch.</li>
+    </ul>
+  </div>
+
+  <h2 id="overview">The network at a glance</h2>
+  <p>The Portiloop paper describes the design in one paragraph [1]:</p>
+  <blockquote class="callout note"><span class="callout-title">Valenchon et al. (2022), section 4</span>“In essence, a sliding window over a few last data points is fed to a Convolutional Neural Network (CNN) whose purpose is to extract relevant features (<em>e.g.</em>, frequencies) in this signal fragment. Then, these extracted features are fed to a Recurrent Neural Network (RNN) whose purpose is to keep track of the features extracted in past forward passes (where a “forward pass” is the action of computing an output from the ANN).”</blockquote>
+  <p>In the code, this is the class <code>PortiloopNetwork</code> in <code>portiloop_software/portiloop_python/ANN/portiloop_detector_training.py</code>. For the published model (configuration returned by <code>get_final_model_config_dict()</code>, checkpoint <code>pareto_search_15_35_v4_0</code>), the data flow is:</p>
+
+  <figure>
+    <div class="scroll-x">
+      <svg class="wide" viewBox="0 0 980 170" width="980" height="170" role="img" aria-labelledby="ov-title">
+        <title id="ov-title">Data flow of the published Portiloop network, from a 54-sample window to a spindle probability</title>
+        <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--fg-muted)"/></marker></defs>
+        <g font-family="var(--font-sans)" font-size="12" fill="var(--fg)">
+          <rect x="6" y="55" width="86" height="56" rx="8" fill="var(--bg-sunk)" stroke="var(--border)"/>
+          <text x="49" y="78" text-anchor="middle" font-weight="650">EEG window</text>
+          <text x="49" y="96" text-anchor="middle" fill="var(--fg-muted)">1 × 54</text>
+          <line x1="94" y1="83" x2="118" y2="83" stroke="var(--fg-muted)" marker-end="url(#ar)"/>
+          <g>
+            <rect x="120" y="40" width="150" height="86" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+            <text x="195" y="60" text-anchor="middle" font-weight="650">Block 1</text>
+            <text x="195" y="78" text-anchor="middle">Conv1d k=7 → ReLU</text>
+            <text x="195" y="94" text-anchor="middle">→ MaxPool k=7</text>
+            <text x="195" y="114" text-anchor="middle" fill="var(--fg-muted)">31 × 48 → 31 × 42</text>
+          </g>
+          <line x1="272" y1="83" x2="290" y2="83" stroke="var(--fg-muted)" marker-end="url(#ar)"/>
+          <rect x="292" y="40" width="130" height="86" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+          <text x="357" y="60" text-anchor="middle" font-weight="650">Block 2</text>
+          <text x="357" y="84" text-anchor="middle">same, 31 → 31</text>
+          <text x="357" y="114" text-anchor="middle" fill="var(--fg-muted)">31 × 36 → 31 × 30</text>
+          <line x1="424" y1="83" x2="442" y2="83" stroke="var(--fg-muted)" marker-end="url(#ar)"/>
+          <rect x="444" y="40" width="130" height="86" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+          <text x="509" y="60" text-anchor="middle" font-weight="650">Block 3</text>
+          <text x="509" y="84" text-anchor="middle">same, 31 → 31</text>
+          <text x="509" y="114" text-anchor="middle" fill="var(--fg-muted)">31 × 24 → 31 × 18</text>
+          <line x1="576" y1="83" x2="594" y2="83" stroke="var(--fg-muted)" marker-end="url(#ar)"/>
+          <rect x="596" y="55" width="78" height="56" rx="8" fill="var(--bg-sunk)" stroke="var(--border)"/>
+          <text x="635" y="78" text-anchor="middle" font-weight="650">Flatten</text>
+          <text x="635" y="96" text-anchor="middle" fill="var(--fg-muted)">558</text>
+          <line x1="676" y1="83" x2="694" y2="83" stroke="var(--fg-muted)" marker-end="url(#ar)"/>
+          <rect x="696" y="40" width="120" height="86" rx="8" fill="var(--tip-bg)" stroke="var(--tip)"/>
+          <text x="756" y="62" text-anchor="middle" font-weight="650">GRU</text>
+          <text x="756" y="80" text-anchor="middle">558 → 7</text>
+          <text x="756" y="98" text-anchor="middle" fill="var(--fg-muted)">memory h</text>
+          <path d="M736,126 C736,160 776,160 776,126" fill="none" stroke="var(--tip)" stroke-width="1.6" marker-end="url(#ar)"/>
+          <text x="756" y="166" text-anchor="middle" font-size="11" fill="var(--tip)">state kept for the next window</text>
+          <line x1="818" y1="83" x2="836" y2="83" stroke="var(--fg-muted)" marker-end="url(#ar)"/>
+          <rect x="838" y="55" width="136" height="56" rx="8" fill="var(--bg-sunk)" stroke="var(--border)"/>
+          <text x="906" y="78" text-anchor="middle" font-weight="650">Linear + sigmoid</text>
+          <text x="906" y="96" text-anchor="middle" fill="var(--fg-muted)">7 → 1, P(spindle)</text>
+          <text x="347" y="22" text-anchor="middle" fill="var(--fg-muted)" font-size="11.5">feature extraction (what is in this window?)</text>
+          <text x="790" y="22" text-anchor="middle" fill="var(--fg-muted)" font-size="11.5">integration over time and decision</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>The published architecture. Shapes are “channels × samples” (PyTorch's channel-first convention, batch dimension omitted). The paper's Fig 5 shows the same architecture in PyTorch nomenclature.</figcaption>
+  </figure>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: what is a “parameter”?</span>A parameter (or <em>weight</em>) is one number that training adjusts, like one coefficient of a filter. The published network has <strong>25,679</strong> of them. For comparison, a 21-tap FIR filter like the Portiloop's preprocessing low-pass (tutorial 03) has 21. Training (tutorial 05) is the procedure that tunes all 25,679 numbers at once so that the output matches expert spindle annotations.</div>
+
+  <h2 id="window">Stage 1: the input window</h2>
+  <p>The network never sees a whole recording. Every time it runs, it receives the <strong>last <code>window_size</code> samples</strong> of the preprocessed signal (low-pass filtered, notch filtered and standardized on line, see <a href="03-preprocessing.html">tutorial 03</a>). The length is set in seconds by <code>window_size_s</code> and converted to samples with Python's <code>int()</code>, which truncates toward zero:</p>
+<pre data-file="portiloop_detector_training.py, PortiloopNetwork.__init__ (excerpt)"><code class="language-python">window_size = int(window_size_s * fe)
+nb_out = window_size</code></pre>
+  <p>With <code>window_size_s = 0.218</code> and <code>fe = 250</code>: \(0.218 \times 250 = 54.5\), truncated to <strong>54 samples, that is 0.216 s</strong>. This is why the paper's supplementary table lists a window of 0.216 s while the configuration says 0.218. At 13 Hz, 0.216 s holds about 2.8 spindle cycles: enough to see an oscillation, far too little to see a whole spindle (0.5 to 2 s). The memory stage (below) solves that.</p>
+  <div class="callout tip"><span class="callout-title">Tip</span>Because of truncation, several values of <code>window_size_s</code> give the same window (0.216, 0.218 and 0.219 all give 54 samples). The Pareto search compares windows in samples for exactly that reason (<code>same_config_dict()</code> in <code>Utils/utils.py</code> uses <code>int(config["window_size_s"] * config["fe"])</code>).</div>
+
+  <h2 id="conv">Stage 2: convolution, a bank of learned FIR filters</h2>
+  <p>Each convolutional block is a <code>ConvPoolModule</code>. Here is the whole class:</p>
+<pre data-file="portiloop_software/portiloop_python/ANN/portiloop_detector_training.py (excerpt)"><code class="language-python">class ConvPoolModule(nn.Module):
+    def __init__(self,
+                 in_channels,
+                 out_channel,
+                 kernel_conv,
+                 stride_conv,
+                 conv_padding,
+                 dilation_conv,
+                 kernel_pool,
+                 stride_pool,
+                 pool_padding,
+                 dilation_pool,
+                 dropout_p):
+        super(ConvPoolModule, self).__init__()
+
+        self.conv = nn.Conv1d(in_channels=in_channels,
+                              out_channels=out_channel,
+                              kernel_size=kernel_conv,
+                              stride=stride_conv,
+                              padding=conv_padding,
+                              dilation=dilation_conv)
+        self.pool = nn.MaxPool1d(kernel_size=kernel_pool,
+                                 stride=stride_pool,
+                                 padding=pool_padding,
+                                 dilation=dilation_pool)
+        self.dropout = nn.Dropout(dropout_p)
+
+    def forward(self, input_f):
+        x, max_value = input_f
+        x = F.relu(self.conv(x))
+        x = self.pool(x)
+        max_temp = torch.max(abs(x))
+        if max_temp &gt; max_value:
+            logging.debug(f"max_value = {max_temp}")
+            max_value = max_temp
+        return self.dropout(x), max_value</code></pre>
+  <p>(The <code>max_value</code> bookkeeping only records the largest activation, which the authors used to check that the FPGA's fixed-point number format had enough range. It does not change the output.)</p>
+
+  <h3 id="conv-math">What <code>nn.Conv1d</code> computes</h3>
+  <p>A <code>Conv1d</code> layer with \(C_\text{in}\) input channels, \(C_\text{out}\) output channels and kernel size \(K\) holds \(C_\text{out}\) filters of \(C_\text{in} \times K\) coefficients plus one bias per output channel. With stride \(s\) and dilation \(d\), output channel \(c\) at position \(t\) is</p>
+  $$y_c[t] \;=\; b_c \;+\; \sum_{c'=1}^{C_\text{in}} \sum_{k=0}^{K-1} w_{c,c',k}\; x_{c'}[\,s\,t + d\,k\,].$$
+  <p>With one input channel this is exactly an FIR filter applied to the EEG (PyTorch slides the kernel without flipping it, which mathematicians call cross-correlation; the magnitude of the frequency response is the same). The first layer of the published model is therefore <strong>31 FIR filters of 7 taps each</strong>, learned from data instead of designed by hand. The deeper layers combine the 31 channels of the previous layer (\(31 \times 7 = 217\) coefficients per filter).</p>
+
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: a familiar pipeline, learned end to end</span>A classical spindle detector band-passes the EEG in the sigma band (11 to 16 Hz), rectifies or squares it, smooths it into an envelope and applies a threshold. Each block of the network has the same three ingredients: <strong>filter</strong> (Conv1d), <strong>rectify</strong> (ReLU, \(\max(0,x)\), which is half-wave rectification), <strong>smooth/peak-pick</strong> (MaxPool1d keeps the largest value in each run of 7 samples, a crude envelope follower). The difference is that nothing is fixed in advance: training chooses the filters, and stacking three blocks lets later filters combine the outputs of earlier ones.</div>
+
+  <h3 id="lengths">How the length shrinks: the <code>out_dim</code> formula</h3>
+  <p>The code uses no padding (<code>conv_padding = 0</code>, <code>pool_padding = 0</code>), so every convolution and every pooling eats \(d(K-1)\) samples. The length after each layer is computed with the standard PyTorch formula, implemented in <code>Utils/utils.py</code>:</p>
+<pre data-file="portiloop_software/portiloop_python/Utils/utils.py (excerpt)"><code class="language-python">def out_dim(window_size, padding, dilation, kernel, stride):
+    return floor((window_size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)</code></pre>
+  $$L_\text{out} = \left\lfloor \frac{L_\text{in} + 2p - d\,(K-1) - 1}{s} + 1 \right\rfloor$$
+  <p><code>PortiloopNetwork.__init__</code> applies it twice per block (convolution, then pooling):</p>
+<pre data-file="portiloop_detector_training.py, PortiloopNetwork.__init__ (excerpt)"><code class="language-python">for _ in range(nb_conv_layers):
+    nb_out = out_dim(nb_out, conv_padding, dilation_conv, kernel_conv, stride_conv)
+    nb_out = out_dim(nb_out, pool_padding, dilation_pool, kernel_pool, stride_pool)
+
+output_cnn_size = int(nb_channel * nb_out)</code></pre>
+  <p>For the published model (\(K = 7\), stride 1, dilation 1) each layer removes 6 samples: <strong>54 → 48 → 42 → 36 → 30 → 24 → 18</strong>. So <code>nb_out = 18</code> and the flattened feature vector has \(31 \times 18 = 558\) numbers. If you ask for too many layers or too large kernels for the window, a length reaches zero or below and PyTorch cannot build the network: the calculator below flags this.</p>
+
+  <h3 id="first-layer">What does the first layer listen to?</h3>
+  <p>Since each first-layer channel is a 7-tap FIR filter, we can compute its frequency response exactly, \(|H(f)| = \left|\sum_{k=0}^{6} w_k\, e^{-i 2\pi f k / f_s}\right|\) with \(f_s = 250\) Hz, from the weights stored in the model file (key <code>first_layer_input1.conv.weight</code>, shape <code>[31, 1, 7]</code>).</p>
+
+  <div class="widget" id="kern">
+    <div class="widget-title">The 31 learned first-layer filters</div>
+    <p class="widget-desc">Each card shows one filter: its 7 coefficients (stems) and its magnitude response from 0 to 125 Hz (curve), with the sigma band (11 to 16 Hz) shaded. Cards are sorted by the frequency of maximal gain. What to try: click a card to see its response in detail and what it does to a synthetic EEG segment with a spindle; tick “include the preprocessing low-pass” to see the response the network effectively has after the Portiloop's 21-tap FIR filter.</p>
+    <div class="controls">
+      <label for="kern-sort">Sort by <select id="kern-sort"><option value="peak">peak frequency</option><option value="index">channel index</option><option value="sigma">relative gain at 13.5 Hz</option></select></label>
+      <label for="kern-fir"><input type="checkbox" id="kern-fir"> include the preprocessing low-pass</label>
+    </div>
+    <div class="kgrid" id="kern-grid" role="list" aria-label="First-layer filters"></div>
+    <div class="two-col">
+      <canvas class="plot" id="kern-resp" aria-label="Magnitude response of the selected filter compared with a 7-tap windowed-sinc design for the sigma band"></canvas>
+      <canvas class="plot" id="kern-out" aria-label="Synthetic EEG segment and the output of the selected filter after ReLU"></canvas>
+    </div>
+    <div class="readout">
+      <div><div class="k">Selected channel</div><div class="v" id="kern-ch">…</div></div>
+      <div><div class="k">Peak gain at</div><div class="v" id="kern-pk">…</div></div>
+      <div><div class="k">Gain 13.5 Hz ÷ 1 Hz</div><div class="v" id="kern-ratio">…</div></div>
+      <div><div class="k">DC gain (sum of taps)</div><div class="v" id="kern-dc">…</div></div>
+    </div>
+    <div class="status" id="kern-status">Loading model…</div>
+  </div>
+
+  <p>Three honest observations, which you can check in the widget:</p>
+  <ol>
+    <li><strong>No first-layer filter is a sigma band-pass.</strong> With 7 taps at 250 Hz a filter spans 28 ms, and its frequency resolution is roughly \(f_s / K = 250 / 7 \approx 36\) Hz. A 7-tap filter physically cannot pass 11 to 16 Hz while rejecting 8 or 20 Hz. The dashed curve shows what a textbook design (Hamming-windowed sinc) produces when asked for an 11 to 16 Hz band-pass with 7 taps: the requested band is so much narrower than the resolution that the result degenerates into a broad low-pass, with its maximum at 0 Hz.</li>
+    <li><strong>Most filters are high-pass or “derivative-like”.</strong> Their DC gain (sum of coefficients) is close to zero and, for 22 of the 31 channels, the gain at 13.5 Hz is larger than the gain at 1 Hz. In plain terms, the first layer suppresses slow waves and emphasizes faster activity, a sensible first step before looking for 11 to 16 Hz bursts riding on large slow oscillations.</li>
+    <li><strong>The raw peak frequencies (33 to 125 Hz) are mostly above the 30 Hz preprocessing low-pass.</strong> The network never sees much energy there. With the low-pass included, the effective peaks fall between roughly 16 and 37 Hz, at the top of the passband (two channels end up low-pass). Frequency selectivity for spindles is not built by any single filter: it emerges across the three convolutional blocks and, above all, across time in the GRU.</li>
+  </ol>
+  <div class="callout warning"><span class="callout-title">Do not over-interpret single filters</span>Many different sets of weights can give the same overall behaviour, and a network trained again from scratch (tutorial 05) will learn different first-layer filters. Read these plots as “what kind of operations are being done”, not as a discovery about spindle physiology.</div>
+
+  <h2 id="flatten">Stage 3: flatten</h2>
+  <p>After the last block the activity is a 31 × 18 array. <code>torch.flatten(x1, start_dim=1, end_dim=-1)</code> lays it out as one vector of 558 numbers, channel after channel (all 18 samples of channel 0, then channel 1, and so on). Nothing is computed here; the GRU simply needs a vector.</p>
+
+  <h2 id="gru">Stage 4: the GRU, a memory across windows</h2>
+  <p>A single window contains under three spindle cycles, yet spindles are defined by a waxing and waning burst lasting half a second or more. The network therefore needs memory. A <strong>recurrent</strong> layer keeps an internal state vector \(h\) (7 numbers here, <code>hidden_size = 7</code>) and updates it each time a new window arrives. The type used is the <strong>Gated Recurrent Unit</strong> (GRU) introduced by Cho et al. [2], built with <code>nn.GRU</code>:</p>
+<pre data-file="portiloop_detector_training.py, PortiloopNetwork.__init__ (excerpt)"><code class="language-python">if RNN:
+    self.gru_input1 = nn.GRU(input_size=output_cnn_size,
+                             hidden_size=hidden_size,
+                             num_layers=nb_rnn_layers,
+                             dropout=0,
+                             batch_first=True)</code></pre>
+  <p>PyTorch documents the update for one time step as follows [3] (\(x_t\) is the 558-number feature vector of the current window, \(h_{t-1}\) the state after the previous window, \(\sigma\) the logistic sigmoid and \(\odot\) element-wise multiplication):</p>
+  <div class="eq-small">
+  $$\begin{aligned}
+  r_t &= \sigma\!\left(W_{ir} x_t + b_{ir} + W_{hr} h_{t-1} + b_{hr}\right) &&\text{reset gate}\\
+  z_t &= \sigma\!\left(W_{iz} x_t + b_{iz} + W_{hz} h_{t-1} + b_{hz}\right) &&\text{update gate}\\
+  n_t &= \tanh\!\left(W_{in} x_t + b_{in} + r_t \odot \left(W_{hn} h_{t-1} + b_{hn}\right)\right) &&\text{candidate state}\\
+  h_t &= (1 - z_t) \odot n_t + z_t \odot h_{t-1} &&\text{new state}
+  \end{aligned}$$
+  </div>
+  <div class="callout neuro"><span class="callout-title">For neuroscientists: gates as adjustable time constants</span>
+    <p>Read the last line as a <strong>leaky integrator</strong>, like a membrane potential relaxing toward its input. The update gate \(z_t\) (between 0 and 1, one value per unit) sets how much of the old state is kept: \(z \approx 1\) means a long time constant (hold the memory), \(z \approx 0\) means a short one (overwrite with the new evidence \(n_t\)). Unlike a fixed RC circuit, the time constant is recomputed at every step from the current window and the current state, so the unit can, for example, hold “a spindle has been building up” during a burst and reset quickly when the burst ends.</p>
+    <p>The reset gate \(r_t\) decides how much the past state is allowed to shape the candidate \(n_t\): with \(r \approx 0\) the candidate is computed from the current window alone, as if starting fresh.</p>
+  </div>
+  <p>The weights are stored stacked: <code>weight_ih_l0</code> has shape \(3H \times \text{input}\) = 21 × 558 (the three blocks \(W_{ir}, W_{iz}, W_{in}\)), <code>weight_hh_l0</code> has shape 21 × 7, and each bias vector has 21 entries. Hence the parameter count of GRU layer \(\ell\) with input size \(I_\ell\):</p>
+  $$N_\text{GRU}(\ell) = 3H\,(I_\ell + H) + 6H, \qquad I_0 = C \cdot L_\text{out},\quad I_{\ell>0} = H.$$
+  <p>For the published model: \(21 \times (558 + 7) + 42 = 11{,}907\) parameters, almost half of the network, and 11,718 of them are in <code>weight_ih_l0</code>, the matrix that reads the flattened features.</p>
+
+  <h3 id="sequence">How far back does it remember? <code>seq_len</code> and <code>seq_stride_s</code></h3>
+  <p>During training, each example is not one window but a <strong>sequence of <code>seq_len</code> = 50 windows</strong>, consecutive windows starting <strong><code>seq_stride</code> = int(0.17 × 250) = 42 samples (0.168 s)</strong> apart. The GRU starts from a zero state, reads the 50 windows in order, and only the output after the last window is compared with the label at the end of that window:</p>
+<pre data-file="portiloop_detector_training.py, PortiloopNetwork.forward (excerpt)"><code class="language-python">x1 = torch.flatten(x1, start_dim=1, end_dim=-1)
+hn1 = None
+if self.RNN:
+    x1 = x1.view(batch_size, sequence_len, -1)
+    x1, hn1 = self.gru_input1(x1, h1)
+    ...
+    x1 = x1[:, -1, :]</code></pre>
+  <p>The configuration records <code>time_in_past = seq_len × seq_stride_s = 50 × 0.17 = 8.5</code> s (computed in <code>sample_config_dict()</code>). The signal actually covered by one training sequence is \((49 \times 42 + 54)/250 = 8.45\) s. So during training the network learns to use roughly the last 8.5 s of EEG, sampled as 50 snapshots spaced 168 ms apart.</p>
+  <p>Why spaced 168 ms apart rather than every sample? The paper calls this <em>time dilation</em>: “Our approach enables shallow recurrent neural networks to look further back in time by skipping the redundant information that is inherent to the use of a sliding window as input, while still acting as fast as possible” [1]. On the device, a forward pass takes 20 ms (5 samples) [1], so to produce an output every 20 ms while each memory still sees windows 42 samples apart, the Portiloop keeps several independent hidden states and uses them in turn (“virtual parallelization”, \(\lfloor 42/5 \rfloor = 8\) states in the simulation notebook). This is covered in <a href="08-realtime.html">tutorial 08</a>; the widget below uses a single chain of windows 42 samples apart, which is what one of those 8 virtual networks sees.</p>
+  <div class="callout note"><span class="callout-title">Note</span>In training the memory never spans more than 50 steps, but on the device the hidden state is carried forward indefinitely. The authors write that they “believe that the main role currently played by the RNN is to accumulate information regarding whether the last few windows were spindles or not, rather than actually predicting the future” [1].</div>
+
+  <h2 id="output">Stage 5: from 7 numbers to a probability</h2>
+  <p>The final layer is <code>nn.Linear(7, 1)</code>: a weighted sum of the 7 GRU units plus a bias (8 parameters), called the <em>logit</em>. The sigmoid \(\sigma(v) = 1/(1+e^{-v})\) squashes it into the interval 0 to 1, read as the probability that the current window belongs to a spindle. A threshold turns it into a decision; choosing it is the subject of <a href="06-evaluation.html">tutorial 06</a>.</p>
+
+  <div class="widget" id="look">
+    <div class="widget-title">Look inside the real network</div>
+    <p class="widget-desc">A 30 s synthetic NREM recording is preprocessed exactly as on the Portiloop and fed to the pre-trained network, one window every 42 samples. What to try: click anywhere on the top trace (or press Play) to choose a moment; watch the 54-sample input window, the three stacks of feature maps (brighter means larger activation), the 7 GRU units over time, and how each unit pushes the output up or down. Compare a moment inside a green spindle with one during a slow wave.</p>
+    <div class="controls">
+      <label for="look-seed">Recording <input type="range" id="look-seed" min="1" max="20" step="1" value="4"><output for="look-seed"></output></label>
+      <label for="look-t">Time <input type="range" id="look-t" min="0" max="1" step="1" value="0"><output for="look-t"></output></label>
+      <button class="btn" id="look-play" type="button">Play</button>
+    </div>
+    <canvas class="plot" id="look-over" aria-label="Standardized EEG with spindle labels, network output and the selected time"></canvas>
+    <div class="two-col">
+      <canvas class="plot short" id="look-win" aria-label="The 54-sample input window at the selected time"></canvas>
+      <canvas class="plot short" id="look-contrib" aria-label="Contribution of each GRU unit to the logit at the selected time"></canvas>
+    </div>
+    <canvas class="heat" id="look-heat" aria-label="Feature maps after each of the three convolutional blocks"></canvas>
+    <div class="controls"><label for="look-unit">Highlight <select id="look-unit"><option value="-1">all units</option><option value="0">unit 0</option><option value="1">unit 1</option><option value="2">unit 2</option><option value="3">unit 3</option><option value="4">unit 4</option><option value="5">unit 5</option><option value="6">unit 6</option></select></label></div>
+    <canvas class="plot" id="look-hidden" aria-label="The 7 GRU hidden units over time"></canvas>
+    <div class="readout">
+      <div><div class="k">Time</div><div class="v" id="look-time">…</div></div>
+      <div><div class="k">Logit</div><div class="v" id="look-logit">…</div></div>
+      <div><div class="k">P(spindle)</div><div class="v" id="look-p">…</div></div>
+      <div><div class="k">Ground truth</div><div class="v" id="look-gt">…</div></div>
+    </div>
+    <div class="status" id="look-status">Loading model…</div>
+  </div>
+  <p>Things worth noticing (the numbers below are averages computed for this tutorial over 20 synthetic recordings like this one, ignoring the first 5 s; they describe this didactic signal, not real EEG):</p>
+  <ul>
+    <li><strong>Feature maps.</strong> The mean activation of block 1 is about 1.5 times higher inside spindles (0.13) than outside (0.09). Blocks 2 and 3 are much sparser: only a few channels are active at any time.</li>
+    <li><strong>GRU units.</strong> Four of the seven units carry most of the spindle information. Unit 4 rises from −0.21 on average outside spindles to +0.53 inside; unit 0 falls from +0.67 to +0.01; unit 3 from −0.10 to −0.57; unit 6 from +0.86 to +0.29. Use the “Highlight” menu to follow one unit at a time.</li>
+    <li><strong>Lag and start-up.</strong> The output rises a few hundred milliseconds after the spindle onset, because evidence must accumulate over several windows (quantified in <a href="08-realtime.html">tutorial 08</a>). The first two seconds of every recording look abnormal because the online standardization is still converging (<a href="03-preprocessing.html">tutorial 03</a>).</li>
+  </ul>
+
+  <h2 id="options">Optional inputs and the <code>ABLATION</code> flag</h2>
+  <p><code>PortiloopNetwork</code> can do more than the published model uses. Its <code>forward</code> method takes three inputs and two hidden states:</p>
+<pre data-file="portiloop_detector_training.py, PortiloopNetwork.forward (excerpt)"><code class="language-python">def forward(self, x1, x2, x3, h1, h2, max_value=np.inf):
+    # x1 : input 1 : cleaned signal
+    # x2 : input 2 : envelope
+    # x3 : power features ratio
+    # h1 : gru 1 hidden size
+    # h2 : gru 2 hidden size
+    # max_value (optional) : print the maximal value reach during inference (used to verify if the FPGA implementation precision is enough)
+    (batch_size, sequence_len, features) = x1.shape
+
+    if ABLATION == 1:
+        x1 = copy.deepcopy(x2)
+    elif ABLATION == 2:
+        x2 = copy.deepcopy(x1)</code></pre>
+  <ul>
+    <li><strong><code>envelope_input = True</code></strong> builds a second, identical branch (<code>first_layer_input2</code>, <code>seq_input2</code>, <code>gru_input2</code>) that processes the signal envelope. The two branch outputs are concatenated before the final Linear layer, which then has \(2H\) inputs. The envelope is column 2 of the training dataset file; the old MATLAB generation script (<code>matlab/old_matlab/my_full_dataset_generation.m</code>) squares a band-passed, standardized signal and smooths it with an exponential moving average. This doubles the convolutional and recurrent parameters.</li>
+    <li><strong><code>power_features_input = True</code></strong> appends one extra number to the final Linear layer: column 3 of the dataset file, a spectral ratio computed by <code>matlab/old_matlab/compute_ratio.m</code> as the mean FFT amplitude in 9 to 16 Hz divided by the mean in 2 to 8 Hz, over the last 125 samples (0.5 s). It adds a single weight.</li>
+    <li><strong><code>ABLATION</code></strong> is a module-level variable, set from the command line with <code>--ablation</code> when the training script is run directly (0 by default, and always 0 when the module is imported). With 1, the signal branch receives a copy of the envelope; with 2, the envelope branch receives a copy of the signal. The architecture (and so the model capacity) stays the same; only the information changes.</li>
+  </ul>
+  <p>The paper used exactly this ablation to drop the envelope [1]: “to keep the same architecture (and thus the same model capacity), we replace one of the two inputs by a copy of the other. [...] We find that the envelope input can be removed: the model in which we replace the envelope with a copy of the cleaned signal (5) has the same performance as the original model (3), and even performs marginally better on phase 2.” The 2-input model of the paper (supplementary Appendix G: 4 blocks of 26 channels, pooling kernel 9, two stacked GRU layers of 7 units per branch) is one of the presets of the calculator below.</p>
+  <p>Finally, <strong><code>RNN = False</code></strong> replaces each GRU with fully connected layers (<code>FcModule</code>: Linear, ReLU, dropout), <code>nb_rnn_layers</code> of them, and the network then has no memory at all. In that case the training sequences must have length 1 (the Pareto search sets <code>seq_len = 1</code> when <code>RNN</code> is off), otherwise the number of outputs no longer matches the number of labels.</p>
+
+  <h2 id="calculator">Design your own: the architecture calculator</h2>
+  <p>Every quantity in this tutorial follows from a handful of configuration keys. The calculator applies the same formulas as <code>PortiloopNetwork.__init__</code> (including Python's truncation of <code>window_size_s × fe</code>) and counts parameters layer by layer:</p>
+  <ul>
+    <li>Conv1d: \(C_\text{out} \cdot C_\text{in} \cdot K + C_\text{out}\) (weights plus one bias per output channel); MaxPool, ReLU, flatten and dropout have no parameters.</li>
+    <li>GRU layer \(\ell\): \(3H(I_\ell + H) + 6H\). Fully connected alternative (<code>RNN</code> off): \(I \cdot H + H\) for the first <code>FcModule</code>, \(H^2 + H\) for each additional one.</li>
+    <li>Final Linear: \((H \cdot n_\text{branches} + [\text{power features}]) + 1\).</li>
+    <li>Everything in the convolutional and recurrent part is duplicated when <code>envelope_input</code> is on.</li>
+  </ul>
+
+  <div class="widget" id="calc">
+    <div class="widget-title">Architecture calculator</div>
+    <p class="widget-desc">What to try: start from the published model (25,679 parameters, <code>nb_out</code> 18), then add a fourth convolutional block, or double <code>hidden_size</code>, and see which part of the parameter budget grows. Push <code>kernel_conv</code> and <code>nb_conv_layers</code> up until the window is “used up”. Turn on <code>envelope_input</code> to see the 2-input model double in size. The shaded badge tells you whether the Pareto search of <a href="07-hyperparameter-search.html">tutorial 07</a> would keep this architecture (1,000 to 80,000 parameters).</p>
+    <div class="presets">
+      <button class="btn secondary" type="button" data-preset="published">Published model</button>
+      <button class="btn secondary" type="button" data-preset="twoinput">Paper's 2-input model</button>
+      <button class="btn secondary" type="button" data-preset="norrn">No memory (RNN off)</button>
+      <button class="btn secondary" type="button" data-preset="strided">Strides and dilation</button>
+    </div>
+    <div class="grid-controls">
+      <fieldset><legend>Input</legend>
+        <label for="c-window_size_s"><span>window_size_s</span> <input type="range" id="c-window_size_s" min="0.02" max="0.6" step="0.001" value="0.218"><output for="c-window_size_s"></output></label>
+        <label for="c-seq_len"><span>seq_len</span> <input type="range" id="c-seq_len" min="1" max="100" step="1" value="50"><output for="c-seq_len"></output></label>
+        <label for="c-seq_stride_s"><span>seq_stride_s</span> <input type="range" id="c-seq_stride_s" min="0.004" max="0.3" step="0.002" value="0.17"><output for="c-seq_stride_s"></output></label>
+      </fieldset>
+      <fieldset><legend>Convolutional blocks</legend>
+        <label for="c-nb_conv_layers"><span>nb_conv_layers</span> <input type="range" id="c-nb_conv_layers" min="1" max="6" step="1" value="3"><output for="c-nb_conv_layers"></output></label>
+        <label for="c-nb_channel"><span>nb_channel</span> <input type="range" id="c-nb_channel" min="1" max="100" step="1" value="31"><output for="c-nb_channel"></output></label>
+        <label for="c-kernel_conv"><span>kernel_conv</span> <input type="range" id="c-kernel_conv" min="1" max="15" step="1" value="7"><output for="c-kernel_conv"></output></label>
+        <label for="c-kernel_pool"><span>kernel_pool</span> <input type="range" id="c-kernel_pool" min="1" max="15" step="1" value="7"><output for="c-kernel_pool"></output></label>
+      </fieldset>
+      <fieldset><legend>Strides and dilations</legend>
+        <label for="c-stride_conv"><span>stride_conv</span> <input type="range" id="c-stride_conv" min="1" max="4" step="1" value="1"><output for="c-stride_conv"></output></label>
+        <label for="c-stride_pool"><span>stride_pool</span> <input type="range" id="c-stride_pool" min="1" max="4" step="1" value="1"><output for="c-stride_pool"></output></label>
+        <label for="c-dilation_conv"><span>dilation_conv</span> <input type="range" id="c-dilation_conv" min="1" max="4" step="1" value="1"><output for="c-dilation_conv"></output></label>
+        <label for="c-dilation_pool"><span>dilation_pool</span> <input type="range" id="c-dilation_pool" min="1" max="4" step="1" value="1"><output for="c-dilation_pool"></output></label>
+      </fieldset>
+      <fieldset><legend>Memory and output</legend>
+        <label for="c-RNN"><span>RNN (GRU)</span> <input type="checkbox" id="c-RNN" checked><output for="c-RNN"></output></label>
+        <label for="c-hidden_size"><span>hidden_size</span> <input type="range" id="c-hidden_size" min="1" max="100" step="1" value="7"><output for="c-hidden_size"></output></label>
+        <label for="c-nb_rnn_layers"><span>nb_rnn_layers</span> <input type="range" id="c-nb_rnn_layers" min="1" max="3" step="1" value="1"><output for="c-nb_rnn_layers"></output></label>
+        <label for="c-envelope_input"><span>envelope_input</span> <input type="checkbox" id="c-envelope_input"><output for="c-envelope_input"></output></label>
+        <label for="c-power_features_input"><span>power_features_input</span> <input type="checkbox" id="c-power_features_input"><output for="c-power_features_input"></output></label>
+      </fieldset>
+    </div>
+    <div id="calc-msgs" aria-live="polite"></div>
+    <div class="scroll-x" id="calc-diagram"></div>
+    <div class="readout">
+      <div><div class="k">Window</div><div class="v" id="calc-ws">…</div></div>
+      <div><div class="k">nb_out</div><div class="v" id="calc-nbout">…</div></div>
+      <div><div class="k">Parameters</div><div class="v" id="calc-params">…</div></div>
+      <div><div class="k">Multiply-adds / pass</div><div class="v" id="calc-macs">…</div></div>
+      <div><div class="k">time_in_past</div><div class="v" id="calc-tip">…</div></div>
+    </div>
+    <table class="layers" id="calc-table" aria-label="Layer by layer shapes and parameter counts"></table>
+    <p class="status">“Multiply-adds per pass” counts the products in Conv1d, GRU and Linear layers for one window (it ignores ReLU, pooling and sigmoids). It is a rough proxy for compute time; note how the convolutions dominate compute while the GRU dominates the parameter count. “time_in_past” is the code's <code>seq_len × seq_stride_s</code>; the span in brackets is the signal actually covered by one training sequence.</p>
+  </div>
+
+  <div class="callout tip"><span class="callout-title">Verified against PyTorch</span>The counts above were cross-checked by instantiating <code>PortiloopNetwork</code> from the repository and summing <code>p.numel()</code> over its parameters, for five configurations: the published model (25,679 parameters, <code>nb_out</code> 18); the paper's 2-input model (32,213, <code>nb_out</code> 2); RNN off with 2 fully connected layers of 12, 16 channels, kernels 5 and 3, 2 blocks (9,637, <code>nb_out</code> 42); strides 2, conv dilation 2, 0.4 s window, 11 channels, 2 GRU layers of 20 (6,523, <code>nb_out</code> 3); and the published model with both optional inputs and <code>hidden_size</code> 10 (61,750). All match.</div>
+
+  <h3 id="count-python">Count parameters yourself in Python</h3>
+  <ol class="steps">
+    <li><strong>Open a terminal at the repository root</strong> with the environment from <a href="02-installation.html">tutorial 02</a> activated, and save this as <code>count_params.py</code>:
+<pre data-file="count_params.py"><code class="language-python">from portiloop_software.portiloop_python.ANN.portiloop_detector_training import PortiloopNetwork, get_final_model_config_dict
+
+cfg = get_final_model_config_dict()
+net = PortiloopNetwork(cfg)
+for name, p in net.named_parameters():
+    print(f"{name:32s} {str(tuple(p.shape)):10s} {p.numel():6d}")
+print("total", sum(p.numel() for p in net.parameters()))
+
+cfg.update(nb_channel=16, hidden_size=12)      # try your own architecture
+print("smaller variant:", sum(p.numel() for p in PortiloopNetwork(cfg).parameters()))</code></pre></li>
+    <li><strong>Run it:</strong>
+<pre data-file="terminal"><code class="language-bash">python3 count_params.py</code></pre>
+    Expected output:
+<pre data-file="output"><code>first_layer_input1.conv.weight   (31, 1, 7)    217
+first_layer_input1.conv.bias     (31,)          31
+seq_input1.0.conv.weight         (31, 31, 7)   6727
+seq_input1.0.conv.bias           (31,)          31
+seq_input1.1.conv.weight         (31, 31, 7)   6727
+seq_input1.1.conv.bias           (31,)          31
+gru_input1.weight_ih_l0          (21, 558)   11718
+gru_input1.weight_hh_l0          (21, 7)       147
+gru_input1.bias_ih_l0            (21,)          21
+gru_input1.bias_hh_l0            (21,)          21
+fc.weight                        (1, 7)          7
+fc.bias                          (1,)            1
+total 25679
+smaller variant: 14629</code></pre>
+    The names are the keys of the checkpoint's <code>model_state_dict</code>, and the same keys you will find in exported model files (<a href="10-deployment.html">tutorial 10</a>). Set the calculator to 16 channels and hidden size 12 to see the same 14,629.</li>
+  </ol>
+  <div class="callout warning"><span class="callout-title">Troubleshooting</span>
+    <ul>
+      <li><code>ModuleNotFoundError: No module named 'sklearn'</code> or <code>'wandb'</code>: the training module imports both at the top, even to build a network. Install the requirements (<code>pip install -e .</code>, tutorial 02).</li>
+      <li><code>RuntimeError</code> mentioning a size that is zero or negative, when building or running a custom network: a length in the convolutional stack dropped below 1. Check it in the calculator.</li>
+      <li><code>Error(s) in loading state_dict ... size mismatch for gru_input1.weight_ih_l0</code> when loading a checkpoint: your configuration does not match the one the checkpoint was trained with (often <code>window_size_s</code>, <code>kernel_pool</code> or <code>nb_conv_layers</code>, which change <code>nb_out</code> and thus the GRU input size).</li>
+    </ul>
+  </div>
+
+  <h2 id="config">Every configuration key</h2>
+  <p>A model is fully described by a Python dictionary. The table lists every key of <code>get_final_model_config_dict()</code>, which keys <code>PortiloopNetwork</code> and <code>run()</code> read, and what changing them does. “Published” is the value for the pre-trained model. How to train with your own values is explained in <a href="05-training.html">tutorial 05</a>.</p>
+  <div class="callout note"><span class="callout-title">Note</span>The descriptions below match the current code in the repository. Several training-loop details (<code>max_duration</code>, <code>estimator_size_memory</code>, the W&amp;B restore step, the default <code>experiment_name</code>) were fixed in November 2026: if your clone is older, run <code>git pull</code>.</div>
+  <table class="keytable">
+    <thead><tr><th>Key</th><th>Type</th><th>Published</th><th>Read by</th><th>Meaning and effect</th></tr></thead>
+    <tbody>
+      <tr><th colspan="5">Architecture (read by <code>PortiloopNetwork</code>)</th></tr>
+      <tr><td><code>fe</code></td><td>int</td><td>250</td><td>network, <code>run</code></td><td>Sampling frequency in Hz. Converts all <code>_s</code> durations to samples. The Portiloop samples at 250 Hz; data at other rates must be resampled (tutorial 09).</td></tr>
+      <tr><td><code>window_<wbr>size_<wbr>s</code></td><td>float</td><td>0.218</td><td>network, <code>run</code></td><td>Input window in seconds; <code>int(window_size_s * fe)</code> = 54 samples. Longer windows see more cycles but add delay before a spindle fills the window, and increase <code>nb_out</code>, hence the GRU input size and the parameter count.</td></tr>
+      <tr><td><code>nb_<wbr>conv_<wbr>layers</code></td><td>int</td><td>3</td><td>network</td><td>Number of ConvPoolModule blocks. Each one removes samples and adds \(C^2K + C\) parameters (the first adds \(CK + C\)).</td></tr>
+      <tr><td><code>nb_<wbr>channel</code></td><td>int</td><td>31</td><td>network</td><td>Filters per convolutional layer (same for all layers). Parameters grow roughly with its square.</td></tr>
+      <tr><td><code>kernel_<wbr>conv</code></td><td>int</td><td>7</td><td>network</td><td>Taps per filter (28 ms at 250 Hz). Longer kernels give finer frequency resolution but shorten the output.</td></tr>
+      <tr><td><code>kernel_<wbr>pool</code></td><td>int</td><td>7</td><td>network</td><td>Max-pooling width. No parameters, but it shortens the signal by <code>kernel_pool − 1</code> samples per block (stride 1). The paper's supplementary Table II lists 1 for this hyperparameter; the published checkpoint can only be loaded with 7 (its GRU expects 31 × 18 = 558 inputs), so the table entry appears to be a typo.</td></tr>
+      <tr><td><code>stride_<wbr>conv</code>, <code>stride_<wbr>pool</code></td><td>int</td><td>1, 1</td><td>network</td><td>Step between successive filter positions. A stride of 2 halves the output length (downsampling). Fixed to 1 in the Pareto search.</td></tr>
+      <tr><td><code>dilation_<wbr>conv</code>, <code>dilation_<wbr>pool</code></td><td>int</td><td>1, 1</td><td>network</td><td>Spacing between taps: dilation 2 makes a 7-tap kernel span 13 samples. Fixed to 1 in the Pareto search.</td></tr>
+      <tr><td><code>RNN</code></td><td>bool</td><td>True</td><td>network, <code>run</code></td><td>GRU memory (True) or memory-less fully connected layers (False).</td></tr>
+      <tr><td><code>hidden_<wbr>size</code></td><td>int</td><td>7</td><td>network, <code>run</code></td><td>Number of GRU units \(H\) (or width of the FC layers). Size of the state carried between windows.</td></tr>
+      <tr><td><code>nb_<wbr>rnn_<wbr>layers</code></td><td>int</td><td>1</td><td>network, <code>run</code></td><td>Stacked GRU layers (or FC layers). Each extra GRU layer adds \(6H^2 + 6H\) parameters.</td></tr>
+      <tr><td><code>envelope_<wbr>input</code></td><td>bool</td><td>False</td><td>network, <code>run</code></td><td>Adds the second branch fed with the envelope (see above). Doubles the convolutional and recurrent parameters.</td></tr>
+      <tr><td><code>power_<wbr>features_<wbr>input</code></td><td>bool</td><td>False</td><td>network, <code>run</code></td><td>Appends the 9 to 16 Hz / 2 to 8 Hz power ratio to the last layer (+1 parameter).</td></tr>
+      <tr><td><code>dropout</code></td><td>float</td><td>0.5</td><td>network</td><td>Probability of zeroing each activation during training only (a regularizer, see tutorial 05). Applied after blocks 2 and later and inside <code>FcModule</code>; the GRU is built with <code>dropout=0</code>.</td></tr>
+      <tr><td><code>first_<wbr>layer_<wbr>dropout</code></td><td>bool</td><td>False</td><td>network</td><td>Whether dropout is also applied after block 1.</td></tr>
+      <tr><td><code>classification</code></td><td>bool</td><td>True</td><td>network, <code>run</code></td><td>True: binary labels and binary cross-entropy loss. False: regression of the label value with mean squared error. Stored by the network but only used by <code>run()</code>.</td></tr>
+      <tr><th colspan="5">Sequences (read by <code>run</code>)</th></tr>
+      <tr><td><code>seq_<wbr>len</code></td><td>int</td><td>50</td><td><code>run</code></td><td>Windows per training sequence (steps of back-propagation through time).</td></tr>
+      <tr><td><code>seq_<wbr>stride_<wbr>s</code></td><td>float</td><td>0.170</td><td><code>run</code></td><td>Time between consecutive windows of a sequence, <code>int(0.17 * 250)</code> = 42 samples (the paper's “time dilation” of 168 ms). Also sets how many interleaved hidden states are used in real time.</td></tr>
+      <tr><th colspan="5">Optimization (read by <code>run</code>; tutorial 05)</th></tr>
+      <tr><td><code>lr_<wbr>adam</code></td><td>float</td><td>0.0005</td><td><code>run</code></td><td>Learning rate of the AdamW optimizer.</td></tr>
+      <tr><td><code>adam_<wbr>w</code></td><td>float</td><td>0.01</td><td><code>run</code></td><td>AdamW weight decay (pulls weights toward zero).</td></tr>
+      <tr><td><code>batch_<wbr>size</code></td><td>int</td><td>256</td><td><code>run</code></td><td>Sequences per gradient step.</td></tr>
+      <tr><td><code>nb_<wbr>batch_<wbr>per_<wbr>epoch</code></td><td>int</td><td>1000</td><td><code>run</code></td><td>Batches drawn per epoch (sampling is random with replacement, so an “epoch” is a fixed number of batches, not a pass through the data).</td></tr>
+      <tr><td><code>nb_<wbr>epoch_<wbr>max</code></td><td>int</td><td>150</td><td><code>run</code></td><td>Maximum number of epochs.</td></tr>
+      <tr><td><code>nb_<wbr>epoch_<wbr>early_<wbr>stopping_<wbr>stop</code></td><td>int</td><td>100</td><td><code>run</code></td><td>Early-stopping patience: stop after this many epochs without improvement of the smoothed validation loss.</td></tr>
+      <tr><td><code>early_<wbr>stopping_<wbr>smoothing_<wbr>factor</code></td><td>float</td><td>0.1</td><td><code>run</code></td><td>Exponential moving average factor applied to the validation loss before the early-stopping test.</td></tr>
+      <tr><td><code>max_<wbr>duration</code></td><td>int (s)</td><td>257400</td><td><code>run</code></td><td>Wall-clock limit for the whole run (71.5 h): training stops at the end of the epoch during which it is exceeded. (In clones older than November 2026 the timer was restarted every epoch, so the limit never triggered; <code>git pull</code> to get the fix.)</td></tr>
+      <tr><td><code>distribution_<wbr>mode</code></td><td>int</td><td>0</td><td><code>run</code></td><td>0: training windows are drawn 50 % spindle, 50 % non-spindle (class balancing by oversampling). 1: drawn with the natural proportions (required for regression).</td></tr>
+      <tr><td><code>reg_<wbr>balancing</code></td><td>str</td><td>'none'</td><td><code>run</code></td><td>Regression only: <code>'lds'</code> (label distribution smoothing) or <code>'sr'</code> (surprise reweighting) reweight rare label values.</td></tr>
+      <tr><td><code>split_<wbr>idx</code></td><td>int</td><td>0</td><td><code>run</code></td><td>Random seed (<code>random_state</code>) of the subject-wise train/validation/test split.</td></tr>
+      <tr><td><code>validation_<wbr>network_<wbr>stride</code></td><td>int</td><td>1</td><td><code>run</code></td><td>During validation, evaluate every k-th window offset (1 = all). Larger values speed up validation.</td></tr>
+      <tr><td><code>device_<wbr>train</code>, <code>device_<wbr>val</code></td><td>str</td><td>'cuda'</td><td><code>run</code></td><td>PyTorch devices. If either starts with <code>cuda</code>, <code>run()</code> asserts that a GPU is available.</td></tr>
+      <tr><th colspan="5">Bookkeeping</th></tr>
+      <tr><td><code>experiment_<wbr>name</code></td><td>str</td><td>'sanity_<wbr>check_<wbr>final_<wbr>model_<wbr>0' (for index 0)</td><td><code>run</code>, loaders</td><td>Name of the W&amp;B run and of the checkpoint file. <code>get_final_model_config_dict(index)</code> returns <code>sanity_check_final_model_&lt;index&gt;</code>, and <code>get_trained_model()</code> falls back to the shipped checkpoint <code>pareto_search_15_35_v4_&lt;index&gt;</code> when that file is missing. From the command line, <code>--experiment_name</code> overrides it.</td></tr>
+      <tr><td><code>device_<wbr>inference</code></td><td>str</td><td>'cpu'</td><td>loaders</td><td>Device used by <code>get_trained_model()</code> and <code>run_offline_unlabelled()</code>.</td></tr>
+      <tr><td><code>nb_<wbr>out</code></td><td>int</td><td>18</td><td>nobody</td><td>Informational copy of the length after the last block; the network recomputes it.</td></tr>
+      <tr><td><code>time_<wbr>in_<wbr>past</code></td><td>float (s)</td><td>8.5</td><td>nobody</td><td>Informational: <code>seq_len * seq_stride_s</code>.</td></tr>
+      <tr><td><code>estimator_<wbr>size_<wbr>memory</code></td><td>int</td><td>188006400 (stale)</td><td>written by <code>run</code></td><td>Rough memory estimate logged to W&amp;B: number of parameters × window × <code>seq_len</code> × <code>batch_size</code> × branches, recomputed at every run (17,749,324,800 for the published model). The value stored in the dictionary was computed by an older version of <code>run()</code> that summed the first dimension of each tensor instead of the number of parameters.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="exercises">Exercises</h2>
+  <details class="exercise"><summary>Where do the parameters live?</summary><p>Using only the formulas on this page (no calculator), compute how many parameters the published network has in its convolutional part, its GRU and its output layer. Which single tensor is the largest, and why does reducing <code>window_size_s</code> shrink it?</p></details>
+  <details class="solution"><summary>Answer</summary><p>Convolutions: \(31 \cdot 1 \cdot 7 + 31 = 248\), then twice \(31 \cdot 31 \cdot 7 + 31 = 6{,}758\), total 13,764. GRU: \(21 \cdot (558 + 7) + 42 = 11{,}907\). Output: \(7 + 1 = 8\). Total 25,679. The largest tensor is <code>gru_input1.weight_ih_l0</code> (21 × 558 = 11,718): its width is <code>nb_channel × nb_out</code>, and <code>nb_out</code> is the window length minus 36 samples. A 0.18 s window (45 samples) gives <code>nb_out</code> 9, so this tensor halves to 5,859.</p></details>
+
+  <details class="exercise"><summary>The smallest window that still works</summary><p>Keeping 3 blocks with kernel 7 for both convolution and pooling, what is the shortest <code>window_size_s</code> that produces a valid network? What happens with 5 blocks and a 0.218 s window?</p></details>
+  <details class="solution"><summary>Answer</summary><p>Each block removes 12 samples, so 3 blocks remove 36 and the window needs at least 37 samples for <code>nb_out ≥ 1</code>: <code>int(window_size_s × 250) ≥ 37</code>, that is <code>window_size_s ≥ 0.148</code>. With 5 blocks, 60 samples are removed from 54: the fifth block would need a negative length, so PyTorch cannot build the GRU (the calculator turns red; the Pareto search would discard and resample this configuration).</p></details>
+
+  <details class="exercise"><summary>Read a GRU unit</summary><p>In “Look inside the real network”, highlight unit 4, then unit 0. Click a moment inside a spindle and a moment outside. Using the bar chart of contributions, decide whether each unit votes for or against “spindle” in each case. Why can the same unit vote in different directions at different times?</p></details>
+  <details class="solution"><summary>Answer</summary><p>Each bar is \(w_j h_j\), the unit's value times its output weight. The output weights of the published model are all negative except unit 4 (<code>fc.weight</code> ≈ [−1.13, −1.06, −1.09, −1.17, +1.08, −1.13, −1.12], units numbered from 0). Unit 4 becomes positive inside spindles, so its bar becomes positive and pushes the logit up. Unit 0 has a negative weight and is strongly positive outside spindles, so its bar is negative there (a vote against); inside spindles it falls toward zero and stops voting against. Because \(h_j\) can change sign (tanh range −1 to +1), the same unit argues for or against a spindle depending on its state; the decision is the sum of the seven bars plus the bias (−0.30), passed through the sigmoid.</p></details>
+
+  <h2 id="references">References</h2>
+  <ol class="refs">
+    <li>Valenchon N, Bouteiller Y, Jourde HR, L'Heureux X, Sobral M, Coffey EBJ, Beltrame G (2022). The Portiloop: A deep learning-based open science tool for closed-loop brain stimulation. <em>PLOS ONE</em> 17(8): e0270696. <a href="https://doi.org/10.1371/journal.pone.0270696">doi:10.1371/journal.pone.0270696</a>. Quotes from sections 4 and 6 and from S1 File (Appendix G, Appendix K).</li>
+    <li>Cho K, van Merriënboer B, Gulcehre C, Bahdanau D, Bougares F, Schwenk H, Bengio Y (2014). Learning Phrase Representations using RNN Encoder-Decoder for Statistical Machine Translation. <em>Proceedings of EMNLP 2014</em>, 1724 to 1734. <a href="https://doi.org/10.3115/v1/D14-1179">doi:10.3115/v1/D14-1179</a> (introduces the gated recurrent unit).</li>
+    <li>PyTorch documentation, <a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.GRU.html"><code>torch.nn.GRU</code></a> (equations and weight layout), <a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Conv1d.html"><code>torch.nn.Conv1d</code></a> and <a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxPool1d.html"><code>torch.nn.MaxPool1d</code></a> (output length formula).</li>
+    <li>Chang S, Zhang Y, Han W, Yu M, Guo X, Tan W, Cui X, Witbrock M, Hasegawa-Johnson M, Huang TS (2017). Dilated recurrent neural networks. <a href="https://arxiv.org/abs/1710.02224">arXiv:1710.02224</a> (the time-dilation idea cited by the Portiloop paper).</li>
+  </ol>
+
+</article>
+</main>
+
+<script src="../assets/js/portiloop.js"></script>
+<script src="../assets/js/nav.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = PL.ui.$;
+  const FS = PL.FS;
+  const fmtInt = (n) => n.toLocaleString("en-US");
+
+  /* ---------------- shared helpers ---------------- */
+  function cssVar(n, fb) { const v = getComputedStyle(document.documentElement).getPropertyValue(n).trim(); return v || fb; }
+  function prepCanvas(cv) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth || 300, h = cv.clientHeight || 150;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+  }
+  // perceptual sequential colormap (viridis key colors), readable on light and dark backgrounds
+  const VIR = [[68, 1, 84], [72, 40, 120], [62, 74, 137], [49, 104, 142], [38, 130, 142], [31, 158, 137], [53, 183, 121], [109, 205, 89], [180, 222, 44], [253, 231, 37]];
+  function viridis(t) {
+    t = Math.max(0, Math.min(1, t));
+    const x = t * (VIR.length - 1), i = Math.min(VIR.length - 2, Math.floor(x)), f = x - i;
+    const a = VIR[i], b = VIR[i + 1];
+    return [Math.round(a[0] + (b[0] - a[0]) * f), Math.round(a[1] + (b[1] - a[1]) * f), Math.round(a[2] + (b[2] - a[2]) * f)];
+  }
+  function magResponse(taps, freqs) {
+    return freqs.map((f) => {
+      let re = 0, im = 0;
+      for (let k = 0; k < taps.length; k++) { const w = 2 * Math.PI * f * k / FS; re += taps[k] * Math.cos(w); im -= taps[k] * Math.sin(w); }
+      return Math.hypot(re, im);
+    });
+  }
+  const FREQS = []; for (let f = 0; f <= 125.0001; f += 0.5) FREQS.push(f);
+  const FIR_RESP = magResponse(PL.filters.PORTILOOP_FIR, FREQS);
+
+  /* ================= Architecture calculator ================= */
+  const KEYS = ["window_size_s", "seq_len", "seq_stride_s", "nb_conv_layers", "nb_channel", "kernel_conv", "kernel_pool",
+    "stride_conv", "stride_pool", "dilation_conv", "dilation_pool", "RNN", "hidden_size", "nb_rnn_layers", "envelope_input", "power_features_input"];
+  const PRESETS = {
+    published: { window_size_s: 0.218, seq_len: 50, seq_stride_s: 0.17, nb_conv_layers: 3, nb_channel: 31, kernel_conv: 7, kernel_pool: 7, stride_conv: 1, stride_pool: 1, dilation_conv: 1, dilation_pool: 1, RNN: true, hidden_size: 7, nb_rnn_layers: 1, envelope_input: false, power_features_input: false },
+    twoinput: { window_size_s: 0.234, seq_len: 50, seq_stride_s: 0.044, nb_conv_layers: 4, nb_channel: 26, kernel_conv: 7, kernel_pool: 9, stride_conv: 1, stride_pool: 1, dilation_conv: 1, dilation_pool: 1, RNN: true, hidden_size: 7, nb_rnn_layers: 2, envelope_input: true, power_features_input: false },
+    norrn: { window_size_s: 0.218, seq_len: 1, seq_stride_s: 0.17, nb_conv_layers: 2, nb_channel: 16, kernel_conv: 5, kernel_pool: 3, stride_conv: 1, stride_pool: 1, dilation_conv: 1, dilation_pool: 1, RNN: false, hidden_size: 12, nb_rnn_layers: 2, envelope_input: false, power_features_input: false },
+    strided: { window_size_s: 0.4, seq_len: 50, seq_stride_s: 0.17, nb_conv_layers: 2, nb_channel: 11, kernel_conv: 5, kernel_pool: 3, stride_conv: 2, stride_pool: 2, dilation_conv: 2, dilation_pool: 1, RNN: true, hidden_size: 20, nb_rnn_layers: 2, envelope_input: false, power_features_input: false },
+  };
+  function outDim(L, pad, dil, k, s) { return Math.floor((L + 2 * pad - dil * (k - 1) - 1) / s + 1); }
+
+  // Pure function: the same arithmetic as PortiloopNetwork.__init__ (exported on window for checking).
+  function analyze(c) {
+    const fe = 250;
+    const ws = Math.trunc(c.window_size_s * fe);
+    const nb = c.envelope_input ? 2 : 1;
+    const C = c.nb_channel, K = c.kernel_conv, H = c.hidden_size;
+    const stages = [{ kind: "input", label: "Input", C: 1, L: ws }];
+    const rows = [];
+    const problems = [];
+    let L = ws, cin = 1, params = 0, macs = 0, valid = ws >= 1;
+    if (ws < 1) problems.push("The window has " + ws + " samples: int(window_size_s × 250) must be at least 1.");
+    for (let i = 0; i < c.nb_conv_layers; i++) {
+      const Lc = outDim(L, 0, c.dilation_conv, K, c.stride_conv);
+      const p = C * cin * K + C;
+      const tag = nb > 1 ? " ×2 branches" : "";
+      rows.push({ name: (i === 0 ? "first_layer_input1" : "seq_input1." + (i - 1)) + ".conv", module: "Conv1d(" + cin + ", " + C + ", kernel_size=" + K + (c.stride_conv > 1 ? ", stride=" + c.stride_conv : "") + (c.dilation_conv > 1 ? ", dilation=" + c.dilation_conv : "") + ") + ReLU", shape: C + " × " + Lc, params: p * nb, how: C + "·" + cin + "·" + K + " + " + C + tag });
+      if (Lc < 1 && valid) { problems.push("Block " + (i + 1) + ": the convolution output would have " + Lc + " samples. The window is too short for this many layers or this kernel (PyTorch would raise an error)."); valid = false; }
+      macs += C * cin * K * Math.max(0, Lc) * nb;
+      params += p * nb;
+      stages.push({ kind: "conv", label: "conv " + (i + 1), C, L: Lc });
+      const Lp = outDim(Lc, 0, c.dilation_pool, c.kernel_pool, c.stride_pool);
+      rows.push({ name: "", module: "MaxPool1d(" + c.kernel_pool + (c.stride_pool > 1 ? ", stride=" + c.stride_pool : "") + (c.dilation_pool > 1 ? ", dilation=" + c.dilation_pool : "") + ")", shape: C + " × " + Lp, params: 0, how: "no parameters" });
+      if (Lp < 1 && valid) { problems.push("Block " + (i + 1) + ": the max-pooling output would have " + Lp + " samples. Reduce kernel_pool, the number of blocks, or lengthen the window."); valid = false; }
+      stages.push({ kind: "pool", label: "pool " + (i + 1), C, L: Lp });
+      L = Lp; cin = C;
+    }
+    const nbOut = L;
+    const flat = C * nbOut;
+    rows.push({ name: "", module: "flatten", shape: String(flat), params: 0, how: C + " × " + nbOut });
+    stages.push({ kind: "flat", label: "flatten", C: flat, L: 1 });
+    if (c.RNN) {
+      for (let l = 0; l < c.nb_rnn_layers; l++) {
+        const I = l === 0 ? flat : H;
+        const p = 3 * H * (I + H) + 6 * H;
+        rows.push({ name: "gru_input1 (layer " + l + ")", module: "GRU(" + I + ", " + H + ")", shape: String(H), params: p * nb, how: "3·" + H + "·(" + I + " + " + H + ") + 6·" + H + (nb > 1 ? " ×2 branches" : "") });
+        params += p * nb; macs += 3 * H * (I + H) * nb;
+      }
+      stages.push({ kind: "rnn", label: "GRU ×" + c.nb_rnn_layers, C: H, L: 1 });
+    } else {
+      for (let l = 0; l < c.nb_rnn_layers; l++) {
+        const I = l === 0 ? flat : H;
+        const p = I * H + H;
+        rows.push({ name: l === 0 ? "first_fc_input1" : "seq_fc_input1." + (l - 1), module: "Linear(" + I + ", " + H + ") + ReLU", shape: String(H), params: p * nb, how: I + "·" + H + " + " + H + (nb > 1 ? " ×2 branches" : "") });
+        params += p * nb; macs += I * H * nb;
+      }
+      stages.push({ kind: "fc", label: "FC ×" + c.nb_rnn_layers, C: H, L: 1 });
+    }
+    const fcIn = H * nb + (c.power_features_input ? 1 : 0);
+    rows.push({ name: "fc", module: "Linear(" + fcIn + ", 1) + sigmoid", shape: "1", params: fcIn + 1, how: fcIn + " + 1" + (nb > 1 ? " (both branches concatenated)" : "") + (c.power_features_input ? " (incl. power ratio)" : "") });
+    params += fcIn + 1; macs += fcIn;
+    stages.push({ kind: "out", label: "P(spindle)", C: 1, L: 1 });
+    const seqStride = Math.trunc(c.seq_stride_s * fe);
+    return { ws, nbOut, flat, params, macs, rows, stages, problems, valid: valid && nbOut >= 1, timeInPast: c.seq_len * c.seq_stride_s, span: ((c.seq_len - 1) * seqStride + ws) / fe, seqStride };
+  }
+  window.PL_ANALYZE_ARCH = analyze;
+
+  function readCfg() {
+    const c = {};
+    KEYS.forEach((k) => { const el = $("#c-" + k); c[k] = el.type === "checkbox" ? el.checked : parseFloat(el.value); });
+    return c;
+  }
+  function setCfg(p) {
+    KEYS.forEach((k) => { const el = $("#c-" + k); if (el.type === "checkbox") el.checked = !!p[k]; else el.value = p[k]; });
+    KEYS.forEach((k) => $("#c-" + k).dispatchEvent(new Event("input"))); // refresh every output, then the calculator
+    calcUpdate();
+  }
+  function svgDiagram(a) {
+    const st = a.stages;
+    const maxL = Math.max(1, ...st.filter((s) => s.kind !== "flat").map((s) => Math.max(1, s.L)));
+    const maxC = Math.max(1, ...st.filter((s) => s.kind === "conv" || s.kind === "pool" || s.kind === "input").map((s) => s.C));
+    let x = 10; const H = 150, mid = 78;
+    let g = "";
+    st.forEach((s, i) => {
+      let w, h, fill = "var(--accent-soft)", stroke = "var(--accent)", shape;
+      const bad = (s.kind === "conv" || s.kind === "pool") && s.L < 1;
+      if (s.kind === "flat") { w = 14; h = 110; fill = "var(--bg-sunk)"; stroke = "var(--border)"; shape = String(s.C); }
+      else if (s.kind === "rnn" || s.kind === "fc") { w = 54; h = 54; fill = "var(--tip-bg)"; stroke = "var(--tip)"; shape = s.C + " units"; }
+      else if (s.kind === "out") { w = 54; h = 30; fill = "var(--bg-sunk)"; stroke = "var(--border)"; shape = ""; }
+      else { w = 12 + 70 * Math.max(0, s.L) / maxL; h = 10 + 96 * Math.sqrt(s.C / maxC); shape = s.C + "×" + s.L; if (s.kind === "input") { fill = "var(--bg-sunk)"; stroke = "var(--fg-muted)"; } }
+      if (bad) { fill = "var(--danger-bg)"; stroke = "var(--danger)"; w = 20; }
+      g += '<rect x="' + x.toFixed(1) + '" y="' + (mid - h / 2).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="4" fill="' + fill + '" stroke="' + stroke + '"/>';
+      g += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (mid + 70) + '" text-anchor="middle" font-size="11" fill="var(--fg-muted)">' + s.label + '</text>';
+      if (shape) g += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (mid - h / 2 - 5).toFixed(1) + '" text-anchor="middle" font-size="11" fill="' + (bad ? "var(--danger)" : "var(--fg)") + '">' + shape + '</text>';
+      x += w;
+      if (i < st.length - 1) { g += '<line x1="' + (x + 2) + '" y1="' + mid + '" x2="' + (x + 14) + '" y2="' + mid + '" stroke="var(--fg-muted)" marker-end="url(#ar2)"/>'; x += 18; }
+    });
+    const W = Math.max(360, Math.ceil(x + 12));
+    return '<svg viewBox="0 0 ' + W + ' ' + (H + 10) + '" width="' + W + '" height="' + (H + 10) + '" role="img" aria-label="Layer diagram with tensor shapes" font-family="var(--font-sans)">' +
+      '<defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--fg-muted)"/></marker></defs>' +
+      (a.stages.length && readCfg().envelope_input ? '<text x="10" y="14" font-size="11" fill="var(--fg-muted)">signal branch shown; an identical envelope branch runs in parallel</text>' : "") + g + "</svg>";
+  }
+  function calcUpdate() {
+    const c = readCfg();
+    const a = analyze(c);
+    $("#calc-ws").textContent = a.ws + " samples";
+    $("#calc-nbout").textContent = String(a.nbOut);
+    $("#calc-params").textContent = a.valid ? fmtInt(a.params) : "invalid";
+    $("#calc-macs").textContent = a.valid ? fmtInt(a.macs) : "n/a";
+    $("#calc-tip").textContent = a.timeInPast.toFixed(2) + " s (" + a.span.toFixed(2) + " s)";
+    const msgs = [];
+    a.problems.forEach((p) => msgs.push('<div class="msg bad">' + p + "</div>"));
+    if (a.valid) {
+      if (a.params < 1000 || a.params > 80000) msgs.push('<div class="msg warn">' + fmtInt(a.params) + " parameters: outside the 1,000 to 80,000 range of the Pareto search (MIN_NB_PARAMETERS / MAX_NB_PARAMETERS in Utils/utils.py), which would discard it.</div>");
+      else msgs.push('<div class="msg ok">' + fmtInt(a.params) + " parameters: inside the 1,000 to 80,000 range explored by the Pareto search.</div>");
+    }
+    if (!c.RNN && c.seq_len > 1) msgs.push('<div class="msg warn">RNN is off but seq_len is ' + c.seq_len + ": without a GRU each window gives its own output, so training would compare " + c.seq_len + " outputs with one label. sample_config_dict() sets seq_len to 1 in this case.</div>");
+    if (c.stride_conv > 1 || c.stride_pool > 1 || c.dilation_conv > 1 || c.dilation_pool > 1) msgs.push('<div class="msg warn">Strides and dilations above 1 are valid for PyTorch but outside the published search space (fixed to 1).</div>');
+    $("#calc-msgs").innerHTML = msgs.join("");
+    $("#calc-diagram").innerHTML = svgDiagram(a);
+    let t = "<thead><tr><th>Layer (state_dict name)</th><th>Module</th><th>Parameters</th><th>Output shape</th><th>How counted</th></tr></thead><tbody>";
+    t += "<tr><td>input</td><td>window</td><td>0</td><td>1 × " + a.ws + "</td><td>int(" + c.window_size_s + " × 250)</td></tr>";
+    a.rows.forEach((r) => { t += "<tr><td>" + (r.name ? "<code>" + r.name + "</code>" : "") + "</td><td>" + r.module + "</td><td>" + fmtInt(r.params) + "</td><td>" + r.shape + "</td><td>" + r.how + "</td></tr>"; });
+    t += '<tr class="total"><td>total</td><td></td><td>' + (a.valid ? fmtInt(a.params) : "invalid") + "</td><td></td><td></td></tr></tbody>";
+    $("#calc-table").innerHTML = t;
+  }
+  const fmt = {
+    window_size_s: (v) => v.toFixed(3) + " s", seq_stride_s: (v) => v.toFixed(3) + " s", RNN: (v) => (v ? "on" : "off"),
+    envelope_input: (v) => (v ? "on" : "off"), power_features_input: (v) => (v ? "on" : "off"),
+  };
+  KEYS.forEach((k) => PL.ui.bind("#c-" + k, calcUpdate, fmt[k] || ((v) => String(v))));
+  PL.ui.$$("[data-preset]").forEach((b) => b.addEventListener("click", () => setCfg(PRESETS[b.dataset.preset])));
+  calcUpdate();
+
+  /* ================= First-layer kernels ================= */
+  let model = null;
+  const kern = { list: [], sel: null };
+  function bestSevenTapBandpass() { // Hamming-windowed sinc band-pass 11 to 16 Hz, 7 taps (for comparison)
+    const N = 7, M = (N - 1) / 2, f1 = 11 / FS, f2 = 16 / FS, h = [];
+    for (let n = 0; n < N; n++) {
+      const m = n - M;
+      const ideal = m === 0 ? 2 * (f2 - f1) : (Math.sin(2 * Math.PI * f2 * m) - Math.sin(2 * Math.PI * f1 * m)) / (Math.PI * m);
+      h.push(ideal * (0.54 - 0.46 * Math.cos(2 * Math.PI * n / (N - 1))));
+    }
+    return h;
+  }
+  const REF7 = bestSevenTapBandpass();
+  const REF7_RESP = magResponse(REF7, FREQS);
+  function kernResp(k) { const r = kern.list[k].resp; return $("#kern-fir").checked ? r.map((v, i) => v * FIR_RESP[i]) : r; }
+  function kernStats(k) {
+    const r = kernResp(k); let im = 0; for (let i = 1; i < r.length; i++) if (r[i] > r[im]) im = i;
+    return { peak: FREQS[im], max: r[im], ratio: kern.list[k].resp[27] / kern.list[k].resp[2] };
+  }
+  function drawCard(k) {
+    const it = kern.list[k];
+    const { ctx, w, h } = prepCanvas(it.canvas);
+    const taps = it.taps, top = h * 0.42;
+    const mx = Math.max(...taps.map(Math.abs)) || 1;
+    ctx.strokeStyle = PL.color("grid"); ctx.beginPath(); ctx.moveTo(4, top / 2); ctx.lineTo(w - 4, top / 2); ctx.stroke();
+    ctx.strokeStyle = ctx.fillStyle = PL.color("signal"); ctx.lineWidth = 1.6;
+    taps.forEach((v, i) => {
+      const x = 10 + i * (w - 20) / 6, y = top / 2 - (v / mx) * (top / 2 - 4);
+      ctx.beginPath(); ctx.moveTo(x, top / 2); ctx.lineTo(x, y); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, 2, 0, 6.3); ctx.fill();
+    });
+    const r = kernResp(k); const rm = Math.max(...r) || 1;
+    const y0 = h - 3, y1 = top + 4;
+    const fx = (f) => 4 + (f / 125) * (w - 8);
+    ctx.fillStyle = PL.color("label"); ctx.fillRect(fx(11), y1, fx(16) - fx(11), y0 - y1);
+    ctx.strokeStyle = PL.color("model"); ctx.lineWidth = 1.4; ctx.beginPath();
+    r.forEach((v, i) => { const x = fx(FREQS[i]), y = y0 - (v / rm) * (y0 - y1); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+    ctx.stroke();
+  }
+  function kernBuild() {
+    const order = kern.list.map((_, i) => i);
+    const mode = $("#kern-sort").value;
+    if (mode === "peak") order.sort((a, b) => kernStats(a).peak - kernStats(b).peak);
+    else if (mode === "sigma") order.sort((a, b) => kernStats(b).ratio - kernStats(a).ratio);
+    const grid = $("#kern-grid");
+    grid.innerHTML = "";
+    order.forEach((k) => {
+      const it = kern.list[k];
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "kcard" + (kern.sel === k ? " sel" : ""); b.setAttribute("role", "listitem");
+      const s = kernStats(k);
+      b.setAttribute("aria-label", "Channel " + k + ", peak gain at " + s.peak.toFixed(1) + " Hz");
+      const cv = document.createElement("canvas"); it.canvas = cv;
+      const lab = document.createElement("div"); lab.className = "lab";
+      lab.innerHTML = "<span>ch " + k + "</span><span>" + s.peak.toFixed(0) + " Hz</span>";
+      b.appendChild(cv); b.appendChild(lab);
+      b.addEventListener("click", () => { kern.sel = k; PL.ui.$$(".kcard", grid).forEach((e) => e.classList.remove("sel")); b.classList.add("sel"); kernDetail(); });
+      grid.appendChild(b);
+    });
+    order.forEach(drawCard);
+  }
+  let kernSeg = null;
+  function kernDetail() {
+    if (kern.sel === null) return;
+    const k = kern.sel, it = kern.list[k], s = kernStats(k);
+    const r = kernResp(k), rm = Math.max(...r), ref = REF7_RESP.map((v, i) => v * ($("#kern-fir").checked ? FIR_RESP[i] : 1)), refm = Math.max(...ref);
+    PL.plot($("#kern-resp"), {
+      xRange: [0, 125], yRange: [0, 1.08], xLabel: "Frequency (Hz)", yLabel: "Gain (normalized)", title: "Channel " + k + ": magnitude response",
+      regions: [{ x0: 11, x1: 16, label: "sigma band" }],
+      series: [
+        { x: FREQS, y: r.map((v) => v / rm), color: PL.color("model"), width: 2, label: "learned filter" },
+        { x: FREQS, y: ref.map((v) => v / refm), color: PL.color("c4"), width: 1.4, dash: [5, 4], label: "7-tap design for 11 to 16 Hz" },
+      ],
+    });
+    // what it does to EEG: conv (no flip, as PyTorch) + bias + ReLU on a standardized 4 s segment
+    const x = kernSeg.std, t0 = kernSeg.t0;
+    const out = new Float64Array(x.length);
+    for (let i = 0; i + 7 <= x.length; i++) { let v = it.bias; for (let j = 0; j < 7; j++) v += it.taps[j] * x[i + j]; out[i + 6] = Math.max(0, v); }
+    const tt = Array.from(x, (_, i) => t0 + i / FS);
+    const om = Math.max(...out) || 1;
+    PL.plot($("#kern-out"), {
+      xRange: [t0, t0 + 4], yRange: [-4.5, 4.5], xLabel: "Time (s)", title: "Effect on standardized EEG",
+      regions: kernSeg.regions,
+      series: [
+        { x: tt, y: Array.from(x, (v) => v * 0.55 + 1.6), color: PL.color("signal"), width: 1, label: "EEG" },
+        { x: tt, y: Array.from(out, (v) => (v / om) * 2.6 - 4.2), color: PL.color("model"), width: 1.2, label: "ReLU(filter)" },
+      ],
+    });
+    $("#kern-ch").textContent = String(k);
+    $("#kern-pk").textContent = s.peak.toFixed(1) + " Hz";
+    $("#kern-ratio").textContent = s.ratio.toFixed(2);
+    $("#kern-dc").textContent = it.taps.reduce((a, b) => a + b, 0).toFixed(2);
+  }
+  function kernInit(m) {
+    const W = m.json.weights["first_layer_input1.conv.weight"], B = m.json.weights["first_layer_input1.conv.bias"];
+    const n = W.shape[0], K = W.shape[2];
+    for (let k = 0; k < n; k++) {
+      const taps = W.data.slice(k * K, (k + 1) * K);
+      kern.list.push({ taps, bias: B.data[k], resp: magResponse(taps, FREQS) });
+    }
+    // a 4 s segment around the first spindle of a synthetic recording
+    const d = PL.synth.nrem({ duration_s: 20, seed: 7 });
+    const pre = PL.preprocess(d.signal);
+    const sp = d.spindles.find((s) => s.start > 3) || d.spindles[0];
+    const c = sp ? Math.max(2, Math.min(18, (sp.start + sp.end) / 2)) : 10;
+    const i0 = Math.round((c - 2) * FS);
+    kernSeg = { std: pre.standardized.slice(i0, i0 + 4 * FS), t0: i0 / FS, regions: d.spindles.map((s) => ({ x0: s.start, x1: s.end, label: "spindle" })) };
+    let best = 0; kern.list.forEach((_, i) => { if (kernStats(i).ratio > kernStats(best).ratio) best = i; });
+    kern.sel = best;
+    kernBuild(); kernDetail();
+    $("#kern-status").textContent = "Weights read from the published model file (" + n + " filters × " + K + " taps). The highlighted card is the filter with the largest 13.5 Hz / 1 Hz gain ratio.";
+  }
+  $("#kern-sort").addEventListener("change", () => { if (model) kernBuild(); });
+  $("#kern-fir").addEventListener("change", () => { if (model) { kernBuild(); kernDetail(); } });
+
+  /* ================= Look inside the real network ================= */
+  const look = { data: null, steps: [], idx: 0, timer: null };
+  const STRIDE = 42;
+  function lookCompute(seed) {
+    const d = PL.synth.nrem({ duration_s: 30, seed });
+    const pre = PL.preprocess(d.signal);
+    const x = pre.standardized;
+    const W = model.windowSize;
+    let h = model.zeroState();
+    const steps = [];
+    for (let end = W - 1; end < x.length; end += STRIDE) {
+      const win = x.subarray(end - W + 1, end + 1);
+      const r = model.step(win, h);
+      steps.push({ end, hPrev: h, h: r.h, y: r.y, logit: r.logit });
+      h = r.h;
+    }
+    look.data = { d, x };
+    look.steps = steps;
+    const sl = $("#look-t"); sl.max = steps.length - 1;
+    if (look.idx > steps.length - 1) look.idx = steps.length - 1;
+    sl.value = look.idx;
+  }
+  function stepTime(s) { return s.end / FS; }
+  function drawHeat(trace) {
+    const cv = $("#look-heat");
+    const { ctx, w, h } = prepCanvas(cv);
+    const maps = trace.featureMaps;
+    const gap = 12, top = 22, bottom = 22;
+    const totalL = maps.reduce((a, m) => a + m.L, 0);
+    const avail = w - gap * (maps.length - 1);
+    let x = 0;
+    ctx.font = "12px " + cssVar("--font-sans", "sans-serif");
+    maps.forEach((m, i) => {
+      const mw = Math.max(40, avail * m.L / totalL);
+      let mx = 0; for (let j = 0; j < m.data.length; j++) if (m.data[j] > mx) mx = m.data[j];
+      const img = ctx.createImageData(m.L, m.C);
+      for (let c = 0; c < m.C; c++) for (let t = 0; t < m.L; t++) {
+        const col = viridis(mx > 0 ? m.data[c * m.L + t] / mx : 0); const o = (c * m.L + t) * 4;
+        img.data[o] = col[0]; img.data[o + 1] = col[1]; img.data[o + 2] = col[2]; img.data[o + 3] = 255;
+      }
+      const off = document.createElement("canvas"); off.width = m.L; off.height = m.C; off.getContext("2d").putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(off, x, top, mw, h - top - bottom);
+      ctx.fillStyle = PL.color("text"); ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillText((mw < 120 ? "B" : "Block ") + (i + 1) + ": " + m.C + "×" + m.L, x, 3);
+      ctx.textBaseline = "bottom"; ctx.fillText("max " + mx.toFixed(2), x, h - 3);
+      x += mw + gap;
+    });
+  }
+  function lookDraw() {
+    if (!model || !look.data) return;
+    const { d, x } = look.data, steps = look.steps, s = steps[look.idx], t = stepTime(s);
+    const regions = d.spindles.map((sp) => ({ x0: sp.start, x1: sp.end, label: "Spindle (ground truth)" }));
+    const tr = PL.plot($("#look-over"), {
+      xRange: [0, 30], yRange: [-0.05, 3.7], xLabel: "Time (s), click to select", regions,
+      series: [
+        { x: Array.from(d.t), y: Array.from(x, (v) => v * 0.3 + 2.45), color: PL.color("signal"), width: 1, label: "Standardized EEG" },
+        { x: steps.map(stepTime), y: steps.map((q) => q.y), color: PL.color("model"), width: 1.6, step: true, label: "P(spindle)" },
+      ],
+      markers: [{ x: t, color: PL.color("stim") }, { x: t - model.windowSize / FS, color: PL.color("stim"), width: 0.8 }],
+    });
+    look.over = tr;
+    const win = Array.from(x.subarray(s.end - model.windowSize + 1, s.end + 1));
+    PL.plot($("#look-win"), {
+      xRange: [-(model.windowSize - 1) / FS * 1000, 0], xLabel: "ms before now", title: "Input window (54 samples)",
+      series: [{ x: win.map((_, i) => (i - (model.windowSize - 1)) / FS * 1000), y: win, color: PL.color("signal"), width: 1.6, points: false }],
+    });
+    const trace = {};
+    const r = model.step(x.subarray(s.end - model.windowSize + 1, s.end + 1), s.hPrev, trace);
+    drawHeat(trace);
+    const fcw = model.fcW.data;
+    const contrib = Array.from(trace.hidden, (v, j) => v * fcw[j]);
+    const cv = $("#look-contrib");
+    const bars = PL.plot(cv, { xRange: [-0.5, 6.5], yRange: [-1.4, 1.4], title: "Unit contributions w·h to the logit", xLabel: "GRU unit", xTicks: 7, series: [], legend: false });
+    const ctx = cv.getContext("2d");
+    contrib.forEach((v, j) => {
+      const [x0, y0] = bars.toPx(j - 0.32, 0), [x1, y1] = bars.toPx(j + 0.32, v);
+      ctx.fillStyle = v >= 0 ? PL.color("model") : PL.color("signal");
+      ctx.fillRect(x0, Math.min(y0, y1), x1 - x0, Math.abs(y1 - y0));
+    });
+    const [bx0, by] = bars.toPx(-0.5, 0), [bx1] = bars.toPx(6.5, 0);
+    ctx.strokeStyle = PL.color("axis"); ctx.beginPath(); ctx.moveTo(bx0, by); ctx.lineTo(bx1, by); ctx.stroke();
+    const cols = ["c1", "c2", "c3", "c4", "c5", "warn", "axis"].map(PL.color);
+    const hs = [], hl = parseInt($("#look-unit").value, 10);
+    for (let j = 0; j < model.hidden; j++) if (j !== hl) hs.push({ x: steps.map(stepTime), y: steps.map((q) => q.h[j]), color: cols[j], width: hl >= 0 ? 0.6 : 1.3, label: hl >= 0 ? "" : "unit " + j });
+    if (hl >= 0) hs.push({ x: steps.map(stepTime), y: steps.map((q) => q.h[hl]), color: cols[hl], width: 2.6, label: "unit " + hl + " (output weight " + model.fcW.data[hl].toFixed(2) + ")" });
+    PL.plot($("#look-hidden"), { xRange: [0, 30], yRange: [-1.05, 1.05], xLabel: "Time (s)", yLabel: "GRU state h", regions, series: hs, markers: [{ x: t, color: PL.color("stim") }], legend: window.innerWidth > 640 });
+    $("#look-time").textContent = t.toFixed(2) + " s";
+    $("#look-logit").textContent = r.logit.toFixed(2);
+    $("#look-p").textContent = r.y.toFixed(3);
+    $("#look-gt").textContent = d.label[s.end] ? "spindle" : "no spindle";
+    $("#look-t").value = look.idx;
+    const out = document.querySelector('output[for="look-t"]'); if (out) out.textContent = t.toFixed(2) + " s";
+  }
+  $("#look-over").addEventListener("click", (ev) => {
+    if (!look.over) return;
+    const rect = ev.currentTarget.getBoundingClientRect();
+    const tx = look.over.fromPx(ev.clientX - rect.left, ev.clientY - rect.top)[0];
+    let best = 0; look.steps.forEach((s, i) => { if (Math.abs(stepTime(s) - tx) < Math.abs(stepTime(look.steps[best]) - tx)) best = i; });
+    look.idx = best; lookDraw();
+  });
+  PL.ui.bind("#look-t", (v) => { look.idx = v | 0; lookDraw(); }, (v) => (look.steps.length ? stepTime(look.steps[v | 0]).toFixed(2) + " s" : ""));
+  PL.ui.bind("#look-seed", (v) => { if (model) { lookCompute(v | 0); lookDraw(); } });
+  $("#look-unit").addEventListener("change", lookDraw);
+  $("#look-play").addEventListener("click", () => {
+    const b = $("#look-play");
+    if (look.timer) { clearInterval(look.timer); look.timer = null; b.textContent = "Play"; return; }
+    b.textContent = "Pause";
+    look.timer = setInterval(() => { look.idx = (look.idx + 1) % look.steps.length; lookDraw(); }, 110);
+  });
+
+  PL.onRedraw(() => { if (model) { kern.list.forEach((_, k) => kern.list[k].canvas && drawCard(k)); kernDetail(); lookDraw(); } });
+  PL.loadModel().then((m) => {
+    model = m;
+    kernInit(m);
+    lookCompute(parseInt($("#look-seed").value, 10));
+    const first = look.data.d.spindles.find((sp) => sp.start > 5) || look.data.d.spindles[0];
+    if (first) { let best = 0; look.steps.forEach((s, i) => { if (Math.abs(stepTime(s) - (first.start + first.end) / 2) < Math.abs(stepTime(look.steps[best]) - (first.start + first.end) / 2)) best = i; }); look.idx = best; }
+    lookDraw();
+    $("#look-status").textContent = "Pre-trained model (" + fmtInt(m.nParameters) + " parameters) running in your browser. One window every 42 samples (0.168 s), the chain of windows seen by one virtual network.";
+  }).catch((e) => {
+    const msg = "Could not load the model: " + e.message + " (serve the docs folder over HTTP, see docs/README.md).";
+    $("#kern-status").textContent = msg; $("#look-status").textContent = msg;
+  });
+})();
+</script>
+</body>
+</html>
