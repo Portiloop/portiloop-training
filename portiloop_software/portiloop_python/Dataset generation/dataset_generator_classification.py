@@ -25,7 +25,7 @@ def generate(phase):
     os.chdir(path_dataset)
 
     if phase in subject_file.keys():
-        phase_list = pd.read_csv(subject_file[phase], delim_whitespace=True)
+        phase_list = pd.read_csv(subject_file[phase], sep=r"\s+")
         phase_subject_list = list(dict.fromkeys(phase_list["subjectID"]))
         annotation_files = [files for files in annotation_files if files[0:-12] in phase_subject_list]
     else:
@@ -37,7 +37,7 @@ def generate(phase):
     signal_list = []
     pre_sequence_length_s = 15
     file_to_remove = []
-    reference_list = pd.read_csv("8_MODA_primChan_180sjt.txt", delim_whitespace=True)
+    reference_list = pd.read_csv("8_MODA_primChan_180sjt.txt", sep=r"\s+")
 
     size_dataset = 'small'
     if len(annotation_files) > 15:
@@ -66,7 +66,7 @@ def generate(phase):
 
     os.chdir(path_dataset / 'classification_annot')
 
-    annotation_list = [pd.read_csv(file, delim_whitespace=True) for file in annotation_files]
+    annotation_list = [pd.read_csv(file, sep=r"\s+") for file in annotation_files]
     sequence_list = [annotation[annotation['eventName'] == "segmentViewed"] for annotation in annotation_list]
     spindle_list = [annotation[annotation['eventName'] == "spindle"] for annotation in annotation_list]
 

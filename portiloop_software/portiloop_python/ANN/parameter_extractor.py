@@ -12,7 +12,7 @@ def float_to_string(f):
 config_dict = portiloop.get_config_dict(29, 0)
 net = portiloop.PortiloopNetwork(config_dict)
 experiment_name = "pareto_search_15_35_v4_0"  # config_dict["experiment_name"]
-checkpoint = portiloop.torch.load(portiloop.path_dataset / experiment_name)
+checkpoint = portiloop.torch.load(portiloop.path_dataset / experiment_name, map_location='cpu', weights_only=False)  # checkpoints may hold CUDA tensors
 net.load_state_dict(checkpoint['model_state_dict'])
 
 file = open(portiloop.path_dataset / "weight.txt", 'w')

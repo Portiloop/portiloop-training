@@ -15,7 +15,8 @@ install_requires = [
     'scipy',
     'matplotlib',
     'requests',
-    'pyinstrument'
+    'pyinstrument',
+    'onnx',  # used to export the best model to ONNX during training
 ]
 
 setup(name='portiloop-training',

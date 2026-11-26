@@ -418,8 +418,10 @@ def load_network_files():
 class LoggerWandbPareto:
     def __init__(self, run_name):
         self.run_name = run_name
-        os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project=WANDB_PROJECT_PARETO, entity="portiloop", id=run_name, resume="allow", reinit=True)
+        # Credentials come from your own W&B login (`wandb login`) or the WANDB_API_KEY environment variable.
+        # Runs go to your default W&B entity unless WANDB_ENTITY is set (e.g. to a lab team name).
+        self.wandb_run = wandb.init(project=WANDB_PROJECT_PARETO, entity=os.environ.get("WANDB_ENTITY"), id=run_name,
+                                    resume="allow", reinit=True)
 
     def log(self,
             surrogate_loss,
@@ -460,13 +462,13 @@ def iterative_training_local():
 
     # main meta-learning procedure:
 
+    prev_exp = {}  # last trained experiment, used to sample new configurations around it
     for meta_iteration in range(MAX_META_ITERATIONS):
         num_experiment = len(all_experiments)
         logging.debug("---")
         logging.debug(f"ITERATION N° {meta_iteration}")
 
         exp = {}
-        prev_exp = {}
         exps = []
         model_selected = False
         meta_model.eval()

@@ -116,7 +116,7 @@ class UnlabelledSignalDatasetSingleSegment(Dataset):
         assert 0 <= idx < len(self), f"Index out of range ({idx}/{len(self)})."
         idx = self.indices[idx]
         signal_seq = self.full_signal[idx:idx + self.window_size].unfold(0, self.window_size, 1)
-        true_idx = idx + self.window_size
+        true_idx = idx + self.window_size - 1  # index of the last (most recent) sample of the window, as for training labels
         return signal_seq, true_idx
 
 
@@ -465,9 +465,12 @@ class LoggerWandb:
     def __init__(self, experiment_name, c_dict, project_name):
         self.best_model = None
         self.experiment_name = experiment_name
-        os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"
-        self.wandb_run = wandb.init(project=project_name, entity="portiloop", id=experiment_name, resume="allow",
-                                    config=c_dict, reinit=True)
+        # Credentials come from your own W&B login (`wandb login`) or the WANDB_API_KEY environment variable.
+        # Runs go to your default W&B entity unless WANDB_ENTITY is set (e.g. to a lab team name).
+        # Without an account: WANDB_MODE=offline (curves saved locally in ./wandb, upload later with `wandb sync`)
+        # or WANDB_MODE=disabled (nothing recorded).
+        self.wandb_run = wandb.init(project=project_name, entity=os.environ.get("WANDB_ENTITY"), id=experiment_name,
+                                    resume="allow", config=c_dict, reinit=True)
 
     def log(self,
             accuracy_train,
@@ -524,10 +527,11 @@ class LoggerWandb:
         self.wandb_run.finish()
 
     def restore(self, classif):
-        if classif:
-            self.wandb_run.restore(self.experiment_name, root=path_dataset)
-        else:
-            self.wandb_run.restore(self.experiment_name + "_on_loss", root=path_dataset)
+        name = self.experiment_name if classif else self.experiment_name + "_on_loss"
+        try:
+            self.wandb_run.restore(name, root=path_dataset)
+        except Exception as e:  # nothing to restore, no credentials (WANDB_MODE=offline) or no network
+            logging.debug(f"W&B restore of {name} skipped: {type(e).__name__}: {e}")
 
 
 def f1_loss(output, batch_labels):
@@ -552,8 +556,8 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
     net_copy = net_copy.eval()
     loss = 0
     n = 0
-    batch_labels_total = torch.tensor([], device=device)
-    output_total = torch.tensor([], device=device)
+    batch_labels_list = []
+    output_list = []
     h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
     h2 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
     with torch.no_grad():
@@ -578,12 +582,12 @@ def run_inference(dataloader, criterion, net, device, hidden_size, nb_rnn_layers
                 batch_labels = (batch_labels > THRESHOLD)
             else:
                 output = (output >= 0.5)
-            batch_labels_total = torch.cat([batch_labels_total, batch_labels])
-            output_total = torch.cat([output_total, output])
-            # logging.debug(f"batch_label_total : {batch_labels_total}")
-            # logging.debug(f"output_total : {output_total}")
+            batch_labels_list.append(batch_labels)
+            output_list.append(output)
             n += 1
 
+    batch_labels_total = torch.cat(batch_labels_list)
+    output_total = torch.cat(output_list)
     loss /= n
     acc = (output_total == batch_labels_total).float().mean()
     output_total = output_total.float()
@@ -598,8 +602,8 @@ def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rn
     net_copy = copy.deepcopy(net)
     net_copy = net_copy.to(device)
     net_copy = net_copy.eval()
-    true_idx_total = torch.tensor([], device=device)
-    output_total = torch.tensor([], device=device)
+    true_idx_list = []
+    output_list = []
     h1 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
     h2 = torch.zeros((nb_rnn_layers, batch_size_validation, hidden_size), device=device)
     max_value = np.inf
@@ -613,10 +617,10 @@ def run_inference_unlabelled_offline(dataloader, net, device, hidden_size, nb_rn
             #     output = output  # (output > THRESHOLD)
             # else:
             #     output = (output >= 0.5)
-            true_idx_total = torch.cat([true_idx_total, batch_true_idx])
-            output_total = torch.cat([output_total, output])
-    output_total = output_total.float()
-    true_idx_total = true_idx_total.int()
+            true_idx_list.append(batch_true_idx)
+            output_list.append(output.cpu())
+    output_total = torch.cat(output_list).float()
+    true_idx_total = torch.cat(true_idx_list).int()
     return output_total, true_idx_total
 
 def get_metrics(tp, fp, fn):
@@ -643,59 +647,38 @@ def get_lds_kernel(ks, sigma):
     return kernel_window
 
 
+def label_bin_indices(labels, nb_bins):
+    """
+    Bin index of each label in [0, 1] for a histogram of nb_bins equal bins (1.0 goes to the last bin).
+    Shared by the histogram and by the per-batch weight lookup so that both always agree; the small offset
+    makes labels on bin edges (graded MODA scores are multiples of 0.05) land in the same bin in float32 and float64.
+    Works with numpy arrays and torch tensors.
+    """
+    if isinstance(labels, torch.Tensor):
+        return torch.clamp(torch.floor(labels * nb_bins + 1e-3).long(), 0, nb_bins - 1)
+    return np.clip(np.floor(np.asarray(labels) * nb_bins + 1e-3).astype(np.int64), 0, nb_bins - 1)
+
+
 def generate_label_distribution_and_lds(dataset, kernel_size=5, kernel_std=2.0, nb_bins=100, reweight='inv_sqrt'):
     """
+    Label distribution smoothing (LDS, Yang et al. 2021) for regression.
+
     Returns:
-        distribution: the distribution of labels in the dataset
-        lds: the same distribution, smoothed with a gaussian kernel
+        weights: the smoothed distribution (square-rooted for 'inv_sqrt'), normalized to sum to 1;
+                 the loss of a sample is multiplied by 1 / weights[bin of its label]
+        distribution: the histogram of the labels of the samples that can be drawn from the dataset
+        lds: the same distribution, smoothed with a gaussian kernel of standard deviation kernel_std (in bins)
+        bins: the bin edges
+    kernel_size is kept for backward compatibility (the gaussian filter is truncated at 4 standard deviations).
     """
-
-    weights = torch.tensor([0.3252, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0069, 0.0163,
-                            0.0000, 0.0366, 0.0000, 0.0179, 0.0000, 0.0076, 0.0444, 0.0176, 0.0025,
-                            0.0056, 0.0000, 0.0416, 0.0039, 0.0000, 0.0000, 0.0000, 0.0171, 0.0000,
-                            0.0000, 0.0042, 0.0114, 0.0209, 0.0023, 0.0036, 0.0106, 0.0241, 0.0034,
-                            0.0000, 0.0056, 0.0000, 0.0029, 0.0241, 0.0076, 0.0027, 0.0012, 0.0000,
-                            0.0166, 0.0028, 0.0000, 0.0000, 0.0000, 0.0197, 0.0000, 0.0000, 0.0021,
-                            0.0054, 0.0191, 0.0014, 0.0023, 0.0074, 0.0000, 0.0186, 0.0000, 0.0088,
-                            0.0000, 0.0032, 0.0135, 0.0069, 0.0029, 0.0016, 0.0164, 0.0068, 0.0022,
-                            0.0000, 0.0000, 0.0000, 0.0191, 0.0000, 0.0000, 0.0017, 0.0082, 0.0181,
-                            0.0019, 0.0038, 0.0064, 0.0000, 0.0133, 0.0000, 0.0069, 0.0000, 0.0025,
-                            0.0186, 0.0076, 0.0031, 0.0016, 0.0218, 0.0105, 0.0049, 0.0000, 0.0000,
-                            0.0246], dtype=torch.float64)
-
-    lds = None
-    dist = None
-    bins = None
-    return weights, dist, lds, bins
-
-    # TODO: remove before
-
-    dataset_len = len(dataset)
-    logging.debug(f"Length of the dataset passed to generate_label_distribution_and_lds: {dataset_len}")
-    logging.debug(f"kernel_size: {kernel_size}")
-    logging.debug(f"kernel_std: {kernel_std}")
-    logging.debug(f"Generating empirical distribution...")
-
-    tab = np.array([dataset[i][3].item() for i in range(dataset_len)])
-    tab = np.around(tab, decimals=5)
-    elts = np.unique(tab)
-    logging.debug(f"all labels: {elts}")
-    dist, bins = np.histogram(tab, bins=nb_bins, density=False, range=(0.0, 1.0))
-
-    # dist, bins = np.histogram([dataset[i][3].item() for i in range(dataset_len)], bins=nb_bins, density=False, range=(0.0, 1.0))
-
-    logging.debug(f"dist: {dist}")
-
-    # kernel = get_lds_kernel(kernel_size, kernel_std)
-    # lds = convolve1d(dist, weights=kernel, mode='constant')
-
-    lds = gaussian_filter1d(input=dist, sigma=kernel_std, axis=- 1, order=0, output=None, mode='reflect', cval=0.0, truncate=4.0)
-
+    labels = dataset.data[3][np.asarray(dataset.indices) + dataset.window_size - 1]
+    logging.debug(f"Computing the label distribution of {len(labels)} samples (kernel_std: {kernel_std})")
+    dist = np.bincount(label_bin_indices(labels, nb_bins), minlength=nb_bins).astype(np.float64)
+    bins = np.linspace(0.0, 1.0, nb_bins + 1)
+    lds = gaussian_filter1d(input=dist, sigma=kernel_std, axis=-1, order=0, mode='reflect', truncate=4.0)
     weights = np.sqrt(lds) if reweight == 'inv_sqrt' else lds
-    # scaling = len(weights) / np.sum(weights)  # not the same implementation as in the original repo
-    scaling = 1.0 / np.sum(weights)
-    weights = weights * scaling
-
+    weights = weights / np.sum(weights)
+    logging.debug(f"dist: {dist}")
     return weights, dist, lds, bins
 
 
@@ -730,9 +713,7 @@ class LabelDistributionSmoothing:
         device = batch_labels.device
         if self.weights.device != device:
             self.weights = self.weights.to(device)
-        last_bin = 1.0 - self.bin_width
-        batch_idxs = torch.minimum(batch_labels, torch.ones_like(batch_labels) * last_bin) / self.bin_width  # FIXME : double check
-        batch_idxs = batch_idxs.floor().long()
+        batch_idxs = label_bin_indices(batch_labels, self.nb_bins)
         res = 1.0 / self.weights[batch_idxs]
         return res
 
@@ -802,11 +783,11 @@ class SurpriseReweighting:
 
 def generate_dataloader(window_size, fe, seq_len, seq_stride, distribution_mode, batch_size, nb_batch_per_epoch, classification, split_i,
                         network_stride):
-    all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, delim_whitespace=True).to_numpy()
+    all_subject = pd.read_csv(Path(path_dataset) / subject_list, header=None, sep=r"\s+").to_numpy()
     test_subject = None
     if PHASE == 'full':
-        p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, delim_whitespace=True).to_numpy()
-        p2_subject = pd.read_csv(Path(path_dataset) / subject_list_p2, header=None, delim_whitespace=True).to_numpy()
+        p1_subject = pd.read_csv(Path(path_dataset) / subject_list_p1, header=None, sep=r"\s+").to_numpy()
+        p2_subject = pd.read_csv(Path(path_dataset) / subject_list_p2, header=None, sep=r"\s+").to_numpy()
         train_subject_p1, validation_subject_p1 = train_test_split(p1_subject, train_size=0.8, random_state=split_i)
         if TEST_SET:
             test_subject_p1, validation_subject_p1 = train_test_split(validation_subject_p1, train_size=0.5, random_state=split_i)
@@ -923,7 +904,7 @@ def generate_dataloader_unlabelled_offline(unlabelled_segment,
                                                    window_size=window_size)
     samp_test = ValidationSampler(ds_test,
                                   seq_stride=seq_stride,
-                                  len_segment=len_segment-window_size,  # because we don't have additional data at the end on the signal here
+                                  len_segment=len(ds_test),  # number of windows available in this signal (no extra data at the end)
                                   nb_segment=nb_segment_test,
                                   network_stride=network_stride)
 
@@ -940,6 +921,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     global precision_validation_factor
     global recall_validation_factor
     _t_start = time.time()
+    _t_run_start = _t_start  # start of the whole run, for max_duration (_t_start is reused to time each epoch)
     logging.debug(f"config_dict: {config_dict}")
     experiment_name = f"{config_dict['experiment_name']}_{time.time_ns()}" if unique_name else config_dict['experiment_name']
     nb_epoch_max = config_dict["nb_epoch_max"]
@@ -1005,7 +987,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
         file_exp = experiment_name
         file_exp += "" if classification else "_on_loss"
         checkpoint = torch.load(path_dataset / file_exp)
-        logging.debug("Use checkpoint model")
+        logging.warning(f"Use checkpoint model: resuming from {path_dataset / file_exp} (epoch {checkpoint['epoch']}). Use a new experiment name to start from scratch.")
         net.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         first_epoch = checkpoint['epoch'] + 1
@@ -1019,7 +1001,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
     net = net.train()
     nb_weights = 0
     for i in net.parameters():
-        nb_weights += len(i)
+        nb_weights += i.numel()
     has_envelope = 1
     if config_dict["envelope_input"]:
         has_envelope = 2
@@ -1126,6 +1108,11 @@ def run(config_dict, wandb_project, save_model, unique_name):
         if f1_validation > best_model_f1_score_validation:
             best_model = copy.deepcopy(net)
             best_epoch = epoch
+            best_model_f1_score_validation = f1_validation
+            best_model_precision_validation = precision_validation
+            best_model_recall_validation = recall_validation
+            best_model_loss_validation = loss_validation
+            best_model_accuracy = accuracy_validation
             # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
             if save_model:
                 torch.save({
@@ -1137,18 +1124,18 @@ def run(config_dict, wandb_project, save_model, unique_name):
                     'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
                     'best_model_f1_score_validation': best_model_f1_score_validation,
                 }, path_dataset / experiment_name, _use_new_zipfile_serialization=False)
-                if RNN and not envelope_input and not power_features_input:
+                if config_dict["RNN"] and not config_dict["envelope_input"] and not config_dict["power_features_input"]:
                     from portiloop_software.portiloop_python.ANN.onnx_export import export_spindle_model_to_onnx
                     export_spindle_model_to_onnx(best_model, path_dataset / f"{experiment_name}.onnx", window_size=window_size)
                 updated_model = True
-            best_model_f1_score_validation = f1_validation
-            best_model_precision_validation = precision_validation
-            best_model_recall_validation = recall_validation
-            best_model_loss_validation = loss_validation
-            best_model_accuracy = accuracy_validation
         if loss_validation < best_model_on_loss_loss_validation:
             best_model = copy.deepcopy(net)
             best_epoch = epoch
+            best_model_on_loss_f1_score_validation = f1_validation
+            best_model_on_loss_precision_validation = precision_validation
+            best_model_on_loss_recall_validation = recall_validation
+            best_model_on_loss_loss_validation = loss_validation
+            best_model_on_loss_accuracy = accuracy_validation
             # torch.save(best_model.state_dict(), path_dataset / experiment_name, _use_new_zipfile_serialization=False)
             if save_model:
                 torch.save({
@@ -1160,15 +1147,10 @@ def run(config_dict, wandb_project, save_model, unique_name):
                     'best_model_on_loss_loss_validation': best_model_on_loss_loss_validation,
                     'best_model_f1_score_validation': best_model_f1_score_validation,
                 }, path_dataset / (experiment_name + "_on_loss"), _use_new_zipfile_serialization=False)
-                if RNN and not envelope_input and not power_features_input:
+                if config_dict["RNN"] and not config_dict["envelope_input"] and not config_dict["power_features_input"]:
                     from portiloop_software.portiloop_python.ANN.onnx_export import export_spindle_model_to_onnx
                     export_spindle_model_to_onnx(best_model, path_dataset / f"{experiment_name}_on_loss.onnx", window_size=window_size)
                 updated_model = True
-            best_model_on_loss_f1_score_validation = f1_validation
-            best_model_on_loss_precision_validation = precision_validation
-            best_model_on_loss_recall_validation = recall_validation
-            best_model_on_loss_loss_validation = loss_validation
-            best_model_on_loss_accuracy = accuracy_validation
 
         loss_early_stopping = loss_validation if loss_early_stopping is None and early_stopping_smoothing_factor == 1 else loss_validation if loss_early_stopping is None else loss_validation * early_stopping_smoothing_factor + loss_early_stopping * (
                 1.0 - early_stopping_smoothing_factor)
@@ -1203,7 +1185,7 @@ def run(config_dict, wandb_project, save_model, unique_name):
                    best_model_on_loss_loss_validation=best_model_on_loss_loss_validation,
                    updated_model=updated_model)
 
-        if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_start > max_duration:
+        if early_stopping_counter > nb_epoch_early_stopping_stop or time.time() - _t_run_start > max_duration:
             logging.debug("Early stopping.")
             break
     logging.debug("Delete logger")
@@ -1255,17 +1237,8 @@ def run_offline_unlabelled(config_dict, path_experiments, unlabelled_segment):
         assert torch.cuda.is_available(), "CUDA unavailable"
 
     torch.seed()
-    net = PortiloopNetwork(config_dict).to(device=device_inference)
-
-    file_exp = experiment_name
-    file_exp += "" if classification else "_on_loss"
-    path_experiments = Path(path_experiments)
-    if not device_inference.startswith("cuda"):
-        checkpoint = torch.load(path_experiments / file_exp, map_location=torch.device('cpu'))
-    else:
-        checkpoint = torch.load(path_experiments / file_exp)
+    net = get_trained_model(config_dict, path_experiments)  # same loading, including the pre-trained checkpoint name fallback
     logging.debug("Use checkpoint model")
-    net.load_state_dict(checkpoint['model_state_dict'])
 
     test_loader, batch_size_test = generate_dataloader_unlabelled_offline(unlabelled_segment=unlabelled_segment,
                                                                           window_size=window_size,
@@ -1373,7 +1346,7 @@ def get_final_model_config_dict(index=0, split_i=0):
     Returns:
         configuration dictionary of the pre-trained model
     """
-    c_dict = {'experiment_name': f'sanity_check_final_model_0',
+    c_dict = {'experiment_name': f'sanity_check_final_model_{index}',
               'device_train': 'cuda',
               'device_val': 'cuda',
               'device_inference': 'cpu',
@@ -1416,7 +1389,8 @@ def get_final_model_config_dict(index=0, split_i=0):
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument('--experiment_name', type=str, default='test')
+    parser.add_argument('--experiment_name', type=str, default=None,
+                        help="name of the run and of its checkpoint files (default: sanity_check_final_model_<experiment_index>)")
     parser.add_argument('--experiment_index', type=int, default=0)
     parser.add_argument('--output_file', type=str, default=None)
     parser.add_argument('--phase', type=str, default='full')
@@ -1457,10 +1431,13 @@ if __name__ == "__main__":
     TEST_SET = args.test_set
     logging.debug(f"classification: {classification}")
     config_dict = get_final_model_config_dict(exp_index, split_idx)
+    if exp_name is not None:
+        config_dict['experiment_name'] = exp_name
     config_dict['distribution_mode'] = 0 if classification else 1
     config_dict['classification'] = classification
     config_dict['experiment_name'] += "_regression" if not classification else ""
     config_dict['experiment_name'] += "_no_test" if not TEST_SET else ""
+    config_dict['experiment_name'] += f"_ablation{ABLATION}" if ABLATION else ""
     seed()  # reset the seed
     # config_dict = {'experiment_name': 'pareto_search_10_619', 'device_train': 'cuda:0', 'device_val': 'cuda:0', 'nb_epoch_max': 11,
     # 'max_duration': 257400, 'nb_epoch_early_stopping_stop': 10, 'early_stopping_smoothing_factor': 0.1, 'fe': 250, 'nb_batch_per_epoch': 5000,

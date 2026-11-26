@@ -191,8 +191,8 @@ class MetaLearner:
                     if to_remove >= 0:
                         launched_experiments.pop(to_remove)
                     if to_update >= 0:
-                        finished_experiments[to_update]["software_cost"] = min(finished_experiments[to_update]["software_cost"], res["software_cost"])
-                        pareto_front = update_pareto(finished_experiments[to_update]["software_cost"], pareto_front)
+                        finished_experiments[to_update]["cost_software"] = min(finished_experiments[to_update]["cost_software"], res["cost_software"])
+                        pareto_front = update_pareto(finished_experiments[to_update], pareto_front)
                     else:
                         pareto_front = update_pareto(res, pareto_front)
                         finished_experiments.append(res)

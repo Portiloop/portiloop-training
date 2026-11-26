@@ -131,6 +131,7 @@ def sample_config_dict(name, previous_exp, all_exp):
     config_dict["classification"] = True
     config_dict["reg_balancing"] = 'none'
     config_dict["split_idx"] = 0
+    config_dict["validation_network_stride"] = 1  # required by run()
     config_dict["validation_divider"] = 10
 
     flag_in_exps = True
